@@ -105,7 +105,7 @@ void Fitness::compute(
         train_set[batch_id].get_rmse_energy(energy_shift_per_structure_not_used);
       fitness[n + 1 * para.population_size] = train_set[batch_id].get_rmse_force();
       fitness[n + 2 * para.population_size] =
-        VIRIAL_LOSS_WEIGHT * train_set[batch_id].get_rmse_virial();
+        para.virial_loss_weight * train_set[batch_id].get_rmse_virial();
     }
   }
 }
@@ -174,12 +174,12 @@ void Fitness::report_error(
     printf(
       "%-8d%-11.5f%-11.5f%-11.5f%-13.5f%-13.5f%-13.5f%-13.5f%-13.5f%-13.5f\n", generation + 1,
       loss_total, loss_L1, loss_L2, loss_energy / ENERGY_LOSS_WEIGHT, loss_force,
-      loss_virial / VIRIAL_LOSS_WEIGHT, rmse_energy_test, rmse_force_test, rmse_virial_test);
+      loss_virial / para.virial_loss_weight, rmse_energy_test, rmse_force_test, rmse_virial_test);
     fflush(stdout);
     fprintf(
       fid_loss_out, "%-8d%-11.5f%-11.5f%-11.5f%-13.5f%-13.5f%-13.5f%-13.5f%-13.5f%-13.5f\n",
       generation + 1, loss_total, loss_L1, loss_L2, loss_energy / ENERGY_LOSS_WEIGHT, loss_force,
-      loss_virial / VIRIAL_LOSS_WEIGHT, rmse_energy_test, rmse_force_test, rmse_virial_test);
+      loss_virial / para.virial_loss_weight, rmse_energy_test, rmse_force_test, rmse_virial_test);
     fflush(fid_loss_out);
 
     char file_force[200];
