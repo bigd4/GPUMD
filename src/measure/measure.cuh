@@ -33,6 +33,7 @@
 #include "shc.cuh"
 #include "utilities/gpu_vector.cuh"
 #include "viscosity.cuh"
+#include "hextic.cuh"
 #ifdef USE_NETCDF
 #include "dump_netcdf.cuh"
 #endif
@@ -76,6 +77,7 @@ public:
   SDC sdc;
   MSD msd;
   HAC hac;
+  Hextic hextic;
   Viscosity viscosity;
   SHC shc;
   HNEMD hnemd;

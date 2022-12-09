@@ -810,6 +810,31 @@ static __global__ void find_force_ZBL(
   }
 }
 
+static __global__ void find_force_confine(  
+  const int N,
+  const int N1,
+  const int N2,
+  const double* __restrict__ g_z,
+  double* g_fz,
+  double* g_pe)
+  {
+    float morse_dd = 0.157543289616; 
+    float morse_a = 1.041678567228; 
+    float morse_z0 = 3.165216089871; 
+    float morse_de = -466.244772989682;
+    float morse_half_width = 2.65;
+    float morse_half_caxis = 10.6;
+    int n1 = blockIdx.x * blockDim.x + threadIdx.x + N1;
+    if (n1 < N2) {
+      float morse_z = g_z[n1] - morse_half_caxis;
+      g_pe[n1] += morse_dd*(1.0 -exp (-1*morse_a * (morse_z + morse_half_width - morse_z0)))* (1.0 -exp (-1* morse_a * (morse_z + morse_half_width - morse_z0)))\
+      + morse_dd * (1.0 -exp (-1 * morse_a * (morse_half_width - morse_z - morse_z0))) * (1.0 -exp (-1 * morse_a * (morse_half_width - morse_z - morse_z0))) + morse_de;
+      g_fz[n1] -= 2*morse_dd*morse_a*(1.0 - exp (-1*morse_a * (morse_z + morse_half_width - morse_z0)))  \
+      * exp (-1* morse_a * (morse_z + morse_half_width - morse_z0)) - 2*morse_dd*morse_a*(1.0 -exp (-1*morse_a * (morse_half_width - morse_z - morse_z0)))\
+      * exp (-1*morse_a * (morse_half_width - morse_z - morse_z0));
+    }
+  }
+
 // large box fo MD applications
 void NEP3::compute_large_box(
   Box& box,
@@ -890,6 +915,11 @@ void NEP3::compute_large_box(
     box, nep_data.NN_angular.data(), nep_data.NL_angular.data(), nep_data.f12x.data(),
     nep_data.f12y.data(), nep_data.f12z.data(), position_per_atom, force_per_atom, virial_per_atom);
   CUDA_CHECK_KERNEL
+
+  find_force_confine<<<grid_size, BLOCK_SIZE>>>(
+    N, N1, N2, position_per_atom.data() + N * 2, force_per_atom.data() + N * 2,
+    potential_per_atom.data());
+  CUDA_CHECK_KERNEL  
 
   if (zbl.enabled) {
     find_force_ZBL<<<grid_size, BLOCK_SIZE>>>(

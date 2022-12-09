@@ -48,6 +48,7 @@ void Measure::initialize(
   dump_thermo.preprocess();
   dump_force.preprocess(number_of_atoms, group);
   dump_exyz.preprocess(number_of_atoms);
+  hextic.preprocess(number_of_atoms);
 #ifdef USE_NETCDF
   dump_netcdf.preprocess(number_of_atoms);
 #endif
@@ -75,6 +76,7 @@ void Measure::finalize(
   hnemd.postprocess();
   hnemdec.postprocess();
   modal_analysis.postprocess();
+  hextic.postprocess();
 #ifdef USE_NETCDF
   dump_netcdf.postprocess();
 #endif
@@ -121,6 +123,7 @@ void Measure::process(
   dos.process(step, group, atom.velocity_per_atom);
   sdc.process(step, group, atom.velocity_per_atom);
   msd.process(step, group, atom.unwrapped_position);
+  hextic.process(step, box, atom.type, atom.position_per_atom, atom.cpu_position_per_atom);
   hac.process(
     number_of_steps, step, atom.velocity_per_atom, atom.virial_per_atom, atom.heat_per_atom);
   viscosity.process(number_of_steps, step, atom.mass, atom.velocity_per_atom, atom.virial_per_atom);

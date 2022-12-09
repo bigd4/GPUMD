@@ -155,7 +155,6 @@ void Run::perform_a_run()
 {
   integrate.initialize(N, time_step, group);
   measure.initialize(number_of_steps, time_step, box, group, force, atom);
-
 #ifdef USE_PLUMED
   if (measure.plmd.use_plumed == 1) {
     measure.plmd.init(time_step, integrate.temperature);
@@ -293,6 +292,8 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     measure.dump_exyz.parse(param, num_param);
   } else if (strcmp(param[0], "compute_dos") == 0) {
     measure.dos.parse(param, num_param, group);
+  } else if (strcmp(param[0], "compute_hextic") == 0) {
+    measure.hextic.parse(param, num_param);
   } else if (strcmp(param[0], "compute_sdc") == 0) {
     measure.sdc.parse(param, num_param, group);
   } else if (strcmp(param[0], "compute_msd") == 0) {
