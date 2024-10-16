@@ -356,6 +356,9 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
       atom.potential_per_atom,
       atom.force_per_atom,
       atom.virial_per_atom);
+  } else if (strcmp(param[0], "neb") == 0) {
+    NEB neb;
+    neb.parse_neb(param, num_param);
   } else if (strcmp(param[0], "compute_phonon") == 0) {
     Hessian hessian;
     hessian.parse(param, num_param);

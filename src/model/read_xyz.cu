@@ -586,6 +586,56 @@ void initialize_position(
   find_type_size(atom.number_of_atoms, number_of_types, atom.cpu_type, atom.cpu_type_size);
 }
 
+void initialize_position(
+  const char* xyzname, int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom)
+{
+  std::string filename(xyzname);
+  std::ifstream input(filename);
+
+  if (!input.is_open()) {
+    PRINT_INPUT_ERROR("Failed to open model.xyz.");
+  }
+
+  std::vector<std::string> atom_symbols;
+  auto filename_potential = get_filename_potential();
+  atom_symbols = get_atom_symbols(filename_potential);
+
+  read_xyz_line_1(input, atom.number_of_atoms);
+  int property_offset[6] = {0, 0, 0, 0, 0, 0}; // species,pos,mass,vel,group
+  int num_columns = 0;
+  bool has_mass = true;
+  bool has_charge = true;
+  read_xyz_line_2(
+    input, box, has_velocity_in_xyz, has_mass, has_charge, num_columns, property_offset, group);
+
+  read_xyz_in_line_3(
+    input,
+    atom.number_of_atoms,
+    has_velocity_in_xyz,
+    has_mass,
+    has_charge,
+    num_columns,
+    property_offset,
+    number_of_types,
+    atom_symbols,
+    atom.cpu_atom_symbol,
+    atom.cpu_type,
+    atom.cpu_mass,
+    atom.cpu_charge,
+    atom.cpu_position_per_atom,
+    atom.cpu_velocity_per_atom,
+    group);
+
+  input.close();
+
+  for (int m = 0; m < group.size(); ++m) {
+    group[m].find_size(atom.number_of_atoms, m);
+    group[m].find_contents(atom.number_of_atoms);
+  }
+
+  find_type_size(atom.number_of_atoms, number_of_types, atom.cpu_type, atom.cpu_type_size);
+}
+
 void allocate_memory_gpu(std::vector<Group>& group, Atom& atom, GPU_Vector<double>& thermo)
 {
   const int N = atom.number_of_atoms;

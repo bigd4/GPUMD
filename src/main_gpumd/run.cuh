@@ -28,12 +28,15 @@ class Measure;
 #include "mc/mc.cuh"
 #include "measure/measure.cuh"
 #include "model/atom.cuh"
+#include "model/atoms.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
 #include "utilities/common.cuh"
 #include "utilities/gpu_vector.cuh"
 #include "velocity.cuh"
+#include "neb/neb.cuh"
 #include <vector>
+#include <deque>
 
 class Run
 {
