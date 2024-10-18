@@ -44,7 +44,25 @@ public:
     memory_ = 0;
     memory_type_ = Memory_Type::global;
     allocated_ = false;
+    // printf("GPUVector construct %p\n", this);
   }
+
+  GPU_Vector(const GPU_Vector&) = default;
+
+  GPU_Vector& operator=(GPU_Vector&& vector){
+    allocated_ = vector.allocated_;
+    size_ = vector.size_;
+    memory_ = vector.memory_;
+    memory_type_ = vector.memory_type_;
+    if (vector.allocated_){
+      data_ = vector.data_;
+      vector.data_ = NULL;
+    }
+    vector.allocated_ = false;
+    vector.size_ = 0;
+    vector.memory_ = 0;
+    return *this;
+  };
 
   // only allocate memory
   GPU_Vector(const size_t size, const Memory_Type memory_type = Memory_Type::global)
@@ -63,6 +81,7 @@ public:
   // deallocate memory
   ~GPU_Vector()
   {
+    // printf("GPUVector destruct %p\n", this);
     if (allocated_) {
       CHECK(cudaFree(data_));
       allocated_ = false;
@@ -190,3 +209,11 @@ private:
   Memory_Type memory_type_; // global or unified memory
   T* data_;                 // data pointer
 };
+
+template <typename T>
+GPU_Vector<T>& GPU_Vector_copy(GPU_Vector<T>& gpu_vector){
+  GPU_Vector<T> new_gpu_vector;
+  new_gpu_vector.resize(gpu_vector.size());
+  new_gpu_vector.copy_from_device(gpu_vector.data());
+  return new_gpu_vector;
+}

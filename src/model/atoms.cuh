@@ -26,26 +26,38 @@ using namespace std;
 
 class Atoms
 {
-public:
-  int natoms = 0;
-  double energy = 0.0;
-  Force* p_force;
-  Box box;
-  vector<string> cpu_atom_symbol;
-  vector<Group> group;
-  GPU_Vector<int> type;
+private:
+  bool changed_after_last_compute = true;
   GPU_Vector<double> positions;
-  // GPU_Vector<double> masses;
   GPU_Vector<double> potential_per_atom;
   GPU_Vector<double> forces;
   GPU_Vector<double> virials;
+
+public:
+  int natoms = 0;
+  double energy = 0.0;
+  // Atom _atom;
+  Force* p_force;
+  Box box;
+  vector<int> cpu_type;
+  vector<string> cpu_atom_symbol;
+  vector<Group> group;
+  vector<double> cpu_positions;
+  GPU_Vector<int> type;
+  // GPU_Vector<double> masses;
   // vector<GPU_Vector<double>> velocities;
   // std::vector<GPU_Vector<double>> forces;
   // std::vector<GPU_Vector<double>> virials;
 
-  Atoms(){};
+  Atoms();
 
-  Atoms(const Atoms& atoms0);
+  Atoms(const Atoms& atoms0) = default;
+
+  Atoms(Atoms&&) = default;
+
+  Atoms& operator=(Atoms&&) = default;
+
+  ~Atoms();
 
   Atoms(
   Box& _box,
@@ -58,24 +70,56 @@ public:
 
   Atoms(Atom& atom);
 
+  Atoms(const char* filename);
+
 
   int number_of_type(string& symbol);
   void compute();
 
+  GPU_Vector<double>& get_positions() { return positions;}
+  void set_positions();
+  
+  GPU_Vector<double>& get_potential_per_atom();
+
   GPU_Vector<double>& get_forces();
 
+  GPU_Vector<double>& get_virials();
 
   GPU_Vector<double>& get_virial();
 
-  void set_positions();
-
   void set_box();
+
+  void set_calc(Force& force);
 
 };
 
 class VCWrapper
 {
-  VCWrapper(){};
+public:
+  int natoms = 0;
+  Box ref_box;
+  Atoms* p_atoms;
+  GPU_Vector<double> positions;
+  GPU_Vector<double> forces;
+
+  VCWrapper(Atoms& atoms){
+    p_atoms = &atoms;
+    natoms = atoms.natoms + 3;
+  };
+
+  GPU_Vector<double>& get_positions();
+
+  void set_positions();
+
+  GPU_Vector<double>& get_forces();
+
+  void set_box();
+
+
 };
+
+// Atoms& xyz2atoms();
+
+void xyz2atoms(Atoms& atoms);
 
 Atoms xyz2atoms();
