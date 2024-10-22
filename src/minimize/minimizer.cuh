@@ -15,6 +15,7 @@
 
 #pragma once
 #include "utilities/gpu_vector.cuh"
+#include "model/atoms.cuh"
 #include <vector>
 class Box;
 class Group;
@@ -50,6 +51,8 @@ public:
     GPU_Vector<double>& potential_per_atom,
     GPU_Vector<double>& force_per_atom,
     GPU_Vector<double>& virial_per_atom) = 0;
+
+    virtual void compute(BaseAtoms& atoms){};
 
 protected:
   void calculate_total_potential(const GPU_Vector<double>& potential_per_atom);

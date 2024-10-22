@@ -52,5 +52,5 @@ public:
     GPU_Vector<double>& force_per_atom,
     GPU_Vector<double>& virial_per_atom);
     
-  void compute(Atoms& atoms);
+  void compute(BaseAtoms& atoms);
 };

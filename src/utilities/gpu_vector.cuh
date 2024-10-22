@@ -47,20 +47,31 @@ public:
     // printf("GPUVector construct %p\n", this);
   }
 
-  GPU_Vector(const GPU_Vector&) = default;
+  GPU_Vector(const GPU_Vector& vec0){
+    printf("GPU_Vector copy constructor. This should better not be used.\n");
+    allocated_ = vec0.allocated_;
+    size_ = vec0.size_;
+    memory_ = vec0.memory_;
+    memory_type_ = vec0.memory_type_;
+    resize(size_, memory_type_);
+    copy_from_device(vec0.data_);
+  };
 
-  GPU_Vector& operator=(GPU_Vector&& vector){
-    allocated_ = vector.allocated_;
-    size_ = vector.size_;
-    memory_ = vector.memory_;
-    memory_type_ = vector.memory_type_;
-    if (vector.allocated_){
-      data_ = vector.data_;
-      vector.data_ = NULL;
+  GPU_Vector& operator=(GPU_Vector&& vec0){
+    if (allocated_) {
+      CHECK(cudaFree(data_));
     }
-    vector.allocated_ = false;
-    vector.size_ = 0;
-    vector.memory_ = 0;
+    allocated_ = vec0.allocated_;
+    size_ = vec0.size_;
+    memory_ = vec0.memory_;
+    memory_type_ = vec0.memory_type_;
+    if (vec0.allocated_){
+      data_ = vec0.data_;
+      vec0.data_ = NULL;
+    }
+    vec0.allocated_ = false;
+    vec0.size_ = 0;
+    vec0.memory_ = 0;
     return *this;
   };
 
