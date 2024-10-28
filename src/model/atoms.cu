@@ -3,14 +3,15 @@
 
 cublasHandle_t handle;
 
-void print_arr(double* a, size_t size,const char* name=""){
+
+void print_arr(double* a, size_t size,const char* name){
   for (int i=0;i<size;i++){
     printf("%7.3f ", a[i]);
   }
   printf("\n----arr-----%s--------------\n", name);
 }
 
-static void print_gpu(GPU_Vector<int>& a, const char* name=""){
+void print_gpu(GPU_Vector<int>& a, const char* name){
   int size = a.size();
   int temp[size];
   a.copy_to_host(temp);
@@ -21,16 +22,18 @@ static void print_gpu(GPU_Vector<int>& a, const char* name=""){
 }
 
 
-void print_gpu(GPU_Vector<double>& a, const char* name=""){
+void print_gpu(GPU_Vector<double>& a, const char* name){
   int size = a.size();
   double temp[size];
   a.copy_to_host(temp);
   for (int i=0;i<size;i++){
-    printf("%7.3f ", temp[i]);
+    printf("%7.4f ", temp[i]);
   }
   printf("\n---gpu------%s--------------\n", name);
 }
 
+namespace
+{
 __global__ void gpu_sum(double* a, const int size, double* result)
 {
   int number_of_patches = (size - 1) / 1024 + 1;
@@ -54,29 +57,23 @@ __global__ void gpu_sum(double* a, const int size, double* result)
     *result = data[0];
 }
 
-__global__ void gpu_sum_2d(const int size0, const int size, double* a, double* result)
+__global__ void gpu_multiply(const int size, double a, double* b, double* c)
 {
-  int number_of_patches = (size0 - 1) / 1024 + 1;
-  int tid = threadIdx.x;
-  int n, patch;
-  __shared__ double data[1024];
-  data[tid] = 0.0;
-  for (patch = 0; patch < number_of_patches; ++patch) {
-    n = tid + patch * 1024;
-    if (n < size0)
-      data[tid] += a[n];
-  }
-  __syncthreads();
-  for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
-    if (tid < offset) {
-      data[tid] += data[tid + offset];
-    }
-    __syncthreads();
-  }
-  if (tid == 0)
-    *result = data[0];
+  int n = blockDim.x * blockIdx.x + threadIdx.x;
+  if (n < size)
+    c[n] = b[n] * a;
 }
 
+
+
+double sum(GPU_Vector<double>& a)
+{
+  double ret;
+  GPU_Vector<double> result(1);
+  gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
+  result.copy_to_host(&ret);
+  return ret;
+}
 
 
 void sum2d(GPU_Vector<double>& a, double* result, int len)
@@ -128,42 +125,24 @@ void get_3x3_inverse(double* m, double* m_inv)
       m_inv[n] /= det;
     }
 }
+} // namespace
 
-void Atoms::set_box(Box& box0)
-{
-  box = move(box0);
-}
-
-void Atoms::set_box(double* h0, int size) {
-  // printf("len of cpu_h: %d\n", int(size));
-  for (int i=0; i<size;i++) box.cpu_h[i] = h0[i];
-  if (size == 18){}
-  else if (size == 9) box.get_inverse();
-  else {printf("setbox wrong\n"); exit(-1);}
-}
-
-void Atoms::set_box(GPU_Vector<double>& h0, int size) {
-  // printf("len of gpu_h: %d\n", int(size));
-  h0.copy_to_host(box.cpu_h);
-  if (size == 18){}
-  else if (size == 9) box.get_inverse();
-  else {printf("setbox wrong\n"); exit(-1);}
-}
-// void BaseAtoms::set_box(GPU_Vector<double> h0) {
-//   int size = h0.size();
-//   printf("len of cpu_h: %d\n", size);
-//     memcpy(box.cpu_h, h0, size * sizeof(double));
-//   if (size == 18){}
-//   else if (size == 9){
-//     box.get_inverse();
-//   }
-//   else {printf("setbox wrong\n"); exit(-1);}
-// }
 
 
 Atoms::Atoms() {
     printf("atoms default construtor for %p\n", this);
 }
+
+// Atoms::Atoms(const Atoms& atoms0, double* new_position)
+// {
+//   natoms = atoms0.natoms;
+//   p_force = atoms0.p_force;
+//   cpu_atom_symbol = atoms0.cpu_atom_symbol;
+//   box = atoms0.box;
+//   positions = atoms0.positions;
+//   type = atoms0.type;
+//   group = atoms0.group;
+// }
 
 // Atoms::Atoms(const Atoms& atoms0)
 // {
@@ -272,34 +251,52 @@ void Atoms::initialize(Atom& atom) {
 
   // cpu_positions = move(atom.cpu_position_per_atom);
 }
+void Atoms::set_box(Box& box0)
+{
+  box = move(box0);
+}
+
+void Atoms::set_box(double* h0, int size) {
+  // printf("len of cpu_h: %d\n", int(size));
+  for (int i=0; i<size;i++) box.cpu_h[i] = h0[i];
+  if (size == 18){}
+  else if (size == 9) box.get_inverse();
+  else {
+    printf("setbox wrong\n");
+    exit(-1);
+  }
+}
+
+void Atoms::set_box(GPU_Vector<double>& h0, int size) {
+  // printf("len of gpu_h: %d\n", int(size));
+  h0.copy_to_host(box.cpu_h);
+  if (size == 18){}
+  else if (size == 9) box.get_inverse();
+  else {
+    printf("setbox wrong\n");
+    exit(-1);
+  }
+}
 
 void Atoms::compute()
 {
-  printf("atoms compute\n");
-  p_force->compute(box, positions, type, group, potential_per_atom, forces, virials);
+  // printf("atoms compute\n");
+  // print_gpu(positions, "r");
+  // print_gpu(potential_per_atom, "e");
+  // print_gpu(forces, "f");
+  // print_gpu(virials, "v");
+  GPU_Vector<double> tmp_positions;
+  tmp_positions.resize(positions.size());
+  tmp_positions.copy_from_device(positions.data());
+  p_force->compute(box, tmp_positions, type, group, potential_per_atom, forces, virials);
 }
 
-
-// GPU_Vector<double>& Atoms::get_virials()
-// {
-//   if (changed_after_last_compute) compute();
-//   return virials;
-// }
+double Atoms::get_energy() { return sum(potential_per_atom);}
 
 // GPU_Vector<double>& Atoms::get_virial() { return virials; }
 
-// void Atoms::set_positions() {}
 
-// GPU_Vector<double>& Atoms::get_potential_per_atom()
-// {
-//   if (changed_after_last_compute) compute();
-//   return potential_per_atom;
-// }
 
-// void VCWrapper::set_box(Box& box0)
-// {
-//   box = box0
-// }
 
 // atoms should be alive with this wrapper.
 VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p, double* h0)
@@ -308,6 +305,8 @@ VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p, double* h0)
   p_atoms = &atoms;
   // p_atoms->compute();
   initialize(atoms.natoms);
+  cell_factor = pow(atoms.box.get_volume(), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
+  printf("cell factor: %f\n", cell_factor);
   CHECK(cudaMemcpy(ref_h, h0, 18 * sizeof(double), cudaMemcpyHostToDevice));
   printf("\n------------vcwrapper>>>>>>>>------------\n");
   if (l_p == 1){
@@ -326,8 +325,24 @@ VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p, double* h0)
     printf("wrong pressure parameter number\n");
     exit(-1);
   }
+  for (int i=0;i<9;i++) pressure[i] /= PRESSURE_UNIT_CONVERSION;
   build_positions();
   printf("wrapper constrcut finish\n");
+}
+
+GPU_Vector<double>& VCWrapper::build_positions()
+{
+  printf("vcwrapper build_positions natoms: %d\n", natoms);
+  d_h.copy_from_host(p_atoms -> box.cpu_h);
+  print_gpu(d_h, "d_h");
+  compute_deform();
+  // first n*3 are positions @ D^-1 (recording to ref_h)
+  gpu_matmul(handle, p_atoms->positions.data(), &deform[9], positions.data(), natoms-3, 3, 3);
+  // last 9 are deform
+  // CHECK(cudaMemcpy(&positions[natoms * 3 - 9], deform, 9*sizeof(double), cudaMemcpyDeviceToDevice));
+  gpu_multiply<<<1, 9>>>(9, cell_factor, deform, &positions[natoms * 3 - 9]);
+  printf("\n-------VCWrapper::get_positions finish--------\n");
+  return positions;
 }
 
 VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p): VCWrapper{atoms, p, l_p, atoms.box.cpu_h}{
@@ -340,7 +355,7 @@ VCWrapper::~VCWrapper() {
 }
 
 void VCWrapper::initialize(int natoms0) {
-  printf("VCWrapper initial\n");
+  // printf("VCWrapper initial\n");
   natoms = natoms0 + 3;
   cudaDeviceSynchronize();
   CHECK(cudaMallocManaged(&ref_h, 18 * sizeof(double)));
@@ -349,6 +364,7 @@ void VCWrapper::initialize(int natoms0) {
   d_h.resize(18);
   positions.resize(natoms*3);
   forces.resize(natoms*3);
+  // potential_per_atom.resize(natoms, 0.0);
   cublasCreate(&handle);
 }
 
@@ -358,8 +374,9 @@ void VCWrapper::set_calc(Force& force) {
     }
 
 void VCWrapper::compute() {
-  printf("vcwrapper compute\n");
+  // printf("vcwrapper compute\n");
   set_positions();
+  // print_gpu(positions, "vc pos");
   p_atoms->compute();
     // xx xy xz    0 3 4
     // yx yy yz    6 1 5
@@ -367,59 +384,63 @@ void VCWrapper::compute() {
   double tmp[9];
   int virial_reorder[]={0,6,7,3,1,8,4,5,2};
   sum2d(p_atoms->virials, tmp, 9);
-  for (int i=0;i<9;i++) virial[i] = tmp[virial_reorder[i]];
+  // print_arr(tmp, 9, "tmp");
+  double volume = p_atoms->box.get_volume();
+  for (int i=0;i<9;i++) virial[i] = tmp[virial_reorder[i]] - volume * pressure[i];
 
-  // print_arr(virial, 9, "virial");
+  print_arr(virial, 9, "virial");
   // first n*3 : forces @ D^T
   gpu_matmul(handle, p_atoms->forces.data(), deform, forces.data(), natoms-3, 3, 3, 0, 1);
   // last 9 : D^(-T) @ virial
-  gpu_matmul(handle, &deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0);
-  print_gpu(positions, "positions");
-  print_arr(p_atoms->box.cpu_h, 9, "cpu_h");
-  print_gpu(forces, "forces");
+  gpu_matmul(handle, &deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0, 1/cell_factor);
+  // print_gpu(positions, "positions");
+  // print_arr(p_atoms->box.cpu_h, 9, "cpu_h");
+  // print_gpu(forces, "forces");
 }
 
-GPU_Vector<double>& VCWrapper::build_positions()
+double VCWrapper::get_energy()
 {
-  printf("vcwrapper build_positions natoms: %d\n", natoms);
-  d_h.copy_from_host(p_atoms -> box.cpu_h);
-  print_gpu(d_h, "d_h");
-  compute_deform();
-  // first n*3 are positions @ D^-1 (recording to ref_h)
-  gpu_matmul(handle, p_atoms->positions.data(), &deform[9], positions.data(), natoms-3, 3, 3);
-  // last 9 are deform
-  CHECK(cudaMemcpy(&positions[natoms * 3 - 9], deform, 9*sizeof(double), cudaMemcpyDeviceToDevice));
-  printf("\n-------VCWrapper::get_positions finish--------\n");
-  return positions;
+  double diag_press = (pressure[0] + pressure[4] + pressure[8]) / 3.0;
+
+  double internal_energy = p_atoms->get_energy();
+  return internal_energy + diag_press * p_atoms->box.get_volume(); 
 }
 
+GPU_Vector<double>& VCWrapper::get_potential_per_atom()
+{
+  return p_atoms->potential_per_atom;
+}
 
 void VCWrapper::set_positions() {
   printf("vcwrapper set_positions\n");
-  // cudaDeviceSynchronize();
-  // compute_deform();
-  CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double), cudaMemcpyDeviceToDevice));
+  // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double), cudaMemcpyDeviceToDevice));
+  gpu_multiply<<<1, 9>>>(9, 1/cell_factor, &positions[natoms * 3 - 9], deform);
+  cudaDeviceSynchronize();
+  // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double), cudaMemcpyDeviceToDevice));
   get_3x3_inverse(deform, &deform[9]);
   // first n*3 : R0 = R @ D (recording to ref_h)
   gpu_matmul(handle, positions.data(), deform, p_atoms->positions.data(), natoms-3, 3, 3);
   // last 9 : h = h0 @ D (recording to ref_h)
   gpu_matmul(handle, ref_h, deform, d_h.data(), 3, 3, 3);
+  CUDA_CHECK_KERNEL;
   p_atoms->set_box(d_h, 9);
+  printf("vcwrapper set_positions finish\n");
 }
 
-GPU_Vector<double>& VCWrapper::get_forces()
-{
-  printf("vcwrapper get_forces, p_atoms->forces size: %d, forces size: %d\n", p_atoms->forces.size(), forces.size());
-  print_gpu(p_atoms->forces, "p forces");
-  // cudaDeviceSynchronize();
-  return forces;
-}
+// GPU_Vector<double>& VCWrapper::get_forces()
+// {
+//   printf("vcwrapper get_forces, p_atoms->forces size: %d, forces size: %d\n", p_atoms->forces.size(), forces.size());
+//   // print_gpu(p_atoms->forces, "p forces");
+//   // cudaDeviceSynchronize();
+//   return forces;
+// }
 
 // void VCWrapper::set_box(Box& box0) {}
 
 void VCWrapper::compute_deform()
 {
-  printf("vcwrapper compute_deform\n");
+  // printf("vcwrapper compute_deform\n");
+  // deform = h0^-1 @ h
   gpu_matmul(handle, &ref_h[9], d_h.data(), deform, 3, 3, 3);
   cudaDeviceSynchronize();
   get_3x3_inverse(deform, &deform[9]);

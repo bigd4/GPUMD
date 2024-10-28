@@ -41,6 +41,8 @@ void Minimize::parse_minimize(
 
   int minimizer_type = 0;
   int number_of_steps = 0;
+  bool vc = false;
+  double pressure = 0.0;
   double force_tolerance = 0.0;
   std::unique_ptr<Minimizer> minimizer;
   const int number_of_atoms = type.size();
@@ -79,6 +81,28 @@ void Minimize::parse_minimize(
     if (number_of_steps <= 0) {
       PRINT_INPUT_ERROR("Number of steps should > 0.");
     }
+  } else if (strcmp(param[1], "vcfire") == 0) {
+    vc = true;
+    minimizer_type = 1;
+
+    if (num_param != 5) {
+      PRINT_INPUT_ERROR("minimize vcfire should have 3 parameters: pressure, force_tol, nsteps.");
+    }
+
+    if (!is_valid_real(param[2], &pressure)) {
+      PRINT_INPUT_ERROR("Pressure should be a number.");
+    }
+
+    if (!is_valid_real(param[3], &force_tolerance)) {
+      PRINT_INPUT_ERROR("Force tolerance should be a number.");
+    }
+
+    if (!is_valid_int(param[4], &number_of_steps)) {
+      PRINT_INPUT_ERROR("Number of steps should be an integer.");
+    }
+    if (number_of_steps <= 0) {
+      PRINT_INPUT_ERROR("Number of steps should > 0.");
+    }
   } else {
     PRINT_INPUT_ERROR("Invalid minimizer.");
   }
@@ -105,6 +129,9 @@ void Minimize::parse_minimize(
 
       break;
     case 1:
+      if (vc){
+        printf("variable cell is enabled");
+        }
       printf("\nStart to do an energy minimization.\n");
       printf("    using the fast inertial relaxation engine (FIRE) method.\n");
       printf("    with fixed box.\n");

@@ -342,6 +342,24 @@ NEP3::NEP3(const char* file_potential, const int num_atoms)
   initialize_dftd3();
 }
 
+void NEP3::resize(const int num_atoms){
+  N2 = num_atoms;
+  nep_data.f12x.resize(num_atoms * paramb.MN_angular);
+  nep_data.f12y.resize(num_atoms * paramb.MN_angular);
+  nep_data.f12z.resize(num_atoms * paramb.MN_angular);
+  nep_data.NN_radial.resize(num_atoms);
+  nep_data.NL_radial.resize(num_atoms * paramb.MN_radial);
+  nep_data.NN_angular.resize(num_atoms);
+  nep_data.NL_angular.resize(num_atoms * paramb.MN_angular);
+  nep_data.Fp.resize(num_atoms * annmb.dim);
+  nep_data.sum_fxyz.resize(num_atoms * (paramb.n_max_angular + 1) * NUM_OF_ABC);
+  nep_data.cell_count.resize(num_atoms);
+  nep_data.cell_count_sum.resize(num_atoms);
+  nep_data.cell_contents.resize(num_atoms);
+  nep_data.cpu_NN_radial.resize(num_atoms);
+  nep_data.cpu_NN_angular.resize(num_atoms);
+}
+
 NEP3::~NEP3(void)
 {
   // nothing
@@ -1326,6 +1344,8 @@ void NEP3::compute_small_box(
   GPU_Vector<int> NL_angular(size_x12);
   GPU_Vector<float> r12(size_x12 * 6);
 
+  // printf("before find_neighbor_list_small_box\n");
+
   find_neighbor_list_small_box<<<grid_size, BLOCK_SIZE>>>(
     paramb,
     N,
@@ -1348,6 +1368,9 @@ void NEP3::compute_small_box(
     r12.data() + size_x12 * 4,
     r12.data() + size_x12 * 5);
   CUDA_CHECK_KERNEL
+  
+    // cudaDeviceSynchronize();
+  // printf("before find_descriptor_small_box\n");
 
   const bool is_polarizability = paramb.model_type == 2;
   find_descriptor_small_box<<<grid_size, BLOCK_SIZE>>>(
@@ -1377,6 +1400,12 @@ void NEP3::compute_small_box(
     virial_per_atom.data(),
     nep_data.sum_fxyz.data());
   CUDA_CHECK_KERNEL
+
+    // cudaDeviceSynchronize();
+  // print_gpu(type, "type");
+  // printf("before printgpu\n");
+  // print_gpu(NN_radial, "nn_radial");
+  // printf("size of NL_radial: %d\n", NL_radial.size());
 
   bool is_dipole = paramb.model_type == 1;
   find_force_radial_small_box<<<grid_size, BLOCK_SIZE>>>(

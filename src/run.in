@@ -1,0 +1,11 @@
+potential   ./nep.txt
+
+#ensemble npt_mttk temp 1000 1000 aniso 10 10
+#time_step 0.1
+#dump_thermo 100
+#run 10
+
+neb fire 0.001 1000 0.1
+# minimize fire 0.001 100
+
+

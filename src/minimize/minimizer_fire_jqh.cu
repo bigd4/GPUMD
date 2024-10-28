@@ -220,12 +220,16 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
   GPU_Vector<double>& potential_per_atom = atoms.get_potential_per_atom();
   GPU_Vector<double>& force_per_atom = atoms.get_forces();
   
+  printf("minimizer size of positions %d\n", position_per_atom.size());
 
   printf("\nEnergy minimization started.\n");
   // double h_temp1[6];
 
   for (int step = 0; step < number_of_steps_; ++step) {
     atoms.compute();
+    // print_gpu(force_per_atom, "f");
+    // print_gpu(position_per_atom, "r");
+    // print_gpu(force_per_atom, "minimizer forces");
     // atoms.p_force->compute(
     //   box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
     calculate_force_square_max(force_per_atom);
@@ -276,19 +280,11 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     vector_sum(temp1, temp2, v);
     // dx = v*dt
     scalar_multiply(dt, v, temp1);
-    // position_per_atom.copy_to_host(pos);
-    // for (int i=0;i<6;i++) printf("%f ", pos[i]);
-    // printf("\npos-------\n");
-    //   temp1.copy_to_host(h_temp1);
-    //   for (int i=0;i<6;i++) printf("%f ",h_temp1[i]);
-    //   printf("\ntemp1------\n");
     vector_sum(position_per_atom, temp1, position_per_atom);
-    // position_per_atom.copy_to_host(pos);
-    // for (int i=0;i<6;i++) printf("%f ", pos[i]);
-    // printf("\npos-------\n");
-    //   temp1.copy_to_host(h_temp1);
-    //   for (int i=0;i<6;i++) printf("%f ",h_temp1[i]);
-    //   printf("\ntemp1------\n");
+
+    // print_gpu(position_per_atom, "r2"); 
+    // printf("sizeof minimizer pos %d\n", position_per_atom.size());
+    // print_gpu(position_per_atom, "minimizer pos");
   }
 
   printf("Energy minimization finished.\n");

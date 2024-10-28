@@ -16,13 +16,15 @@
 #pragma once
 #include "utilities/gpu_vector.cuh"
 #include "utilities/read_file.cuh"
-#include "model/read_xyz.cuh"
+#include "utilities/common.cuh"
 #include "force/force.cuh"
+#include "read_xyz.cuh"
 #include "atom.cuh"
 // #include "group.cuh"
 #include <vector>
 // #include <cstring>
 #include <cublas_v2.h>
+#include <cmath>
 // #include <cuda_runtime.h>
 using namespace std;
 
@@ -34,14 +36,15 @@ class VCWrapper;
 class BaseAtoms
 {
 protected:
+  int natoms = 0;
   // bool changed_after_last_compute = true;
   GPU_Vector<double> positions;
   GPU_Vector<double> potential_per_atom;
   GPU_Vector<double> forces;
+  // double energy = 0.0;
   // GPU_Vector<double> virials;
 
 public:
-  int natoms = 0;
   Force* p_force;
   virtual void compute() = 0;
 
@@ -84,7 +87,6 @@ protected:
   cublasHandle_t handle;
 
 public:
-  double energy = 0.0;
   Box box;
   vector<int> cpu_type;
   vector<string> cpu_atom_symbol;
@@ -101,7 +103,7 @@ public:
 
   Atoms();
 
-  Atoms(const Atoms& atoms0) = default;
+  Atoms(const Atoms& atoms0, double* new_position);
 
   Atoms(Atoms&&) = default;
 
@@ -128,16 +130,13 @@ public:
 
   void compute();
 
+  virtual double get_energy();
+
   // GPU_Vector<double>& get_positions();
-  // void set_positions();
   
   // GPU_Vector<double>& get_potential_per_atom();
 
-  // GPU_Vector<double>& get_forces();
-
-  // GPU_Vector<double>& get_virials();
-
-  // GPU_Vector<double>& get_virial();
+  virtual int get_natoms() {return natoms;}
 
   virtual void set_box(Box& box0);
 
@@ -153,7 +152,6 @@ private:
   double* virial;
 
 public:
-  int natoms = 0; // real_natoms + 3
   double cell_factor = 1.0;
   double pressure[9] = {0.0};
   double* ref_h; // 18 elements, first 9 are reference cell, last 9 are the inverse.
@@ -173,17 +171,21 @@ public:
 
   void compute();
 
+  virtual double get_energy();
+
+  GPU_Vector<double>& get_potential_per_atom();
+
   GPU_Vector<double>& build_positions();
 
   void set_positions();
 
-  GPU_Vector<double>& get_forces();
+  // GPU_Vector<double>& get_forces();
+
 
   // void set_box(Box& box0);
 
   void compute_deform();
 
-  // GPU_Vector<double>& get_stress();
 
 
 };
@@ -193,3 +195,9 @@ public:
 // void xyz2atoms(Atoms& atoms);
 
 // Atoms xyz2atoms();
+
+void print_arr(double* a, size_t size,const char* name="");
+
+void print_gpu(GPU_Vector<int>& a, const char* name="");
+
+void print_gpu(GPU_Vector<double>& a, const char* name="");

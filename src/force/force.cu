@@ -927,3 +927,14 @@ void Force::compute(
     }
   }
 }
+
+// void Force::compute(Atoms& atoms) {
+//   compute(
+//   atoms.box,
+//   atoms.get_positions(),
+//   atoms.type,
+//   atoms.group,
+//   atoms.get_potential_per_atom(),
+//   atoms.get_forces,
+//   atoms.virials)
+// }

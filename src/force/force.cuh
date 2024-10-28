@@ -17,6 +17,7 @@
 
 #include "model/box.cuh"
 #include "model/group.cuh"
+// #include "model/atoms.cuh"
 #include "potential.cuh"
 #include "utilities/common.cuh"
 #include <memory>
@@ -50,6 +51,8 @@ public:
     GPU_Vector<double>& virial_per_atom,
     GPU_Vector<double>& velocity_per_atom,
     GPU_Vector<double>& mass_per_atom);
+  
+  // void compute(Atoms& atoms);
 
   int get_number_of_types(FILE* fid_potential);
   void set_hnemd_parameters(const bool, const double, const double, const double);

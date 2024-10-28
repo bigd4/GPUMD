@@ -16,9 +16,12 @@
 #pragma once
 #include "utilities/gpu_vector.cuh"
 #include <vector>
-class Force;
-class Box;
-class Group;
+#include "force/force.cuh"
+#include "model/box.cuh"
+#include "model/group.cuh"
+// class Force;
+// class Box;
+// class Group;
 
 class Minimize
 {
