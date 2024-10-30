@@ -1,21 +1,23 @@
 #include "neb.cuh"
 #include "force/nep3.cuh"
 #include <algorithm>
+#include <map>
 
 namespace
 {
-__global__ void gpu_multiply(const int size, double a, double* b, double* c)
+__global__ void gpu_multiply(double* result, double a, double* b, const int size)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   if (n < size)
-    c[n] = b[n] * a;
+    result[n] = b[n] * a;
 }
 
-__global__ void gpu_vector_add(const int size, double* a, double* b, double* c)
+__global__ void gpu_vector_add(double* result, double* a, double* b, const int size,
+                              double alpha=1.0, double beta=1.0)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   if (n < size)
-    c[n] = a[n] + b[n];
+    result[n] = alpha*a[n] + beta*b[n];
 }
 
 __global__ void gpu_vector_substract(double* result, const int size, double* a, double* b)
@@ -25,30 +27,30 @@ __global__ void gpu_vector_substract(double* result, const int size, double* a, 
     result[n] = a[n] - b[n];
 }
 
-__global__ void gpu_vdot(
-  double* result, const int nl,
-  double* a1, double* a2, double* a3,
-  double* b1, double* b2, double* b3, double alpha=1.0)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < nl) result[n] = alpha * (a1[n]*b1[n] + a2[n]*b2[n] + a3[n]*b3[n]);
-}
+// __global__ void gpu_vdot(
+//   double* result, const int nl,
+//   double* a1, double* a2, double* a3,
+//   double* b1, double* b2, double* b3, double alpha=1.0)
+// {
+//   int n = blockDim.x * blockIdx.x + threadIdx.x;
+//   if (n < nl) result[n] = alpha * (a1[n]*b1[n] + a2[n]*b2[n] + a3[n]*b3[n]);
+// }
 
-void nx3_nx3_vdot(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-                  int nl, double alpha=1.0)
-{
-  gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result.data(), nl, 
-    a.data(), a.data()+nl, a.data()+2*nl,
-    b.data(), b.data()+nl, b.data()+2*nl, alpha);
-}
+// void nx3_nx3_vdot(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+//                   int nl, double alpha=1.0)
+// {
+//   gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result.data(), nl, 
+//     a.data(), a.data()+nl, a.data()+2*nl,
+//     b.data(), b.data()+nl, b.data()+2*nl, alpha);
+// }
 
-void nx3_nx3_vdot(double* result, double* a, double* b,
-                  int nl, double alpha=1.0)
-{
-  gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result, nl, 
-    a, a+nl, a+2*nl,
-    b, b+nl, b+2*nl, alpha);
-}
+// void nx3_nx3_vdot(double* result, double* a, double* b,
+//                   int nl, double alpha=1.0)
+// {
+//   gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result, nl, 
+//     a, a+nl, a+2*nl,
+//     b, b+nl, b+2*nl, alpha);
+// }
 
 
 void vector_substract(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b, int size=0){
@@ -128,13 +130,24 @@ double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
 void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>& b)
 {
   int size = b.size();
-  gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(size, a, b.data(), c.data());
+  gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
 }
 
-void vector_add(GPU_Vector<double>& c, GPU_Vector<double>& a, GPU_Vector<double>& b)
+void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+              double alpha=1.0, double beta=1.0)
 {
   int size = a.size();
-  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
+  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>
+    (result.data(), a.data(), b.data(), size, alpha, beta);
+}
+
+double max_abs(cublasHandle_t& handle, int size, double* vec)
+{
+  int index;
+  double result;
+  cublasIdamax(handle, size, vec, 1, &index);
+  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+  return abs(result);
 }
 } // namespace
 
@@ -147,17 +160,17 @@ void ImprovedTangentMethod::compute_tangent(
 {
   int size = t1.size();
   double nt;
-  printf("de1=%f, de2=%f\n", de1, de2);
+  // printf("de1=%f, de2=%f\n", de1, de2);
   // print_gpu(t1, "t1");
   // print_gpu(t2, "t2");
+  cublasDnrm2(handle, size, t1.data(), 1, &nt1);
+  cublasDnrm2(handle, size, t2.data(), 1, &nt2);
+  // printf("nt1= %f, nt2= %f\n", nt1, nt2);
   if (de1 > 0 && de2 > 0) tangent.copy_from_device(t2.data());
   else if (de1 < 0 && de2 < 0) tangent.copy_from_device(t1.data());
   else{
     double de_max = max(abs(de1), abs(de2));
     double de_min = min(abs(de1), abs(de2));
-    cublasDnrm2(handle, size, t1.data(), 1, &nt1);
-    cublasDnrm2(handle, size, t2.data(), 1, &nt2);
-    printf("nt1= %f, nt2= %f\n", nt1, nt2);
     tangent.fill(0.0);
     if (de2 + de1 > 0){
       scale1 = de_min / nt1;
@@ -171,125 +184,169 @@ void ImprovedTangentMethod::compute_tangent(
     cublasDaxpy(handle, size, &scale2, t2.data(), 1, tangent.data(), 1);
   }
   cublasDnrm2(handle, size, tangent.data(), 1, &nt);
-  printf("nt= %f\n", nt);
+  // printf("nt= %f\n", nt);
   scalar_multiply(tangent, 1/(nt+1e-10), tangent);
   // print_gpu(tangent, "tangent");
 }
 
-void ImprovedTangentMethod::compute_image_force(
-  GPU_Vector<double>& springforce,
-  GPU_Vector<double>& tangential_force,
-  GPU_Vector<double>& tangent
+void ImprovedTangentMethod::add_image_force(
+  int size,
+  double& tangential_force,
+  double* tangent,
+  double * imgforce
   )
 {
-  int size = tangent.size();
-  double scalar = (nt2 - nt1)*k;
-  n_nx3_multiply(springforce, tangential_force, tangent, size, -1.0);
-  cublasDaxpy(handle, size, &scalar, tangent.data(), 1, springforce.data(), 1);
+  double scalar = -tangential_force + (nt2 - nt1)*k;
+  cublasDaxpy(handle, size, &scalar, tangent, 1, imgforce, 1);
 }
 
 NEB::NEB(){
-  // variable_cell = false;
-  double pressure[] = {2.0, 2.0, 2.0};
-  Atoms *p_atoms = new Atoms("neb_is.xyz");
-  Atoms *p_atoms2 = new Atoms("neb_fs.xyz");
-  // Atoms *p_atoms3 = new Atoms("mid_hd2ll_11-6_1_20.xyz");
-  // Atoms *p_atoms4 = new Atoms("test14400.xyz");
-  if (!variable_cell){
-    images.push_back(p_atoms);
-  }
-  else{
-    images.push_back(new VCWrapper(*new Atoms("is.xyz"), pressure, 3));
-    images.push_back(new VCWrapper(*new Atoms("mid.xyz"), pressure, 3));
-    images.push_back(new VCWrapper(*new Atoms("fs.xyz"), pressure, 3));
-    // images.push_back(new VCWrapper(*p_atoms3, pressure, 3));
-    // images.push_back(new VCWrapper(*p_atoms2, pressure, 3));
-  }
-  printf("neb default construtor finishes.\n");
-  natoms_per_image = images[0]->get_natoms();
-  printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  cublasCreate(&handle);
 }
 
 
 void NEB::parse_neb(const char** param, int num_param, Force& force)
 {
   p_force = &force;
-  if (typeid(*force.potentials[0])==typeid(NEP3)){
+
+  min_dist = 0.03;
+  max_dist = 0.05;
+  vi_interval = 10;
+  tangentmethod = ImprovedTangentMethod(handle, k);
+  
+  if (strcmp(param[0], "neb_run") == 0) {
+
+  
+    if (strcmp(param[1], "fire") == 0) {
+      minimizer_type = 1;
+
+      if (num_param < 4) {
+        PRINT_INPUT_ERROR("minimize fire should have 2 parameters.");
+      }
+
+      if (!is_valid_real(param[2], &force_tolerance)) {
+        PRINT_INPUT_ERROR("Force tolerance should be a number.");
+      }
+
+      if (!is_valid_int(param[3], &max_steps)) {
+        PRINT_INPUT_ERROR("Number of steps should be an integer.");
+      }
+
+      for (int n=4; n<num_param; n++){
+        if (strcmp(param[n], "k") == 0){
+          if (!is_valid_real(param[n+1], &k)) {
+            PRINT_INPUT_ERROR("k should be an real.");
+          }
+          n++;
+        } else{
+          string text="no keyword match with: ";
+          text += param[n];
+          PRINT_INPUT_ERROR(text.data());
+        }
+      }
+    } else {
+      PRINT_KEYWORD_ERROR(param[0]);
+    }
+  
+  switch (minimizer_type) {
+  case 1:
+    printf("\nStart to do neb calculation.\n");
+    printf("    using the fast inertial relaxation engine (FIRE) method.\n");
+    printf("    with fixed box.\n");
+    printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
+    printf("    for maximally %d steps.\n", max_steps);
+
+    minimizer.reset(new Minimizer_FIRE_JQH(0, max_steps, force_tolerance));
+    break;
+  default:
+    PRINT_INPUT_ERROR("Invalid minimizer.");
+    break;
+  }
+  run_neb();
+  
+  } else {
+    PRINT_KEYWORD_ERROR(param[0]);
+  }
+  if (max_steps <= 0) {
+    PRINT_INPUT_ERROR("Number of steps should > 0.");
+  }
+  
+}
+
+
+void NEB::run_neb() {
+  // variable_cell = false;
+  double press_in[] = {2.0, 2.0, 2.0};
+  Atoms *p_is = new Atoms("is.xyz");
+  Atoms *p_fs = new Atoms("fs.xyz");
+  Atoms *p_mid = new Atoms("mid.xyz");
+  if (!variable_cell){
+    images.push_back(p_is);
+    images.push_back(p_fs);
+    images.push_back(p_mid);
+  }
+  else{
+    map<int,VCWrapper*> mid_list;
+    images.push_back(new VCWrapper(*p_is, press_in, 3));
+    images.push_back(new VCWrapper(*p_mid, press_in, 3));
+    images.push_back(new VCWrapper(*p_fs, press_in, 3));
+    GPU_Vector<double> tmp_pos(images[1]->get_positions().size());
+    vector_add(tmp_pos, images[1]->get_positions(), images[2]->get_positions(), 0.5, 0.5);
+    printf("test insert images\n");
+    VCWrapper* new_vcatoms = new VCWrapper(images[0], tmp_pos.data());
+    printf("before neb insert\n");
+    images.insert(images.begin()+2, new_vcatoms);
+  }
+  natoms_per_image = images[0]->get_natoms();
+  printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  natoms = images.size() * natoms_per_image;
+  minimizer->reset_number_of_atoms(natoms);
+  
+  // reinitialize nep to make sure that natom in it is right
+  if (typeid(p_force->potentials[0])==typeid(NEP3)){
       printf("nep forces\n");
       int n = natoms_per_image;
       if (variable_cell) n -= 3;
-      dynamic_cast<NEP3&>(*force.potentials[0]).resize(n);
+      dynamic_cast<NEP3&>(*(p_force->potentials[0])).resize(n);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
+
+  print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
   images.front()->compute();
   images.back()->compute();
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
 
+  // for dump_position
   const char* para[] = {"a","1"};
   dump_position.parse(para, 2, images[0]->group);
   dump_position.preprocess();
-  vector<double> cpu_positions;
-  cpu_positions.resize(natoms_per_image*3);
+  vector<double> cpu_positions(natoms_per_image*3);
+  //
+  double fnrm2; // used to check if minimization is finished or nimages changes
+  for (int n=0; n < 10; n++){
+    initialize_compute();
+    minimizer->compute(*this);
 
-  if (strcmp(param[1], "fire") == 0) {
-    minimizer_type = 1;
+    cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
+    if (fnrm2 != 0.0) break;
+  }
 
-    if (num_param != 5) {
-      PRINT_INPUT_ERROR("minimize fire should have 2 parameters.");
-    }
-
-    if (!is_valid_real(param[2], &force_tolerance)) {
-      PRINT_INPUT_ERROR("Force tolerance should be a number.");
-    }
-
-    if (!is_valid_int(param[3], &max_steps)) {
-      PRINT_INPUT_ERROR("Number of steps should be an integer.");
-    }
-
-    if (!is_valid_real(param[4], &k)) {
-      PRINT_INPUT_ERROR("Number of steps should be an real.");
-    }
-    if (max_steps <= 0) {
-      PRINT_INPUT_ERROR("Number of steps should > 0.");
+  for (int i=0;i<nimages;i++){
+    if (variable_cell) {
+      Atoms& atoms = *images[i]->get_p_atoms();
+      dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
+        atoms.get_positions(), cpu_positions);
+      // print_gpu(atoms.get_positions());
     }
   }
-  
-  unique_ptr<Minimizer> minimizer;
-
-  switch (minimizer_type) {
-    case 1:
-      printf("\nStart to do neb calculation.\n");
-      printf("    using the fast inertial relaxation engine (FIRE) method.\n");
-      printf("    with fixed box.\n");
-      printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
-      printf("    for maximally %d steps.\n", max_steps);
-
-      initialize();
-      tangentmethod = ImprovedTangentMethod(handle, k);
-
-      minimizer.reset(new Minimizer_FIRE_JQH(natoms, max_steps, force_tolerance));
-      minimizer->compute(*this);
-      for (int i=0;i<nimages;i++){
-        if (variable_cell) {
-          Atoms& atoms = *static_cast<VCWrapper *>(images[i])->p_atoms;
-          dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-            atoms.get_positions(), cpu_positions);
-          // print_gpu(atoms.get_positions());
-        }
-      }
-      dump_position.postprocess();
-      break;
-    default:
-      PRINT_INPUT_ERROR("Invalid minimizer.");
-      break;
-  }
+  dump_position.postprocess();
 }
 
-void NEB::initialize() {
+void NEB::initialize_compute() {
   printf("neb initialize\n");
   nimages = images.size();
-  printf("nimage: %d\n", nimages);
+  printf("nimages: %d\n", nimages);
   printf("natoms_per_image: %d\n", natoms_per_image);
   natoms = (nimages - 2) * natoms_per_image; // remove first and last images
 
@@ -298,9 +355,8 @@ void NEB::initialize() {
   // CHECK(cudaMallocManaged(&image_energies, nimages * sizeof(double)));
   image_energies.resize(nimages);
   positions.resize(natoms * 3);
-  forces.resize(natoms * 3);
+  forces.resize(natoms * 3, 0);
 
-  cublasCreate(&handle);
   build_positions();
   image_energies.front() = first_energy;
   image_energies.back() = last_energy;
@@ -313,31 +369,8 @@ void NEB::initialize() {
   // print_gpu(images[0]->get_positions(), "pos_is");
   // print_gpu(images[2]->get_positions(), "pos_fs");
 
-
-  // vector<double> cpu_positions;
-  // cpu_positions.resize(natoms_per_image*3);
-
-  // {Atoms& atoms = *static_cast<VCWrapper *>(images.front())->p_atoms;
-  // print_gpu(atoms.get_positions(), "atom pos_fs");
-  // dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-  //   atoms.get_positions(), cpu_positions);}
-
-  // {Atoms& atoms = *static_cast<VCWrapper *>(images.back())->p_atoms;
-  // print_gpu(atoms.get_positions(), "atom pos_is");
-  // dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-  //   atoms.get_positions(), cpu_positions);}
 }
 
-void NEB::find_min_max()
-{
-  imaxes.clear();
-  for (int i=1; i<nimages-1; i++){
-    if (image_energies[i] > image_energies[i-1] &&
-        image_energies[i] > image_energies[i+1]){
-      imaxes.push_back(i);
-      }
-  }
-}
 
 // void NEB::find_min_max(){
 //   for (int i=1, i<niamges-1;i++)
@@ -356,7 +389,7 @@ void NEB::compute()
   // compute original forces
   set_positions();
   for (int i=1; i < nimages - 1; i++){
-    printf("image %d\n", i);
+    // printf("image %d\n", i);
     images[i]->compute();
     images[i]->get_forces().copy_to_device(
       &forces[(i-1) * natoms_per_image*3],
@@ -364,18 +397,19 @@ void NEB::compute()
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
-  potential_per_atom[0] = *max_element(image_energies.begin(), image_energies.end());
-  print_gpu(potential_per_atom, "Ea");
+  double max_energy = *max_element(image_energies.begin(), image_energies.end());
+  potential_per_atom[0] = max_energy;
+  printf("Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
   find_min_max();
+  printf("imaxes: ");
   for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
-  printf("\nimaxes\n");
+  printf("\n");
 
   // start to compute spring force
-  GPU_Vector<double> tangent, t1, t2, spring_force;
-  tangent.resize(natoms_per_image*3);
-  t1.resize(natoms_per_image*3);
-  t2.resize(natoms_per_image*3);
-  spring_force.resize(natoms_per_image*3);
+  GPU_Vector<double> tangent(natoms_per_image*3),
+    t1(natoms_per_image*3),
+    t2(natoms_per_image*3),
+    spring_force(natoms_per_image*3);
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t1, images[i]->get_positions(), images[i-1]->get_positions());
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
@@ -383,32 +417,80 @@ void NEB::compute()
     tangentmethod.compute_tangent(tangent, t1, t2,
      image_energies[i] - image_energies[i-1], image_energies[i+1] - image_energies[i]);
     // print_gpu(tangent, "t");
-    GPU_Vector<double> tangential_force;
-    tangential_force.resize(natoms_per_image);
-    nx3_nx3_vdot(tangential_force, images[i]->get_forces(), tangent, natoms_per_image);
+    double tangential_force;
+    cublasDdot(handle, 3*natoms_per_image, images[i]->get_forces().data(), 1,
+     tangent.data(), 1, &tangential_force);
     // print_gpu(tangential_force, "tangential_force");
     // if (climb && in_list())
     if (in_list(imaxes, i)){
-      n_nx3_multiply(spring_force, tangential_force, tangent, natoms_per_image);
       // print_gpu(spring_force, "spring_force");
-      double tmp_num = -2.0;
+      double tmp_num = -2.0 * tangential_force;
       cublasDaxpy(handle, natoms_per_image*3, &tmp_num,
-        spring_force.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
+        tangent.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
     }
     else{
-      tangentmethod.compute_image_force(spring_force, tangential_force, tangent);
-      cublasDaxpy(handle, natoms_per_image*3, (new double(1.0)),
-        spring_force.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
+      tangentmethod.add_image_force(natoms_per_image*3,
+       tangential_force, tangent.data(), &forces[(i-1)*natoms_per_image*3]);
+      // cublasDaxpy(handle, natoms_per_image*3, (new double(1.0)),
+      //   spring_force.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
     }
 
-
+  CUDA_CHECK_KERNEL;
   }
+  check_dist();
+}
 
-  // print_gpu(positions, "neb pos");
-  // print_gpu(images[1]->get_forces(), "neb image1 forces");
-  // print_gpu(images[0]->get_positions(), "neb image0 pos");
-  // print_gpu(images[1]->get_positions(), "neb image1 pos");
-  // print_gpu(forces, "neb forces");
+void NEB::check_dist() {
+  printf("check_dist\n");
+  double fmax = max_abs(handle, natoms*3, forces.data());
+  printf("fmax=%f\n",fmax);
+  if (vi_count < vi_interval || fmax > 1){
+    vi_count++;
+    return;
+  }
+  GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
+  double nrm2, dist;
+  // for (auto it = images.begin()+1; it != images.end()-1; it++)
+  printf("dist:");
+  for (int i = 1; i < nimages; i++)
+  {
+    GPU_Vector<double>& pos1 = images[i-1]->get_positions();
+    GPU_Vector<double>& pos2 = images[i]->get_positions();
+    vector_add(dpos, pos2, pos1, 1.0, -1.0);
+
+    //calc_dist
+    cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
+    dist = nrm2/sqrt(natoms_per_image);
+    printf(" %f ", dist);
+    if (dist > max_dist){
+      vector_add(new_pos, pos1, pos2, 0.5, 0.5);
+      // print_gpu(new_pos, "new_pos");
+      images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
+      printf("\ninsert an images, nimages: %d\n", images.size());
+      printf("add an image: %d\n", i);
+      vi_count = 0;
+      break;
+    }else if (dist < min_dist){
+      delete(images[i]);
+      images.erase(images.begin()+i);
+      printf("\nremove an image: %d\n", i);
+      vi_count = 0;
+      break;
+    }
+  }
+  
+  if (vi_count==0) initialize_compute();
+}
+
+void NEB::find_min_max()
+{
+  imaxes.clear();
+  for (int i=1; i<nimages-1; i++){
+    if (image_energies[i] > image_energies[i-1] &&
+        image_energies[i] > image_energies[i+1]){
+      imaxes.push_back(i);
+      }
+  }
 }
 
 GPU_Vector<double>& NEB::build_positions()
@@ -435,45 +517,44 @@ void NEB::set_positions()
   }
 }
 
+
 // void test(BaseAtoms& atoms){
 //   printf("-------go in test-----------\n");
 //   atoms.get_positions();
 //   printf("-------go out of test-----------\n");
 // }
 
+// void NEB::vcneb() {
+//   unique_ptr<Minimizer> minimizer;
+//   VCWrapper& image = *dynamic_cast<VCWrapper *>(images[0]);
+//   const char* para[] = {"a","1"};
+//   printf("parse_neb image natoms %d\n", images[0]->get_natoms());
+//   image.set_calc(*p_force);
+//   minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
+//   printf("k = %f\n", k);
+//   dump_position.parse(para, 2, image.group);
+//   dump_position.preprocess();
+//   printf("image addr: %p\n", &image);
+//   Atoms& atoms = *image.p_atoms;
+//   vector<double> cpu_positions(atoms.get_positions().size());
+//   printf("------dump_position--------\n");
+//   dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
+//       atoms.get_positions(), cpu_positions);
+//   minimizer->compute(image);
+//   printf("------dump_position2--------\n");
+//   dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
+//       atoms.get_positions(), cpu_positions);
+// }
 
-void NEB::vcneb() {
-  unique_ptr<Minimizer> minimizer;
-  VCWrapper& image = *static_cast<VCWrapper *>(images[0]);
-  const char* para[] = {"a","1"};
-  printf("parse_neb image natoms %d\n", images[0]->get_natoms());
-  image.set_calc(*p_force);
-  minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
-  printf("k = %f\n", k);
-  dump_position.parse(para, 2, image.group);
-  dump_position.preprocess();
-  printf("image addr: %p\n", &image);
-  Atoms& atoms = *image.p_atoms;
-  vector<double> cpu_positions;
-  cpu_positions.resize(atoms.get_positions().size());
-  printf("------dump_position--------\n");
-  dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-      atoms.get_positions(), cpu_positions);
-  minimizer->compute(image);
-  printf("------dump_position2--------\n");
-  dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-      atoms.get_positions(), cpu_positions);
-}
-
-void NEB::norm_neb() {
-  unique_ptr<Minimizer> minimizer;
-  Atoms& image = *images[0];
-  const char* para[] = {"a","1"};
-  image.set_calc(*p_force);
-  minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
-  printf("k = %f\n", k); 
-  dump_position.parse(para, 2, image.group);
-  dump_position.preprocess();
-  // printf("image addr: %p\n", &image);
-  minimizer->compute(image);
-}
+// void NEB::norm_neb() {
+//   unique_ptr<Minimizer> minimizer;
+//   Atoms& image = *images[0];
+//   const char* para[] = {"a","1"};
+//   image.set_calc(*p_force);
+//   minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
+//   printf("k = %f\n", k); 
+//   dump_position.parse(para, 2, image.group);
+//   dump_position.preprocess();
+//   // printf("image addr: %p\n", &image);
+//   minimizer->compute(image);
+// }

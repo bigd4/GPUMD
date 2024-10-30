@@ -1,11 +1,16 @@
 potential   ./nep.txt
 
-#ensemble npt_mttk temp 1000 1000 aniso 10 10
-#time_step 0.1
-#dump_thermo 100
-#run 10
 
-neb fire 0.001 1000 0.1
-# minimize fire 0.001 100
+neb_run		fire 0.01 1000 k 0.1
+#neb_press	30
+#neb_vi		20 1.0
+
+
+#minimize vcfire 30 0.01 100
+#
+#time_step 0.0
+#ensemble nve
+#dump_exyz 1
+#run 1
 
 

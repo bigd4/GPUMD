@@ -36,13 +36,10 @@ class VCWrapper;
 class BaseAtoms
 {
 protected:
-  int natoms = 0;
-  // bool changed_after_last_compute = true;
+  int natoms;
   GPU_Vector<double> positions;
   GPU_Vector<double> potential_per_atom;
   GPU_Vector<double> forces;
-  // double energy = 0.0;
-  // GPU_Vector<double> virials;
 
 public:
   Force* p_force;
@@ -53,23 +50,12 @@ public:
   virtual void set_positions(GPU_Vector<double>& positions0) { positions = move(positions0);}
   
   virtual GPU_Vector<double>& get_potential_per_atom(){
-    // if (changed_after_last_compute) compute();
     return potential_per_atom;
   }
-
+  
   virtual GPU_Vector<double>& get_forces() {
-    // if (changed_after_last_compute) compute();
     return forces;
   }
-
-  // virtual GPU_Vector<double>& get_virials() {
-  //   // if (changed_after_last_compute) compute();
-  //   return virials;
-  // }
-
-  // virtual GPU_Vector<double>& get_virial();
-  // virtual double*& get_h() { return h; }
-
 
   // virtual void set_box(GPU_Vector<double> h0);
 
@@ -105,24 +91,27 @@ public:
 
   Atoms(const Atoms& atoms0, double* new_position);
 
+  Atoms(const Atoms& atoms0);
+
   Atoms(Atoms&&) = default;
 
   Atoms& operator=(Atoms&&) = default;
 
-  ~Atoms();
-
-  // Atoms(
-  // Box& _box,
-  // GPU_Vector<double>& _positions,
-  // GPU_Vector<int>& _type,
-  // vector<Group>& _group,
-  // GPU_Vector<double>& _potentials,
-  // GPU_Vector<double>& _forces,
-  // GPU_Vector<double>& _virials);
+  Atoms(
+  Force& force0,
+  Box& box0,
+  GPU_Vector<double>& positions0,
+  GPU_Vector<int>& type0,
+  vector<Group>& group0,
+  GPU_Vector<double>& potential_per_atom0,
+  GPU_Vector<double>& forces0,
+  GPU_Vector<double>& virials0);
 
   Atoms(Atom& atom, vector<Group>& group0);
 
   Atoms(const char* filename);
+
+  ~Atoms();
 
   void initialize(Atom& atom);
 
@@ -137,6 +126,8 @@ public:
   // GPU_Vector<double>& get_potential_per_atom();
 
   virtual int get_natoms() {return natoms;}
+
+  virtual Atoms* get_p_atoms() {return this;}
 
   virtual void set_box(Box& box0);
 
@@ -153,7 +144,7 @@ private:
 
 public:
   double cell_factor = 1.0;
-  double pressure[9] = {0.0};
+  vector<double> pressure = vector<double>(9,0.0);
   double* ref_h; // 18 elements, first 9 are reference cell, last 9 are the inverse.
   Atoms* p_atoms;
   double* deform; // 18 elements, first 9 are deform, last 9 are the inverse.
@@ -163,6 +154,10 @@ public:
 
   VCWrapper(Atoms& atoms, double *p, int l_p);
 
+  VCWrapper(const VCWrapper& atoms0, double* new_position);
+
+  VCWrapper(Atoms* p_atoms0, double* new_position);
+
   ~VCWrapper();
 
   void initialize(int natoms0);
@@ -171,7 +166,7 @@ public:
 
   void compute();
 
-  virtual double get_energy();
+  double get_energy();
 
   GPU_Vector<double>& get_potential_per_atom();
 
@@ -179,8 +174,7 @@ public:
 
   void set_positions();
 
-  // GPU_Vector<double>& get_forces();
-
+  Atoms* get_p_atoms() {return p_atoms;}
 
   // void set_box(Box& box0);
 

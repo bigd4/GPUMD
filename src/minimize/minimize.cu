@@ -20,11 +20,13 @@ The driver class for minimizers.
 #include "force/force.cuh"
 #include "minimize.cuh"
 #include "minimizer_fire.cuh"
+#include "minimizer_fire_jqh.cuh"
 #include "minimizer_sd.cuh"
 #include "utilities/error.cuh"
 #include "utilities/read_file.cuh"
 #include <cstring>
 #include <memory>
+#include "measure/dump_position.cuh"
 
 void Minimize::parse_minimize(
   const char** param,
@@ -129,27 +131,35 @@ void Minimize::parse_minimize(
 
       break;
     case 1:
-      if (vc){
-        printf("variable cell is enabled");
-        }
       printf("\nStart to do an energy minimization.\n");
       printf("    using the fast inertial relaxation engine (FIRE) method.\n");
       printf("    with fixed box.\n");
       printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
       printf("    for maximally %d steps.\n", number_of_steps);
 
-      minimizer.reset(new Minimizer_FIRE(number_of_atoms, number_of_steps, force_tolerance));
+      if (vc){
+        printf("variable cell is enabled");
+        double press[1]={pressure};
+        Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
+        minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
+        minimizer->compute(*new VCWrapper(atoms, press, 1));
+        box = atoms.box;
+        position_per_atom = atoms.get_positions();
+        potential_per_atom = atoms.get_potential_per_atom();
+        }
+      else{
+        minimizer.reset(new Minimizer_FIRE(number_of_atoms, number_of_steps, force_tolerance));
 
-      minimizer->compute(
-        force,
-        box,
-        position_per_atom,
-        type,
-        group,
-        potential_per_atom,
-        force_per_atom,
-        virial_per_atom);
-
+        minimizer->compute(
+          force,
+          box,
+          position_per_atom,
+          type,
+          group,
+          potential_per_atom,
+          force_per_atom,
+          virial_per_atom);
+      }
       break;
     default:
       PRINT_INPUT_ERROR("Invalid minimizer.");

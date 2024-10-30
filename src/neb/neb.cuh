@@ -36,10 +36,11 @@ public:
     double de1,
     double de2);
 
-  void compute_image_force(
-    GPU_Vector<double>& tangential_force,
-    GPU_Vector<double>& tangent,
-    GPU_Vector<double>& imgforce);
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    double* imgforce);
 };
 
 class NEB: public BaseAtoms
@@ -49,20 +50,25 @@ private:
   cublasHandle_t handle;
   double first_energy = 0.0;
   double last_energy = 0.0;
+  int vi_count = 0;
+  unique_ptr<Minimizer> minimizer;
 
   void find_min_max();
 
+  void initialize_compute();
 
-  void initialize();
+  void check_dist();
 
 public:
-  int nimages;
-  int natoms_per_image;
-  int step = 0;
+  int nimages, natoms_per_image;
   bool climb = true;
   bool variable_cell = true;
+  bool var_image_number = true;
+  int vi_interval;
+  double min_dist, max_dist;
   // double pressure = 0.0;
   list<int> imaxes;
+  int step = 0;
   int max_steps = 0;
   double force_tolerance = 0.0;
   int minimizer_type = 0;
@@ -90,15 +96,8 @@ public:
 
   // GPU_Vector<double>& get_forces();
 
-  void norm_neb();
+  void run_neb();
 
-  void vcneb();
-
-  template<class T> void run_neb();
+  // void vcneb();
 
 };
-
-template<class T>
-void NEB::run_neb(){
-  T image=*images[0];
-}

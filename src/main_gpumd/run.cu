@@ -483,8 +483,9 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     // nothing here; will be handled elsewhere
   } else if (strcmp(param[0], "compute_lsqt") == 0) {
     measure.lsqt.parse(param, num_param);
-  } else if (strcmp(param[0], "neb") == 0) {
-    NEB neb;
+  } else if (strcmp(param[0], "neb_press") == 0) {
+    neb.parse_neb(param, num_param, force);
+  } else if (strcmp(param[0], "neb_run") == 0) {
     neb.parse_neb(param, num_param, force);
   } else if (strcmp(param[0], "run") == 0) {
     parse_run(param, num_param);

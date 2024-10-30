@@ -73,6 +73,7 @@ private:
   Integrate integrate;
   MC mc;
   Measure measure;
+  NEB neb;
   Electron_Stop electron_stop;
   Add_Force add_force;
   Add_Random_Force add_random_force;
