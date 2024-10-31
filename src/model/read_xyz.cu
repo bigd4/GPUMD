@@ -587,13 +587,15 @@ void initialize_position(
 }
 
 void initialize_position(
-  const char* xyzname, int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom)
+  const char* xyzname, int& has_velocity_in_xyz, int& number_of_types,
+   Box& box, std::vector<Group>& group, Atom& atom)
 {
   std::string filename(xyzname);
   std::ifstream input(filename);
 
   if (!input.is_open()) {
-    PRINT_INPUT_ERROR("Failed to open model.xyz.");
+    printf("%s\n", xyzname);
+    PRINT_INPUT_ERROR("Failed to open xyz.");
   }
 
   std::vector<std::string> atom_symbols;

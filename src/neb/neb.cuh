@@ -46,14 +46,33 @@ public:
 class NEB: public BaseAtoms
 {
 private:
+  // compute setting
   double k = 0.1;
   double pressure = 0.0;
+  bool has_mid = false;
+  double n_interpolate = 0;
+  bool need_relax = false;
+  bool climb = true;
+  bool variable_cell = true;
+  bool var_image_number = true;
+  int vi_interval;
+  double min_dist, max_dist;
+
+
   cublasHandle_t handle;
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
   vector<double> ref_h = vector<double>(9);
   unique_ptr<Minimizer> minimizer;
+  list<int> imaxes;
+  Dump_Position dump_position;
+  int step = 0;
+  int max_steps = 0;
+  double force_tolerance = 0.0;
+  int minimizer_type = 0;
+  int nimages, natoms_per_image;
+
 
   void find_min_max();
 
@@ -62,21 +81,8 @@ private:
   void check_dist();
 
 public:
-  int nimages, natoms_per_image;
-  bool climb = true;
-  bool variable_cell = true;
-  bool var_image_number = true;
-  int vi_interval;
-  double min_dist, max_dist;
-  list<int> imaxes;
-  int step = 0;
-  int max_steps = 0;
-  double force_tolerance = 0.0;
-  int minimizer_type = 0;
   deque<Atoms*> images;
   vector<double> image_energies;
-  Dump_Position dump_position;
-  // Force force;
   ImprovedTangentMethod tangentmethod;
 
 

@@ -244,12 +244,21 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
             PRINT_INPUT_ERROR("p should be an real.");
           }
           n++;
+        } else if (strcmp(param[n], "interpolate") == 0){
+          if (!is_valid_real(param[n+1], &n_interpolate)) {
+            PRINT_INPUT_ERROR("interpolate should be an real.");
+          }
+          n++;
         } else if (strcmp(param[n], "dist_range") == 0){
           if (!is_valid_real(param[n+1], &min_dist) ||
               !is_valid_real(param[n+2], &max_dist)) {
             PRINT_INPUT_ERROR("dist_range should be two reals.");
           }
           n+=2;
+        } else if (strcmp(param[n], "has_mid") == 0){
+          has_mid = true;
+        } else if (strcmp(param[n], "need_relax") == 0){
+          need_relax = true;
         } else {
           string text="no keyword match with: ";
           text += param[n];
@@ -291,33 +300,24 @@ void NEB::reset_minimizer(int number_of_atoms) {
 void NEB::run_neb() {
   // variable_cell = false;
   vector<double> press_in = {pressure};
-  Atoms *p_is = new Atoms("is_3.xyz");
-  Atoms *p_fs = new Atoms("fs_3.xyz");
-  Atoms *p_mid = new Atoms("mid.xyz");
+  Atoms *p_is = new Atoms("is.xyz");
+  Atoms *p_fs = new Atoms("fs.xyz");
+  Atoms *p_mid;
+  if (has_mid) p_mid = new Atoms("mid.xyz");
   ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
   print_arr(ref_h.data(), 9, "vector ref_h");
   if (!variable_cell){
     images.push_back(p_is);
+    if (has_mid) images.push_back(p_mid);
     images.push_back(p_fs);
-    images.push_back(p_mid);
   }
   else{
     map<int,VCWrapper*> mid_list;
     images.push_back(new VCWrapper(*p_is, press_in));
-    // images.push_back(new VCWrapper(*p_mid, press_in, 3, ref_h.data()));
+    if (has_mid) images.push_back(new VCWrapper(*p_mid, press_in, ref_h.data()));
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
-    interpolate(5, false);
-    // GPU_Vector<double> tmp_pos(images[1]->get_positions().size());
-    // vector_add(tmp_pos, images[1]->get_positions(), images[2]->get_positions(), 0.5, 0.5);
-    // printf("test insert images\n");
-    // VCWrapper* new_vcatoms = new VCWrapper(images[0], tmp_pos.data());
-    // printf("before neb insert\n");
-    // images.insert(images.begin()+2, new_vcatoms);
   }
   natoms_per_image = images[0]->get_natoms();
-  printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
-  natoms = (images.size()-2) * natoms_per_image;
-  
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // reinitialize nep to make sure that natom in it is right
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
@@ -327,8 +327,19 @@ void NEB::run_neb() {
       dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
+  if (need_relax){
+    reset_minimizer(natoms_per_image);
+    minimizer->compute(*images.front());
+    reset_minimizer(natoms_per_image);
+    minimizer->compute(*images.back());
+  }
+  if (n_interpolate > 0){
+    interpolate(5, false);
+  }
+  // printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  // natoms = (images.size()-2) * natoms_per_image;
+  // print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
 
-  print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
   images.front()->compute();
   images.back()->compute();
   first_energy = images.front()->get_energy();
