@@ -205,22 +205,57 @@ NEB::NEB(){
   cublasCreate(&handle);
 }
 
+void NEB::parse_options(const char** param, int num_param, int& n){
+  if (strcmp(param[n], "is_name") == 0){
+    istate_name.assign(param[n+1]);
+    n++;
+  } else if (strcmp(param[n], "fs_name") == 0){
+    fstate_name.assign(param[n+1]);
+    n++;
+  } else if (strcmp(param[n], "mid_name") == 0){
+    mid_name.assign(param[n+1]);
+    n++;
+  } else if (strcmp(param[n], "k") == 0){
+    if (!is_valid_real(param[n+1], &k)) {
+      PRINT_INPUT_ERROR("k should be an real.");
+    }
+    n++;
+  } else if (strcmp(param[n], "p") == 0){
+    if (!is_valid_real(param[n+1], &pressure)) {
+      PRINT_INPUT_ERROR("p should be an real.");
+    }
+    n++;
+  } else if (strcmp(param[n], "interpolate") == 0){
+    if (!is_valid_real(param[n+1], &n_interpolate)) {
+      PRINT_INPUT_ERROR("interpolate should be an real.");
+    }
+    n++;
+  } else if (strcmp(param[n], "dist_range") == 0){
+    if (!is_valid_real(param[n+1], &min_dist) ||
+        !is_valid_real(param[n+2], &max_dist)) {
+      PRINT_INPUT_ERROR("dist_range should be two reals.");
+    }
+    n+=2;
+  } else if (strcmp(param[n], "has_mid") == 0){
+    has_mid = true;
+  } else if (strcmp(param[n], "need_relax") == 0){
+    need_relax = true;
+  } else {
+    string text="no keyword match with: ";
+    text += param[n];
+    PRINT_INPUT_ERROR(text.data());
+  }
+}
 
 void NEB::parse_neb(const char** param, int num_param, Force& force)
 {
   p_force = &force;
 
-  min_dist = 0.005;
-  max_dist = 0.1;
-  vi_interval = 10;
   tangentmethod = ImprovedTangentMethod(handle, k);
   
   if (strcmp(param[0], "neb_run") == 0) {
-
-  
     if (strcmp(param[1], "fire") == 0) {
       minimizer_type = 1;
-
       if (num_param < 4) {
         PRINT_INPUT_ERROR("minimize fire should have 2 parameters.");
       }
@@ -232,50 +267,18 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
       if (!is_valid_int(param[3], &max_steps)) {
         PRINT_INPUT_ERROR("Number of steps should be an integer.");
       }
-
       for (int n=4; n<num_param; n++){
-        if (strcmp(param[n], "k") == 0){
-          if (!is_valid_real(param[n+1], &k)) {
-            PRINT_INPUT_ERROR("k should be an real.");
-          }
-          n++;
-        } else if (strcmp(param[n], "p") == 0){
-          if (!is_valid_real(param[n+1], &pressure)) {
-            PRINT_INPUT_ERROR("p should be an real.");
-          }
-          n++;
-        } else if (strcmp(param[n], "interpolate") == 0){
-          if (!is_valid_real(param[n+1], &n_interpolate)) {
-            PRINT_INPUT_ERROR("interpolate should be an real.");
-          }
-          n++;
-        } else if (strcmp(param[n], "dist_range") == 0){
-          if (!is_valid_real(param[n+1], &min_dist) ||
-              !is_valid_real(param[n+2], &max_dist)) {
-            PRINT_INPUT_ERROR("dist_range should be two reals.");
-          }
-          n+=2;
-        } else if (strcmp(param[n], "has_mid") == 0){
-          has_mid = true;
-        } else if (strcmp(param[n], "need_relax") == 0){
-          need_relax = true;
-        } else {
-          string text="no keyword match with: ";
-          text += param[n];
-          PRINT_INPUT_ERROR(text.data());
-        }
+        parse_options(param, num_param, n);
       }
-    } else {
-      PRINT_KEYWORD_ERROR(param[0]);
+    if (max_steps <= 0) {
+      PRINT_INPUT_ERROR("Number of steps should > 0.");
     }
-  
-  run_neb();
-  
-  } else {
-    PRINT_KEYWORD_ERROR(param[0]);
-  }
-  if (max_steps <= 0) {
-    PRINT_INPUT_ERROR("Number of steps should > 0.");
+    run_neb();
+    }
+  } else if (strcmp(param[0], "neb_set") == 0){
+    for (int n=1; n<num_param; n++){
+      parse_options(param, num_param, n);
+    }
   }
   
 }
@@ -300,8 +303,8 @@ void NEB::reset_minimizer(int number_of_atoms) {
 void NEB::run_neb() {
   // variable_cell = false;
   vector<double> press_in = {pressure};
-  Atoms *p_is = new Atoms("is.xyz");
-  Atoms *p_fs = new Atoms("fs.xyz");
+  Atoms *p_is = new Atoms(istate_name.data());
+  Atoms *p_fs = new Atoms(fstate_name.data());
   Atoms *p_mid;
   if (has_mid) p_mid = new Atoms("mid.xyz");
   ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
@@ -318,6 +321,11 @@ void NEB::run_neb() {
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
   }
   natoms_per_image = images[0]->get_natoms();
+  // for dump_position
+  const char* para[] = {"","1"};
+  dump_position.parse(para, 2, images[0]->group);
+  dump_position.preprocess();
+  //
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // reinitialize nep to make sure that natom in it is right
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
@@ -328,13 +336,16 @@ void NEB::run_neb() {
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
+    printf("-----------relax---------\n");
     reset_minimizer(natoms_per_image);
     minimizer->compute(*images.front());
     reset_minimizer(natoms_per_image);
     minimizer->compute(*images.back());
+    printf("-----------relax finish---------\n");
+    write_neb_traj();
   }
   if (n_interpolate > 0){
-    interpolate(5, false);
+    interpolate(n_interpolate, false);
   }
   // printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
   // natoms = (images.size()-2) * natoms_per_image;
@@ -345,14 +356,8 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
 
-  // for dump_position
-  const char* para[] = {"a","1"};
-  dump_position.parse(para, 2, images[0]->group);
-  dump_position.preprocess();
-  vector<double> cpu_positions(natoms_per_image*3);
-  //
   double fnrm2; // used to check if minimization is finished or nimages changes
-  for (int n=0; n < 10; n++){
+  for (int n=0; n < 20; n++){
     initialize_compute();
     reset_minimizer(natoms);
     minimizer->compute(*this);
@@ -364,16 +369,18 @@ void NEB::run_neb() {
       break;
     }
   }
-
-  for (int i=0;i<nimages;i++){
-    if (variable_cell) {
-      Atoms& atoms = *images[i]->get_p_atoms();
-      dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-        atoms.get_positions(), cpu_positions);
-      // print_gpu(atoms.get_positions());
-    }
-  }
+  write_neb_traj();
   dump_position.postprocess();
+}
+
+void NEB::write_neb_traj(){
+  vector<double> cpu_positions(natoms_per_image*3);
+  for (int i=0;i<images.size();i++){
+    Atoms& atoms = *images[i]->get_p_atoms();
+    dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
+      atoms.get_positions(), cpu_positions);
+    // print_gpu(atoms.get_positions());
+  }
 }
 
 void NEB::interpolate(int n, bool has_mid) {
@@ -447,7 +454,8 @@ void NEB::compute()
     image_energies[i] = images[i]->get_energy();
   }
   printf("image_energies: ");
-  for_each(image_energies.begin(), image_energies.end(), [](double i){printf("%f ", i);});
+  for_each(image_energies.begin(), image_energies.end(),
+           [this](double i){printf("%.4f ", i - first_energy);});
   double max_energy = *max_element(image_energies.begin(), image_energies.end());
   potential_per_atom[0] = max_energy;
   printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);

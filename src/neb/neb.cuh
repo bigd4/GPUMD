@@ -55,8 +55,11 @@ private:
   bool climb = true;
   bool variable_cell = true;
   bool var_image_number = true;
-  int vi_interval;
-  double min_dist, max_dist;
+  int vi_interval = 10;
+  double min_dist = 0.005, max_dist = 0.1;
+  string istate_name = "is.xyz";
+  string fstate_name = "fs.xyz";
+  string mid_name = "mid.xyz";
 
 
   cublasHandle_t handle;
@@ -88,6 +91,8 @@ public:
 
   NEB();
 
+  void parse_options(const char** param, int num_param, int& n);
+
   NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)
   {
   }
@@ -105,6 +110,8 @@ public:
   // GPU_Vector<double>& get_forces();
 
   void run_neb();
+
+  void write_neb_traj();
 
   void interpolate(int n, bool has_mid);
 

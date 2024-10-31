@@ -1500,6 +1500,7 @@ static bool get_expanded_box(const double rc, const Box& box, NEP3::ExpandedBox&
   }
 
   if (is_small_box) {
+    #if !defined(NO_THICKNESS_CHECK)
     if (thickness_x > 10 * rc || thickness_y > 10 * rc || thickness_z > 10 * rc) {
       std::cout << "Error:\n"
                 << "    The box has\n"
@@ -1508,6 +1509,7 @@ static bool get_expanded_box(const double rc, const Box& box, NEP3::ExpandedBox&
                 << "    Please increase the periodic direction(s).\n";
       exit(1);
     }
+    #endif
 
     if (box.triclinic) {
       ebox.h[0] = box.cpu_h[0] * ebox.num_cells[0];

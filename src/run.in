@@ -1,9 +1,9 @@
 potential   ./nep.txt
 
-
-neb_run		fire 0.01 10000 k 0.1 p 30 dist_range 0.005 0.1 need_relax interpolate 5
-#neb_press	30
-#neb_vi		20 1.0
+neb_set		is_name is.xyz fs_name fs.xyz
+neb_set		dist_range 0.005 0.1 
+neb_set		k 0.1 p 30 need_relax interpolate 5
+neb_run		fire 0.01 10000 
 
 
 #minimize vcfire 30 0.01 100

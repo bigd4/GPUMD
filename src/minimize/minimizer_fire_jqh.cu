@@ -280,6 +280,8 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     vector_sum(temp1, temp2, v);
     // dx = v*dt
     scalar_multiply(dt, v, temp1);
+    double dr_modulus = sqrt(dot(temp1, temp1));
+    if (dr_modulus > maxstep) scalar_multiply(maxstep/dr_modulus, temp1, temp1);
     vector_sum(position_per_atom, temp1, position_per_atom);
 
     // print_gpu(position_per_atom, "r2"); 
