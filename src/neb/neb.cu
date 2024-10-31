@@ -453,12 +453,16 @@ void NEB::compute()
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
-  printf("image_energies: ");
-  for_each(image_energies.begin(), image_energies.end(),
-           [this](double i){printf("%.4f ", i - first_energy);});
-  double max_energy = *max_element(image_energies.begin(), image_energies.end());
-  potential_per_atom[0] = max_energy;
-  printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+  
+  int base = (max_steps >= 100) ? (max_steps / 100) : 1;
+  if (step % base == 0 ){
+    printf("image_energies: ");
+    for_each(image_energies.begin(), image_energies.end(),
+            [this](double i){printf("%.4f ", i - first_energy);});
+    double max_energy = *max_element(image_energies.begin(), image_energies.end());
+    potential_per_atom[0] = max_energy;
+    printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+  }
   find_min_max();
   // printf("imaxes: ");
   // for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
