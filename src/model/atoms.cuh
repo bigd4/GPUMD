@@ -77,7 +77,7 @@ public:
   vector<int> cpu_type;
   vector<string> cpu_atom_symbol;
   vector<Group> group;
-  vector<double> cpu_positions;
+  // vector<double> cpu_positions;
   GPU_Vector<int> type;
   // GPU_Vector<double> masses;
   // vector<GPU_Vector<double>> velocities;
@@ -85,7 +85,7 @@ public:
   // std::vector<GPU_Vector<double>> virials;
   // double *h; // 18 elements, first 9 are cell, last 9 are the inverse of cell.
   GPU_Vector<double> virials;
-  double *test;
+  // double *test;
 
   Atoms();
 
@@ -98,14 +98,14 @@ public:
   Atoms& operator=(Atoms&&) = default;
 
   Atoms(
-  Force& force0,
-  Box& box0,
-  GPU_Vector<double>& positions0,
-  GPU_Vector<int>& type0,
-  vector<Group>& group0,
-  GPU_Vector<double>& potential_per_atom0,
-  GPU_Vector<double>& forces0,
-  GPU_Vector<double>& virials0);
+    Force& force0,
+    Box& box0,
+    GPU_Vector<double>& positions0,
+    GPU_Vector<int>& type0,
+    vector<Group>& group0,
+    GPU_Vector<double>& potential_per_atom0,
+    GPU_Vector<double>& forces0,
+    GPU_Vector<double>& virials0);
 
   Atoms(Atom& atom, vector<Group>& group0);
 
@@ -150,9 +150,11 @@ public:
   double* deform; // 18 elements, first 9 are deform, last 9 are the inverse.
   GPU_Vector<double> d_h;
 
-  VCWrapper(Atoms& atoms, double *p, int l_p, double* h0);
+  // VCWrapper(Atoms& atoms, double *p, int l_p, double* h0);
+  // VCWrapper(Atoms& atoms, double* p, int l_p);
 
-  VCWrapper(Atoms& atoms, double *p, int l_p);
+  VCWrapper(Atoms& atoms, vector<double> p, double* h0);
+  VCWrapper(Atoms& atoms, vector<double> p);
 
   VCWrapper(const VCWrapper& atoms0, double* new_position);
 

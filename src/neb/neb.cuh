@@ -47,10 +47,12 @@ class NEB: public BaseAtoms
 {
 private:
   double k = 0.1;
+  double pressure = 0.0;
   cublasHandle_t handle;
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
+  vector<double> ref_h = vector<double>(9);
   unique_ptr<Minimizer> minimizer;
 
   void find_min_max();
@@ -66,7 +68,6 @@ public:
   bool var_image_number = true;
   int vi_interval;
   double min_dist, max_dist;
-  // double pressure = 0.0;
   list<int> imaxes;
   int step = 0;
   int max_steps = 0;
@@ -87,6 +88,7 @@ public:
 
   void parse_neb(const char** param, int num_param, Force& force);
 
+  void reset_minimizer(int number_of_atoms);
 
   void compute();
 
@@ -97,6 +99,8 @@ public:
   // GPU_Vector<double>& get_forces();
 
   void run_neb();
+
+  void interpolate(int n, bool has_mid);
 
   // void vcneb();
 

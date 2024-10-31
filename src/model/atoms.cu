@@ -125,6 +125,17 @@ void get_3x3_inverse(double* m, double* m_inv)
       m_inv[n] /= det;
     }
 }
+
+double det_3x3(double *a)
+{
+  double result;
+    result = abs(
+      a[0] * (a[4] * a[8] - a[5] * a[7]) +
+      a[1] * (a[5] * a[6] - a[3] * a[8]) +
+      a[2] * (a[3] * a[7] - a[4] * a[6]));
+  return result;
+}
+
 } // namespace
 
 
@@ -292,15 +303,17 @@ void Atoms::compute()
 double Atoms::get_energy() { return sum(potential_per_atom);}
 
 // atoms should be alive with this wrapper.
-VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p, double* h0)
+VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* h0)
 {
   printf("-----VCWrapper from atoms constructor-----\n");
   p_atoms = &atoms;
   initialize(atoms.natoms);
-  cell_factor = pow(atoms.box.get_volume(), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
+  CHECK(cudaMemcpy(ref_h, h0, 9 * sizeof(double), cudaMemcpyHostToDevice));
+  get_3x3_inverse(ref_h, ref_h+9);
+  cell_factor = pow(det_3x3(ref_h), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
   printf("cell factor: %f\n", cell_factor);
-  CHECK(cudaMemcpy(ref_h, h0, 18 * sizeof(double), cudaMemcpyHostToDevice));
   print_arr(ref_h, 18, "ref_h");
+  int l_p = p.size();
   if (l_p == 1){
     pressure[0] = pressure[4] = pressure[8] = p[0];
   }
@@ -323,8 +336,8 @@ VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p, double* h0)
   printf("wrapper constrcut finish\n");
 }
 
-VCWrapper::VCWrapper(Atoms& atoms, double* p, int l_p)
-: VCWrapper{atoms, p, l_p, atoms.box.cpu_h}{
+VCWrapper::VCWrapper(Atoms& atoms, vector<double> p)
+: VCWrapper{atoms, p, atoms.box.cpu_h}{
   printf("VCWrapper natoms: %d\n", natoms);
 }
 
@@ -449,7 +462,7 @@ void VCWrapper::set_positions() {
   cudaDeviceSynchronize();
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
     // cudaMemcpyDeviceToDevice)); 
-  get_3x3_inverse(deform, &deform[9]);
+  get_3x3_inverse(deform, deform + 9);
   // print_arr(deform, 18, "deform");
   // print_gpu(positions, "positions");
   // print_gpu(p_atoms->positions, "p_atoms->positions");
@@ -470,7 +483,7 @@ void VCWrapper::compute_deform()
   // deform = h0^-1 @ h
   gpu_matmul(handle, &ref_h[9], d_h.data(), deform, 3, 3, 3);
   cudaDeviceSynchronize();
-  get_3x3_inverse(deform, &deform[9]);
+  get_3x3_inverse(deform, deform + 9);
   // printf("compute_deform get_inverse finish\n");
 }
 

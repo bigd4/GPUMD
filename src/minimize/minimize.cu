@@ -139,10 +139,10 @@ void Minimize::parse_minimize(
 
       if (vc){
         printf("variable cell is enabled");
-        double press[1]={pressure};
+        vector<double> press={pressure};
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
-        minimizer->compute(*new VCWrapper(atoms, press, 1));
+        minimizer->compute(*new VCWrapper(atoms, press));
         box = atoms.box;
         position_per_atom = atoms.get_positions();
         potential_per_atom = atoms.get_potential_per_atom();

@@ -54,12 +54,6 @@ public:
 
     virtual void compute(BaseAtoms& atoms){};
 
-    void reset_number_of_atoms(int number_of_atoms){
-      number_of_atoms_ = number_of_atoms;
-      position_per_atom_temp_.resize(number_of_atoms * 3);
-      potential_per_atom_temp_.resize(number_of_atoms);
-      force_per_atom_temp_.resize(number_of_atoms * 3);
-    }
 
 protected:
   void calculate_total_potential(const GPU_Vector<double>& potential_per_atom);
