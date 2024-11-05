@@ -35,7 +35,7 @@ private:
   double alpha = alpha_start;
   int N_neg = 0;
   double P;
-  double maxstep = 0.2;
+  double maxstep = 0.5;
 
 public:
   Minimizer_FIRE_JQH(const int number_of_atoms, const int number_of_steps, const double force_tolerance)

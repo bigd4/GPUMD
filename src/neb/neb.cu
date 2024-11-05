@@ -146,6 +146,7 @@ double max_abs(cublasHandle_t& handle, int size, double* vec)
   int index;
   double result;
   cublasIdamax(handle, size, vec, 1, &index);
+  printf("max index: %d, ", index);
   cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
@@ -212,6 +213,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "fs_name") == 0){
     fstate_name.assign(param[n+1]);
     n++;
+  } else if (strcmp(param[n], "suffix") == 0){
+    string suffix(param[n+1]);
+    istate_name.assign("is_"+suffix+".xyz");
+    fstate_name.assign("fs_"+suffix+".xyz");
+    n++;
   } else if (strcmp(param[n], "mid_name") == 0){
     mid_name.assign(param[n+1]);
     n++;
@@ -238,6 +244,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n+=2;
   } else if (strcmp(param[n], "has_mid") == 0){
     has_mid = true;
+  } else if (strcmp(param[n], "climb") == 0){
+    climb = true;
   } else if (strcmp(param[n], "need_relax") == 0){
     need_relax = true;
   } else {
@@ -273,6 +281,10 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
     if (max_steps <= 0) {
       PRINT_INPUT_ERROR("Number of steps should > 0.");
     }
+    printf("\nStart to do neb calculation.\n");
+    printf("    using the fast inertial relaxation engine (FIRE) method.\n");
+    printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
+
     run_neb();
     }
   } else if (strcmp(param[0], "neb_set") == 0){
@@ -286,11 +298,7 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
 void NEB::reset_minimizer(int number_of_atoms) {
   switch (minimizer_type) {
   case 1:
-    printf("\nStart to do neb calculation.\n");
-    printf("    using the fast inertial relaxation engine (FIRE) method.\n");
-    printf("    with fixed box.\n");
-    printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
-    printf("    for maximally %d steps.\n", max_steps);
+    printf("    for maximally %d steps.\n", max_steps-step);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps-step, force_tolerance));
     break;
@@ -315,6 +323,8 @@ void NEB::run_neb() {
     images.push_back(p_fs);
   }
   else{
+    optimize_factor = pow(p_is->get_natoms(), 1.0/4);
+    printf("optimize_factor=%f\n", optimize_factor);
     map<int,VCWrapper*> mid_list;
     images.push_back(new VCWrapper(*p_is, press_in));
     if (has_mid) images.push_back(new VCWrapper(*p_mid, press_in, ref_h.data()));
@@ -357,7 +367,7 @@ void NEB::run_neb() {
   last_energy = images.back()->get_energy();
 
   double fnrm2; // used to check if minimization is finished or nimages changes
-  for (int n=0; n < 20; n++){
+  while (true){
     initialize_compute();
     reset_minimizer(natoms);
     minimizer->compute(*this);
@@ -374,6 +384,7 @@ void NEB::run_neb() {
 }
 
 void NEB::write_neb_traj(){
+  printf("==========write neb traj==============\n");
   vector<double> cpu_positions(natoms_per_image*3);
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
@@ -443,6 +454,12 @@ void NEB::compute()
 {
   // printf("neb compute\n");
   // compute original forces
+  
+  for (int i=1; i < nimages - 1; i++){
+    // &forces[(i-1) * natoms_per_image*3]
+    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
+          optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+  }
   set_positions();
   for (int i=1; i < nimages - 1; i++){
     // printf("image %d\n", i);
@@ -462,6 +479,9 @@ void NEB::compute()
     double max_energy = *max_element(image_energies.begin(), image_energies.end());
     potential_per_atom[0] = max_energy;
     printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+    if (step % (10* base) == 0 ){
+      write_neb_traj();
+    }
   }
   find_min_max();
   // printf("imaxes: ");
@@ -501,14 +521,23 @@ void NEB::compute()
   CUDA_CHECK_KERNEL;
   }
   check_dist();
+  for (int i=1; i < nimages - 1; i++){
+    // &forces[(i-1) * natoms_per_image*3]
+    gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
+          1/optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
+    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
+          1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+  }
   step++;
+  
 }
 
 void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
   double fmax = max_abs(handle, natoms*3, forces.data());
   printf("fmax=%f\n",fmax);
-  if (vi_count < vi_interval || fmax > 1){
+  if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
+      (vi_count < vi_interval *5 && fmax > 5) || fmax > 10){
     vi_count++;
     return;
   }
@@ -516,7 +545,7 @@ void NEB::check_dist() {
   double nrm2, dist;
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
-  for (int i = 1; i < nimages; i++)
+  for (int i = 1; i < images.size(); i++)
   {
     GPU_Vector<double>& pos1 = images[i-1]->get_positions();
     GPU_Vector<double>& pos2 = images[i]->get_positions();
@@ -535,14 +564,14 @@ void NEB::check_dist() {
       // print_gpu(new_pos, "new_pos");
       images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
       printf("add an image: %d , nimages: %d\n", i, images.size());
+      i++;
       vi_count = 0;
-      break;
-    }else if (dist < min_dist){
+    }else if (dist < min_dist && i != images.size()-1){
       delete(images[i]);
       images.erase(images.begin()+i);
       printf("remove an image: %d , nimages: %d\n", i, images.size());
+      i--;
       vi_count = 0;
-      break;
     }
   }
   
@@ -567,6 +596,10 @@ GPU_Vector<double>& NEB::build_positions()
     images[i]->get_positions().copy_to_device(
       &positions[(i-1) * natoms_per_image*3],
       natoms_per_image*3);
+  }
+  for (int i=1; i < nimages - 1; i++){
+    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
+          1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
   }
   // print_gpu(positions,"neb positions");
   return positions;

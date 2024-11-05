@@ -52,7 +52,7 @@ private:
   bool has_mid = false;
   double n_interpolate = 0;
   bool need_relax = false;
-  bool climb = true;
+  bool climb = false;
   bool variable_cell = true;
   bool var_image_number = true;
   int vi_interval = 10;
@@ -60,6 +60,7 @@ private:
   string istate_name = "is.xyz";
   string fstate_name = "fs.xyz";
   string mid_name = "mid.xyz";
+  double optimize_factor;
 
 
   cublasHandle_t handle;
