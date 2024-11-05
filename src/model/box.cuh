@@ -12,7 +12,7 @@
     You should have received a copy of the GNU General Public License
     along with GPUMD.  If not, see <http://www.gnu.org/licenses/>.
 */
-
+#include<stdio.h>
 #pragma once
 
 class Box
@@ -30,6 +30,30 @@ public:
   double get_volume(void) const;      // get the volume of the box
   void get_inverse(void);             // get the inverse box matrix
   bool get_num_bins(const double rc, int num_bins[]); // get the number of bins in each direction
+
+  Box(){};
+
+  // Box(const Box& box0):
+  //   pbc_x(box0.pbc_x), pbc_y(box0.pbc_y), pbc_z(box0.pbc_z), triclinic(triclinic),
+  //   thickness_x(box0.thickness_x), thickness_y(box0.thickness_y), thickness_z(box0.thickness_z)
+  // {
+  //   printf("box copy constructor\n");
+  //   memcpy(cpu_h, box0.cpu_h, 18*sizeof(double));
+  //   get_inverse();
+  // } 
+
+  Box& operator=(const Box& box0){
+    printf("box = constructor\n");
+    pbc_x = box0.pbc_x;
+    pbc_y = box0.pbc_y;
+    pbc_z = box0.pbc_z;
+    triclinic = box0.triclinic;
+    thickness_x = box0.thickness_x;
+    thickness_y = box0.thickness_y;
+    thickness_z = box0.thickness_z;
+    memcpy(cpu_h, box0.cpu_h, 18*sizeof(double));
+    return *this;
+  }
 };
 
 inline __host__ __device__ void apply_mic(const Box& box, double& x12, double& y12, double& z12)

@@ -72,6 +72,7 @@ private:
   unique_ptr<Minimizer> minimizer;
   list<int> imaxes;
   Dump_Position dump_position;
+  int dump_interval = -1;
   int step = 0;
   int max_steps = 0;
   double force_tolerance = 0.0;
@@ -102,7 +103,7 @@ public:
 
   void parse_neb(const char** param, int num_param, Force& force);
 
-  void reset_minimizer(int number_of_atoms);
+  void reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance);
 
   void compute();
 

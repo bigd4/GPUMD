@@ -310,12 +310,12 @@ void Atoms::compute()
 double Atoms::get_energy() { return sum(potential_per_atom);}
 
 // atoms should be alive with this wrapper.
-VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* h0)
+VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* ref_h0)
 {
   printf("-----VCWrapper from atoms constructor-----\n");
   p_atoms = &atoms;
   initialize(atoms.natoms);
-  CHECK(cudaMemcpy(ref_h, h0, 9 * sizeof(double), cudaMemcpyHostToDevice));
+  CHECK(cudaMemcpy(ref_h, ref_h0, 9 * sizeof(double), cudaMemcpyHostToDevice));
   get_3x3_inverse(ref_h, ref_h+9);
   cell_factor = pow(det_3x3(ref_h), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
   printf("cell factor: %f\n", cell_factor);
@@ -359,8 +359,8 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   CHECK(cudaMallocManaged(&deform, 18 * sizeof(double)));
   CHECK(cudaMallocManaged(&virial, 9 * sizeof(double)));
   cudaMemcpy(ref_h, vcatoms0.ref_h, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
-  cudaMemcpy(deform, vcatoms0.deform, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
-  cudaMemcpy(virial, vcatoms0.virial, 9 * sizeof(double), cudaMemcpyDeviceToDevice);
+  // cudaMemcpy(deform, vcatoms0.deform, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
+  // cudaMemcpy(virial, vcatoms0.virial, 9 * sizeof(double), cudaMemcpyDeviceToDevice);
   CUDA_CHECK_KERNEL;
   
   d_h = vcatoms0.d_h;
@@ -491,6 +491,7 @@ void VCWrapper::compute_deform()
   gpu_matmul(handle, &ref_h[9], d_h.data(), deform, 3, 3, 3);
   cudaDeviceSynchronize();
   get_3x3_inverse(deform, deform + 9);
+  // print_arr(deform, 18, "deform");
   // printf("compute_deform get_inverse finish\n");
 }
 

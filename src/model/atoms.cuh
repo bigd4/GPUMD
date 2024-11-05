@@ -46,8 +46,6 @@ public:
   virtual void compute() = 0;
 
   virtual GPU_Vector<double>& get_positions() { return positions;}
-
-  virtual void set_positions(GPU_Vector<double>& positions0) { positions = move(positions0);}
   
   virtual GPU_Vector<double>& get_potential_per_atom(){
     return potential_per_atom;
@@ -172,8 +170,10 @@ public:
 
   GPU_Vector<double>& get_potential_per_atom();
 
+  // from positions and box of atoms to build vcwrapper positions
   GPU_Vector<double>& build_positions();
 
+  // use updated vcwrapper positions to reset atoms positions and box
   void set_positions();
 
   Atoms* get_p_atoms() {return p_atoms;}
