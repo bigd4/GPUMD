@@ -1,8 +1,8 @@
 potential   ./nep.txt
 
-neb_set		is_name is.xyz fs_name fs.xyz
+neb_set		is_name is.xyz fs_name fs.xyz mid_name mid.xyz
 neb_set		dist_range 0.005 0.1 
-neb_set		k 0.1 p 30 need_relax interpolate 5
+neb_set		k 0.1 p 30 interpolate 3 has_mid #need_relax 
 neb_run		fire 0.01 10000 
 
 

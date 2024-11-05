@@ -194,6 +194,8 @@ public:
 
 void print_arr(double* a, size_t size,const char* name="");
 
+void print_arr(int* a, size_t size,const char* name="");
+
 void print_gpu(GPU_Vector<int>& a, const char* name="");
 
 void print_gpu(GPU_Vector<double>& a, const char* name="");

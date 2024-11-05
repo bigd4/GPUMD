@@ -10,6 +10,7 @@
 #include "model/atom.cuh"
 #include <deque>
 #include <list>
+#include <map>
 #include <cstring>
 #include <cmath>
 using namespace std;
@@ -50,7 +51,7 @@ private:
   double k = 0.1;
   double pressure = 0.0;
   bool has_mid = false;
-  double n_interpolate = 0;
+  int n_interpolate = 3;
   bool need_relax = false;
   bool climb = false;
   bool variable_cell = true;
@@ -76,6 +77,7 @@ private:
   double force_tolerance = 0.0;
   int minimizer_type = 0;
   int nimages, natoms_per_image;
+  map<int,Atoms*> mid_list;
 
 
   void find_min_max();
@@ -114,7 +116,7 @@ public:
 
   void write_neb_traj();
 
-  void interpolate(int n, bool has_mid);
+  void interpolate(int n);
 
   // void vcneb();
 

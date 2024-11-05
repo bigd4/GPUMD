@@ -217,6 +217,7 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     string suffix(param[n+1]);
     istate_name.assign("is_"+suffix+".xyz");
     fstate_name.assign("fs_"+suffix+".xyz");
+    mid_name.assign("mid_"+suffix+".xyz");
     n++;
   } else if (strcmp(param[n], "mid_name") == 0){
     mid_name.assign(param[n+1]);
@@ -232,7 +233,7 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     n++;
   } else if (strcmp(param[n], "interpolate") == 0){
-    if (!is_valid_real(param[n+1], &n_interpolate)) {
+    if (!is_valid_int(param[n+1], &n_interpolate)) {
       PRINT_INPUT_ERROR("interpolate should be an real.");
     }
     n++;
@@ -247,6 +248,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "climb") == 0){
     climb = true;
   } else if (strcmp(param[n], "need_relax") == 0){
+    need_relax = true;
+  } else if (strcmp(param[n], "climb") == 0){
     need_relax = true;
   } else {
     string text="no keyword match with: ";
@@ -314,7 +317,7 @@ void NEB::run_neb() {
   Atoms *p_is = new Atoms(istate_name.data());
   Atoms *p_fs = new Atoms(fstate_name.data());
   Atoms *p_mid;
-  if (has_mid) p_mid = new Atoms("mid.xyz");
+  if (has_mid) p_mid = new Atoms(mid_name.data());
   ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
   print_arr(ref_h.data(), 9, "vector ref_h");
   if (!variable_cell){
@@ -325,9 +328,11 @@ void NEB::run_neb() {
   else{
     optimize_factor = pow(p_is->get_natoms(), 1.0/4);
     printf("optimize_factor=%f\n", optimize_factor);
-    map<int,VCWrapper*> mid_list;
     images.push_back(new VCWrapper(*p_is, press_in));
-    if (has_mid) images.push_back(new VCWrapper(*p_mid, press_in, ref_h.data()));
+    if (has_mid){
+      images.push_back(new VCWrapper(*p_mid, press_in, ref_h.data()));
+      mid_list[n_interpolate/2 + 1] = p_mid;
+    }
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
   }
   natoms_per_image = images[0]->get_natoms();
@@ -355,9 +360,9 @@ void NEB::run_neb() {
     write_neb_traj();
   }
   if (n_interpolate > 0){
-    interpolate(n_interpolate, false);
+    interpolate(n_interpolate);
   }
-  // printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
   // natoms = (images.size()-2) * natoms_per_image;
   // print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
 
@@ -394,21 +399,38 @@ void NEB::write_neb_traj(){
   }
 }
 
-void NEB::interpolate(int n, bool has_mid) {
+void NEB::interpolate(int n) {
   printf("neb interpolate\n");
-  GPU_Vector<double>& ipos = images.front()->get_positions();
-  GPU_Vector<double>& fpos = images.back()->get_positions();
-  GPU_Vector<double> dpos(ipos.size()), cur_pos(ipos.size());
-  if (!has_mid){
+  GPU_Vector<double> dpos(images[0]->get_positions().size()), cur_pos(images[0]->get_positions().size());
+  vector<int> i_keyframe={0};
+  vector<Atoms*> keyframe={images.front()};
+  int n_key=0;
+  for (auto it=mid_list.begin(); it!=mid_list.end();it++){
+    i_keyframe.push_back(it->first+n_key);
+    keyframe.push_back(it->second);
+    n_key++;
+  }
+  i_keyframe.push_back(n_interpolate+n_key+1);
+  keyframe.push_back(images.back());
+  print_arr(i_keyframe.data(), i_keyframe.size(), "i_k");  
+  for (int k=0; k<n_key+1;k++){
+    GPU_Vector<double>& ipos = keyframe[k]->get_positions();
+    GPU_Vector<double>& fpos = keyframe[k+1]->get_positions();
     vector_add(dpos, fpos, ipos, 1.0, -1.0);
-    for (int i=1;i<=n;i++){
-      vector_add(cur_pos, ipos, dpos, 1, double(i)/n);
+    int n_cur = i_keyframe[k+1] - i_keyframe[k];
+    for (int i_cur=1;i_cur<=n_cur;i_cur++){
+      printf("k=%d, i_cur=%d, nimages=(%d)%d\n",k,i_cur,i_keyframe[k]+k+i_cur,images.size());
+      vector_add(cur_pos, ipos, dpos, 1, double(i_cur)/(n_cur+1));
       if (variable_cell){
         VCWrapper* new_vcatoms = new VCWrapper(images[0], cur_pos.data());
-        images.insert(images.begin()+i, new_vcatoms);
+        images.insert(images.begin()+i_keyframe[k]+k+i_cur, new_vcatoms);
+      } else {
+        Atoms* new_atoms = new Atoms(*images[0], cur_pos.data());
+        images.insert(images.begin()+i_keyframe[k]+k+i_cur, new_atoms);
       }
     }
   }
+  // printf("neb interpolate finish\n");
 }
 
 void NEB::initialize_compute() {

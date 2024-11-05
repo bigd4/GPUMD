@@ -4,9 +4,16 @@
 cublasHandle_t handle;
 
 
-void print_arr(double* a, size_t size,const char* name){
+void print_arr(double* a, size_t size, const char* name){
   for (int i=0;i<size;i++){
     printf("%7.3f ", a[i]);
+  }
+  printf("\n----arr-----%s--------------\n", name);
+}
+
+void print_arr(int* a, size_t size, const char* name){
+  for (int i=0;i<size;i++){
+    printf("%d ", a[i]);
   }
   printf("\n----arr-----%s--------------\n", name);
 }
@@ -163,7 +170,7 @@ Atoms::Atoms(const Atoms& atoms0)
   group = atoms0.group;
   forces.resize(natoms * 3, 0);
   virials.resize(natoms * 9);
-  printf("Atoms copy constructor finish\n");
+  // printf("Atoms copy constructor finish\n");
 }
 
 Atoms::Atoms(
@@ -357,7 +364,7 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   CUDA_CHECK_KERNEL;
   
   d_h = vcatoms0.d_h;
-  print_gpu(d_h, "d_h");
+  // print_gpu(d_h, "d_h");
   cell_factor = vcatoms0.cell_factor;
   // print_gpu(const_cast<GPU_Vector<double>&>(atoms0.positions), "atoms0.pos");
   pressure = vcatoms0.pressure;
