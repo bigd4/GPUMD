@@ -1,7 +1,6 @@
 #include "neb.cuh"
 #include "force/nep3.cuh"
 #include <algorithm>
-#include <map>
 
 namespace
 {
@@ -13,11 +12,33 @@ __global__ void gpu_multiply(double* result, double a, double* b, const int size
 }
 
 __global__ void gpu_vector_add(double* result, double* a, double* b, const int size,
-                              double alpha=1.0, double beta=1.0)
+                              double alpha=1.0, double beta=1.0, double c=0.0)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   if (n < size)
-    result[n] = alpha * a[n] + beta * b[n];
+    result[n] = alpha * a[n] + beta * b[n] + c;
+}
+
+__global__ void gpu_vector_add_scalar(double* result, double* a, double alpha, const int size)
+{
+  int n = blockDim.x * blockIdx.x + threadIdx.x;
+  if (n < size)
+    result[n] = a[n] + alpha;
+}
+
+void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+              double alpha=1.0, double beta=1.0, double c=0.0)
+{
+  int size = a.size();
+  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>
+    (result.data(), a.data(), b.data(), size, alpha, beta, c);
+}
+
+void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+{
+  int size = a.size();
+  gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
+    (result.data(), a.data(), alpha, size);
 }
 
 __global__ void gpu_vector_substract(double* result, const int size, double* a, double* b)
@@ -34,22 +55,6 @@ __global__ void gpu_vector_substract(double* result, const int size, double* a, 
 // {
 //   int n = blockDim.x * blockIdx.x + threadIdx.x;
 //   if (n < nl) result[n] = alpha * (a1[n]*b1[n] + a2[n]*b2[n] + a3[n]*b3[n]);
-// }
-
-// void nx3_nx3_vdot(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-//                   int nl, double alpha=1.0)
-// {
-//   gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result.data(), nl, 
-//     a.data(), a.data()+nl, a.data()+2*nl,
-//     b.data(), b.data()+nl, b.data()+2*nl, alpha);
-// }
-
-// void nx3_nx3_vdot(double* result, double* a, double* b,
-//                   int nl, double alpha=1.0)
-// {
-//   gpu_vdot<<<(nl*3 -1)/128 + 1, 128>>>(result, nl, 
-//     a, a+nl, a+2*nl,
-//     b, b+nl, b+2*nl, alpha);
 // }
 
 
@@ -88,7 +93,7 @@ void n_nx3_multiply(double* result, double* a, double* b,
   }
 }
 
-__global__ void gpu_sum(const int size, double* a, double* result)
+__global__ void gpu_sum(double* a, const int size, double* result)
 {
   int number_of_patches = (size - 1) / 1024 + 1;
   int tid = threadIdx.x;
@@ -115,9 +120,23 @@ double sum(GPU_Vector<double>& a)
 {
   double ret;
   GPU_Vector<double> result(1);
-  gpu_sum<<<1, 1024>>>(a.size(), a.data(), result.data());
+  gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
   result.copy_to_host(&ret);
   return ret;
+}
+
+
+void sum2d(GPU_Vector<double>& a, double* result, int len, int nla=0)
+{
+  int nl = (nla==0) ? a.size() / len : nla;
+  GPU_Vector<double> temp(a.size());
+  GPU_Vector<double> d_result(len);
+  temp.copy_from_device(a.data());
+
+  for (int i=0;i<len;i++){
+    gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
+  }
+  d_result.copy_to_host(result);
 }
 
 double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
@@ -133,13 +152,6 @@ void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
 }
 
-void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-              double alpha=1.0, double beta=1.0)
-{
-  int size = a.size();
-  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>
-    (result.data(), a.data(), b.data(), size, alpha, beta);
-}
 
 double max_abs(cublasHandle_t& handle, int size, double* vec)
 {
@@ -342,6 +354,24 @@ void NEB::run_neb() {
       mid_list[n_interpolate/2 + 1] = p_tmp;
     }
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
+    if (remove_transition){
+      double center[3];
+      double ref_center[3];
+      ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
+      ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
+      ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
+      for (auto it=images.begin();it!=images.end();it++){
+        int natoms = (*it)->get_p_atoms()->type.size();
+        GPU_Vector<double>& pos = (*it)->get_positions();
+        sum2d(pos, center, 3, natoms);
+        // print_arr(center, 3, "center");
+        for (int i=0;i<3;i++){
+          center[i] /= natoms;
+          gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>
+              (pos.data() + i*natoms, pos.data() + i*natoms, ref_center[i]-center[i], natoms);
+        }
+      }
+    }
   }
   natoms_per_image = images[0]->get_natoms();
   // for dump_position
