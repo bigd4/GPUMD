@@ -274,6 +274,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
         step,
         cpu_total_potential_[0],
         force_max);
+      fflush(stdout);
       if (force_max < force_tolerance_)
         break;
     }
