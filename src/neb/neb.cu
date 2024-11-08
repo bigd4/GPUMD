@@ -76,22 +76,22 @@ void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<d
   gpu_pairwise_product<<<(size - 1) / 128 + 1, 128>>>(c.data(), a.data(), b.data(), size);
 }
 
-void n_nx3_multiply(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-                    int nl, double alpha=1.0)
-{
-  for (int i=0; i<3;i++) {
-  gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(
-    result.data() + i*nl, a.data(), b.data() + i*nl, nl, alpha);
-  }
-}
+// void n_nx3_multiply(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+//                     int nl, double alpha=1.0)
+// {
+//   for (int i=0; i<3;i++) {
+//   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(
+//     result.data() + i*nl, a.data(), b.data() + i*nl, nl, alpha);
+//   }
+// }
 
-void n_nx3_multiply(double* result, double* a, double* b,
-                  int nl, double alpha=1.0)
-{
-  for (int i=0; i<3;i++) {
-  gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
-  }
-}
+// void n_nx3_multiply(double* result, double* a, double* b,
+//                   int nl, double alpha=1.0)
+// {
+//   for (int i=0; i<3;i++) {
+//   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
+//   }
+// }
 
 __global__ void gpu_sum(double* a, const int size, double* result)
 {

@@ -108,7 +108,7 @@ void gpu_matmul(cublasHandle_t& handle, double* mA, double* mB, double* mC,
   int ldb = (transb != CUBLAS_OP_T)? K: N;
   cublasStatus_t stat;
   // printf("lda: %d, ldb: %d\n",lda, ldb);
-  stat = cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
+  cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
     M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
   // printf("cublas error code: %d\n", stat);
 }

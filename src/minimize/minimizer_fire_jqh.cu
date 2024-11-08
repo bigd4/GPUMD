@@ -119,7 +119,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       n++;
     } else if (strcmp(param[n], "dt_0") == 0){
       double tmp_dt_0;
-      if (!is_valid_real(param[n+1], &f_inc)) {
+      if (!is_valid_real(param[n+1], &tmp_dt_0)) {
         PRINT_INPUT_ERROR("dt_0 should be a number.");
       }
       dt_0 = tmp_dt_0 / TIME_UNIT_CONVERSION;
@@ -228,25 +228,6 @@ void Minimizer_FIRE_JQH::compute(
   }
 
   printf("Energy minimization finished.\n");
-}
-static void print_gpu(GPU_Vector<double> a, char* name=""){
-  int size = a.size();
-  double temp[size];
-  a.copy_to_host(temp);
-  for (int i=0;i<size;i++){
-    printf("%f ", temp[i]);
-  }
-  printf("\n---gpu------%s--------------\n", name);
-}
-
-static void print_gpu(GPU_Vector<int> a, char* name=""){
-  int size = a.size();
-  int temp[size];
-  a.copy_to_host(temp);
-  for (int i=0;i<size;i++){
-    printf("%d ", temp[i]);
-  }
-  printf("\n---gpu------%s--------------\n", name);
 }
 
 void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
