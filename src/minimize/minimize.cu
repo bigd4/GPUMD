@@ -87,8 +87,8 @@ void Minimize::parse_minimize(
     vc = true;
     minimizer_type = 1;
 
-    if (num_param != 5) {
-      PRINT_INPUT_ERROR("minimize vcfire should have 3 parameters: pressure, force_tol, nsteps.");
+    if (num_param < 5) {
+      PRINT_INPUT_ERROR("minimize vcfire should have at least 3 parameters: pressure, force_tol, nsteps.");
     }
 
     if (!is_valid_real(param[2], &pressure)) {
@@ -142,6 +142,7 @@ void Minimize::parse_minimize(
         vector<double> press={pressure};
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
+        dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, 5);
         minimizer->compute(*new VCWrapper(atoms, press));
         box = atoms.box;
         position_per_atom = atoms.get_positions();

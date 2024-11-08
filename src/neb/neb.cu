@@ -382,10 +382,10 @@ void NEB::run_neb() {
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // reinitialize nep to make sure that natom in it is right
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
-      printf("nep forces\n");
-      int n = natoms_per_image;
-      if (variable_cell) n -= 3;
-      dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n);
+    printf("nep forces\n");
+    int n = natoms_per_image;
+    if (variable_cell) n -= 3;
+    dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
@@ -427,7 +427,7 @@ void NEB::run_neb() {
 }
 
 void NEB::write_neb_traj(){
-  printf("==========write neb traj==============\n");
+  printf("============write neb traj==============\n");
   vector<double> cpu_positions(natoms_per_image*3);
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
@@ -491,21 +491,13 @@ void NEB::initialize_compute() {
   image_energies.front() = first_energy;
   image_energies.back() = last_energy;
   
-  
   // GPU_Vector<double>  t1;
   // t1.resize(natoms_per_image*3);
   // vector_substract(t1, images[2]->get_positions(), images[0]->get_positions());
   // print_gpu(t1, "fs-is");
   // print_gpu(images[0]->get_positions(), "pos_is");
   // print_gpu(images[2]->get_positions(), "pos_fs");
-
 }
-
-
-// void NEB::find_min_max(){
-//   for (int i=1, i<niamges-1;i++)
-//   image_energies[i]
-// }
 
 bool in_list(list<int>& mylist, int i){
   list<int>::iterator it = std::find(mylist.begin(), mylist.end(), i);
@@ -724,3 +716,44 @@ void NEB::set_positions()
 //   // printf("image addr: %p\n", &image);
 //   minimizer->compute(image);
 // }
+
+void process(
+  FILE* fid_,
+  const Box& box,
+  const std::vector<std::string>& cpu_atom_symbol,
+  const std::vector<int>& cpu_type,
+  double enthalpy,
+  GPU_Vector<double>& position_per_atom,
+  std::vector<double>& cpu_position_per_atom)
+{
+  const int num_atoms_total = position_per_atom.size() / 3;
+  char precision_str_[] = "%s %g %g %g\n";
+
+  position_per_atom.copy_to_host(cpu_position_per_atom.data());
+  fprintf(fid_, "%d\n", num_atoms_total);
+  fprintf(
+    fid_,
+    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
+    "Properties=species:S:1:pos:R:3 "
+    "enthalpy=%.6f\n",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8],
+    enthalpy);
+  for (int n = 0; n < num_atoms_total; n++) {
+    fprintf(
+      fid_,
+      precision_str_,
+      cpu_atom_symbol[n].c_str(),
+      cpu_position_per_atom[n],
+      cpu_position_per_atom[n + num_atoms_total],
+      cpu_position_per_atom[n + 2 * num_atoms_total]);
+  }
+  fflush(fid_);
+}

@@ -22,26 +22,28 @@
 class Minimizer_FIRE_JQH : public Minimizer
 {
 private:
-  const double f_inc = 1.1;
-  const double f_dec = 0.5;
-  const double alpha_start = 0.25;
-  const double f_alpha = 0.99;
-  const double dt_0 = 1 / TIME_UNIT_CONVERSION; // Time step of 1 fs.
-  const double dt_max = 10 * dt_0;
+  double f_inc = 1.1;
+  double f_dec = 0.5;
+  double alpha_start = 0.25;
+  double f_alpha = 0.99;
+  double dt_0 = 1 / TIME_UNIT_CONVERSION; // Time step of 1 fs.
+  double dt_max = 1 * dt_0;
   const double dt_min = 0.02 * dt_0;
-  const int N_min = 20;
+  int N_min = 20;
   const double m = 5; // The mass of atoms. Doesn't matter in minimization.
   double dt = dt_0;
   double alpha = alpha_start;
   int N_neg = 0;
   double P;
-  double maxstep = 0.5;
+  double max_move = 0.2;
 
 public:
   Minimizer_FIRE_JQH(const int number_of_atoms, const int number_of_steps, const double force_tolerance)
     : Minimizer(number_of_atoms, number_of_steps, force_tolerance)
   {
   }
+
+  void parse_FIRE(const char** param, int num_param, int nstart);
 
   void compute(
     Force& force,

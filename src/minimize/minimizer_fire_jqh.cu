@@ -102,6 +102,57 @@ void vector_sum(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>
 }
 } // namespace
 
+void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstart)
+{
+  for (int n=nstart; n<num_param; n++){
+    if (strcmp(param[n], "max_move") == 0){
+      if (!is_valid_real(param[n+1], &max_move)) {
+        PRINT_INPUT_ERROR("max_move should be a number.");
+      }
+      n++;
+    } else if (strcmp(param[n], "dt_max") == 0){
+      double tmp_dt_max;
+      if (!is_valid_real(param[n+1], &tmp_dt_max)) {
+        PRINT_INPUT_ERROR("dt_max should be a number.");
+      }
+      dt_max = tmp_dt_max / TIME_UNIT_CONVERSION;
+      n++;
+    } else if (strcmp(param[n], "dt_0") == 0){
+      double tmp_dt_0;
+      if (!is_valid_real(param[n+1], &f_inc)) {
+        PRINT_INPUT_ERROR("dt_0 should be a number.");
+      }
+      dt_0 = tmp_dt_0 / TIME_UNIT_CONVERSION;
+      n++;
+    } else if (strcmp(param[n], "f_inc") == 0){
+      if (!is_valid_real(param[n+1], &f_inc)) {
+        PRINT_INPUT_ERROR("f_inc should be a number.");
+      }
+      n++;
+    } else if (strcmp(param[n], "alpha_start") == 0){
+      if (!is_valid_real(param[n+1], &alpha_start)) {
+        PRINT_INPUT_ERROR("alpha_start should be a number.");
+      }
+      n++;
+    } else if (strcmp(param[n], "f_alpha") == 0){
+      if (!is_valid_real(param[n+1], &f_alpha)) {
+        PRINT_INPUT_ERROR("f_alpha should be a number.");
+      }
+      n++;
+    } else if (strcmp(param[n], "N_min") == 0){
+      if (!is_valid_int(param[n+1], &N_min)) {
+        PRINT_INPUT_ERROR("N_min should be an int.");
+      }
+      n++;
+    } else {
+    string text="Invalid option for vcfire: ";
+    text += param[n];
+    PRINT_INPUT_ERROR(text.data());
+    }
+  }
+
+}
+
 void Minimizer_FIRE_JQH::compute(
   Force& force,
   Box& box,
@@ -281,7 +332,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     // dx = v*dt
     scalar_multiply(dt, v, temp1);
     double dr_modulus = sqrt(dot(temp1, temp1));
-    if (dr_modulus > maxstep) scalar_multiply(maxstep/dr_modulus, temp1, temp1);
+    if (dr_modulus > max_move) scalar_multiply(max_move/dr_modulus, temp1, temp1);
     vector_sum(position_per_atom, temp1, position_per_atom);
 
     // print_gpu(position_per_atom, "r2"); 

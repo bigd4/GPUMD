@@ -57,29 +57,30 @@ private:
   bool remove_transition = true;
   bool variable_cell = true;
   bool var_image_number = true;
-  int vi_interval = 10;
+  int vi_interval = 20;
   double min_dist = 0.005, max_dist = 0.1;
+  int dump_interval = -1;
+  int max_steps = 0;
   string istate_name = "is.xyz";
   string fstate_name = "fs.xyz";
   string mid_name = "mid.xyz";
-  double optimize_factor;
 
 
+  // private variables
   cublasHandle_t handle;
-  double first_energy = 0.0;
-  double last_energy = 0.0;
-  int vi_count = 0;
-  vector<double> ref_h = vector<double>(9);
   unique_ptr<Minimizer> minimizer;
   list<int> imaxes;
   Dump_Position dump_position;
-  int dump_interval = -1;
-  int step = 0;
-  int max_steps = 0;
-  double force_tolerance = 0.0;
-  int minimizer_type = 0;
-  int nimages, natoms_per_image;
   map<int,Atoms*> mid_list;
+  vector<double> ref_h = vector<double>(9);
+  double first_energy = 0.0;
+  double last_energy = 0.0;
+  int vi_count = 0;
+  int step = 0;
+  double force_tolerance;
+  int minimizer_type;
+  int nimages, natoms_per_image;
+  double optimize_factor;
 
 
   void find_min_max();
