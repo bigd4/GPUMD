@@ -30,7 +30,7 @@ __global__ void gpu_multiply(const int size, double a, double* b, double* c)
     c[n] = b[n] * a;
 }
 
-__global__ void gpu_vector_sum(const int size, double* a, double* b, double* c)
+__global__ void gpu_vector_add(const int size, double* a, double* b, double* c)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   if (n < size)
@@ -95,10 +95,10 @@ void scalar_multiply(const double& a, GPU_Vector<double>& b, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(size, a, b.data(), c.data());
 }
 
-void vector_sum(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
+void vector_add(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
 {
   int size = a.size();
-  gpu_vector_sum<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
+  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
 }
 } // namespace
 
@@ -156,7 +156,7 @@ void Minimizer_FIRE::compute(
       alpha = alpha_start;
       // move position back
       scalar_multiply(-0.5 * dt, v, temp1);
-      vector_sum(position_per_atom, temp1, position_per_atom);
+      vector_add(position_per_atom, temp1, position_per_atom);
       v.fill(0);
       N_neg = 0;
     }
@@ -167,13 +167,13 @@ void Minimizer_FIRE::compute(
     double v_modulus = sqrt(dot(v, v));
     // dv = F/m*dt
     scalar_multiply(dt / m, force_per_atom, temp2);
-    vector_sum(v, temp2, v);
+    vector_add(v, temp2, v);
     scalar_multiply(1 - alpha, v, temp1);
     scalar_multiply(alpha * v_modulus / F_modulus, force_per_atom, temp2);
-    vector_sum(temp1, temp2, v);
+    vector_add(temp1, temp2, v);
     // dx = v*dt
     scalar_multiply(dt, v, temp1);
-    vector_sum(position_per_atom, temp1, position_per_atom);
+    vector_add(position_per_atom, temp1, position_per_atom);
   }
 
   printf("Energy minimization finished.\n");

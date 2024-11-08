@@ -143,7 +143,7 @@ void Minimize::parse_minimize(
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
         dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, 5);
-        VCWrapper vcatoms = *new VCWrapper(atoms, press);
+        VCWrapper& vcatoms = *new VCWrapper(atoms, press);
         printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());
         minimizer->compute(vcatoms);
         printf("    final enthalpy = %f eV\n", vcatoms.get_energy());
