@@ -72,7 +72,7 @@ protected:
 
 public:
   Box box;
-  vector<int> cpu_type;
+  // vector<int> cpu_type;
   vector<string> cpu_atom_symbol;
   vector<Group> group;
   // vector<double> cpu_positions;
@@ -94,11 +94,22 @@ public:
   Atoms(Atoms&&) = default;
 
   Atoms& operator=(Atoms&&) = default;
+  
+  Atoms(
+    Force& force0,
+    Box& box0,
+    GPU_Vector<double>& positions0,
+    GPU_Vector<int>& type0,
+    vector<Group>& group0,
+    GPU_Vector<double>& potential_per_atom0,
+    GPU_Vector<double>& forces0,
+    GPU_Vector<double>& virials0);
 
   Atoms(
     Force& force0,
     Box& box0,
     GPU_Vector<double>& positions0,
+    vector<string> cpu_atom_symbol0,
     GPU_Vector<int>& type0,
     vector<Group>& group0,
     GPU_Vector<double>& potential_per_atom0,
@@ -199,3 +210,18 @@ void print_arr(int* a, size_t size,const char* name="");
 void print_gpu(GPU_Vector<int>& a, const char* name="");
 
 void print_gpu(GPU_Vector<double>& a, const char* name="");
+
+void save_one_frame(
+  FILE* fid_,
+  const Box& box,
+  double enthalpy,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom,
+  std::vector<double>& cpu_position_per_atom);
+
+void save_one_frame(
+  FILE* fid_,
+  const Box& box,
+  double enthalpy,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom);

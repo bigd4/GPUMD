@@ -16,6 +16,7 @@
 #pragma once
 #include "utilities/gpu_vector.cuh"
 #include <vector>
+#include <string>
 #include "force/force.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
@@ -36,5 +37,7 @@ public:
     std::vector<Group>& group,
     GPU_Vector<double>& potential_per_atom,
     GPU_Vector<double>& force_per_atom,
-    GPU_Vector<double>& virial_per_atom);
+    GPU_Vector<double>& virial_per_atom,
+    const std::vector<std::string>& cpu_atom_symbol = std::vector<std::string>());
+
 };

@@ -38,7 +38,8 @@ void Minimize::parse_minimize(
   std::vector<Group>& group,
   GPU_Vector<double>& potential_per_atom,
   GPU_Vector<double>& force_per_atom,
-  GPU_Vector<double>& virial_per_atom)
+  GPU_Vector<double>& virial_per_atom,
+  const std::vector<string>& cpu_atom_symbol)
 {
 
   int minimizer_type = 0;
@@ -151,6 +152,11 @@ void Minimize::parse_minimize(
         box = atoms.box;
         position_per_atom = atoms.get_positions();
         potential_per_atom = atoms.get_potential_per_atom();
+        if (cpu_atom_symbol.size() > 0){
+          FILE *fid = my_fopen("relaxed.xyz", "w");
+          save_one_frame(fid, box, vcatoms.get_energy(), cpu_atom_symbol, position_per_atom);
+          fclose(fid);
+        }
         }
       else{
         minimizer.reset(new Minimizer_FIRE(number_of_atoms, number_of_steps, force_tolerance));
@@ -171,3 +177,25 @@ void Minimize::parse_minimize(
       break;
   }
 }
+
+// void Minimize::parse_minimize(
+//   const char** param,
+//   int num_param,
+//   Force& force,
+//   Box& box,
+//   std::vector<Group>& group,
+//   Atom& atom)
+// {
+//   parse_minimize(
+//       param,
+//       num_param,
+//       force,
+//       box,
+//       atom.position_per_atom,
+//       atom.type,
+//       group,
+//       atom.potential_per_atom,
+//       atom.force_per_atom,
+//       atom.virial_per_atom,
+//       atom.cpu_atom_symbol);
+// }

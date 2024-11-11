@@ -429,9 +429,11 @@ void NEB::run_neb() {
 void NEB::write_neb_traj(){
   printf("============write neb traj==============\n");
   vector<double> cpu_positions(natoms_per_image*3);
+  vector<int> cpu_type((*images[0]->get_p_atoms()).type.size());
+  (*images[0]->get_p_atoms()).type.copy_to_host(cpu_type.data());
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
-    dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
+    dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, cpu_type,
       atoms.get_positions(), cpu_positions);
     // print_gpu(atoms.get_positions());
   }
@@ -717,43 +719,3 @@ void NEB::set_positions()
 //   minimizer->compute(image);
 // }
 
-void process(
-  FILE* fid_,
-  const Box& box,
-  const std::vector<std::string>& cpu_atom_symbol,
-  const std::vector<int>& cpu_type,
-  double enthalpy,
-  GPU_Vector<double>& position_per_atom,
-  std::vector<double>& cpu_position_per_atom)
-{
-  const int num_atoms_total = position_per_atom.size() / 3;
-  char precision_str_[] = "%s %g %g %g\n";
-
-  position_per_atom.copy_to_host(cpu_position_per_atom.data());
-  fprintf(fid_, "%d\n", num_atoms_total);
-  fprintf(
-    fid_,
-    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
-    "Properties=species:S:1:pos:R:3 "
-    "enthalpy=%.6f\n",
-    box.cpu_h[0],
-    box.cpu_h[3],
-    box.cpu_h[6],
-    box.cpu_h[1],
-    box.cpu_h[4],
-    box.cpu_h[7],
-    box.cpu_h[2],
-    box.cpu_h[5],
-    box.cpu_h[8],
-    enthalpy);
-  for (int n = 0; n < num_atoms_total; n++) {
-    fprintf(
-      fid_,
-      precision_str_,
-      cpu_atom_symbol[n].c_str(),
-      cpu_position_per_atom[n],
-      cpu_position_per_atom[n + num_atoms_total],
-      cpu_position_per_atom[n + 2 * num_atoms_total]);
-  }
-  fflush(fid_);
-}

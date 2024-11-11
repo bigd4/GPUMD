@@ -356,6 +356,20 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
       atom.potential_per_atom,
       atom.force_per_atom,
       atom.virial_per_atom);
+  } else if (strcmp(param[0], "minimize_save") == 0) {
+    Minimize minimize;
+    minimize.parse_minimize(
+      param,
+      num_param,
+      force,
+      box,
+      atom.position_per_atom,
+      atom.type,
+      group,
+      atom.potential_per_atom,
+      atom.force_per_atom,
+      atom.virial_per_atom,
+      atom.cpu_atom_symbol);
   } else if (strcmp(param[0], "compute_phonon") == 0) {
     Hessian hessian;
     hessian.parse(param, num_param);

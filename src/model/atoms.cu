@@ -195,6 +195,21 @@ Atoms::Atoms(
   virials = virials0;
 }
 
+Atoms::Atoms(
+  Force& force0,
+  Box& box0,
+  GPU_Vector<double>& positions0,
+  vector<string> cpu_atom_symbol0,
+  GPU_Vector<int>& type0,
+  vector<Group>& group0,
+  GPU_Vector<double>& potential_per_atom0,
+  GPU_Vector<double>& forces0,
+  GPU_Vector<double>& virials0)
+  :Atoms(force0, box0, positions0, type0, group0, potential_per_atom0, forces0, virials0)
+{
+  cpu_atom_symbol0 = cpu_atom_symbol0;
+}
+
 Atoms::Atoms(Atom& atom, vector<Group>& group0)
 {
   natoms = atom.number_of_atoms;
@@ -401,6 +416,7 @@ void VCWrapper::initialize(int natoms0) {
   d_h.resize(18);
   positions.resize(natoms*3);
   forces.resize(natoms*3);
+  potential_per_atom.resize(1, Memory_Type::managed);
 }
 
 void VCWrapper::set_calc(Force& force) {
@@ -495,3 +511,59 @@ void VCWrapper::compute_deform()
   // printf("compute_deform get_inverse finish\n");
 }
 
+void save_one_frame(
+  FILE* fid_,
+  const Box& box,
+  double enthalpy,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom,
+  std::vector<double>& cpu_position_per_atom)
+{
+  printf("==========save one frame=============\n");
+  const int num_atoms_total = position_per_atom.size() / 3;
+  char precision_str_[] = "%s %g %g %g\n";
+
+  position_per_atom.copy_to_host(cpu_position_per_atom.data());
+  fprintf(fid_, "%d\n", num_atoms_total);
+  fprintf(
+    fid_,
+    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
+    "Properties=species:S:1:pos:R:3 "
+    "enthalpy=%.6f\n",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8],
+    enthalpy);
+  fflush(fid_);
+  printf("line1\n");
+  printf("cpu_pos size %d\n", cpu_position_per_atom.size());
+  printf("cpu_symbol size %d\n", cpu_atom_symbol.size());
+  for (int n = 0; n < num_atoms_total; n++) {
+    fprintf(
+      fid_,
+      precision_str_,
+      cpu_atom_symbol[n].c_str(),
+      cpu_position_per_atom[n],
+      cpu_position_per_atom[n + num_atoms_total],
+      cpu_position_per_atom[n + 2 * num_atoms_total]);
+  }
+  fflush(fid_);
+}
+
+void save_one_frame(
+  FILE* fid_,
+  const Box& box,
+  double enthalpy,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom)
+{
+  vector<double> cpu_position_per_atom(position_per_atom.size());
+  save_one_frame(fid_, box, enthalpy, cpu_atom_symbol,
+    position_per_atom, cpu_position_per_atom);
+}
