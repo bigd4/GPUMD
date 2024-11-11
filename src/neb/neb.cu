@@ -268,6 +268,12 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     if (dump_interval <= 0) PRINT_INPUT_ERROR("dump_interval should > 0.");
     n++;
+  } else if (strcmp(param[n], "peek_interval") == 0){
+    if (!is_valid_int(param[n+1], &peek_interval)) {
+      PRINT_INPUT_ERROR("peek_interval should be an int.");
+    }
+    if (peek_interval <= 0) PRINT_INPUT_ERROR("peek_interval should > 0.");
+    n++;
   } else if (strcmp(param[n], "has_mid") == 0){
     has_mid = true;
   } else if (strcmp(param[n], "climb") == 0){
@@ -293,7 +299,7 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
     if (strcmp(param[1], "fire") == 0) {
       minimizer_type = 1;
       if (num_param < 4) {
-        PRINT_INPUT_ERROR("minimize fire should have 2 parameters.");
+        PRINT_INPUT_ERROR("minimize fire should have at least 2 parameters.");
       }
 
       if (!is_valid_real(param[2], &force_tolerance)) {
@@ -303,17 +309,22 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
       if (!is_valid_int(param[3], &max_steps)) {
         PRINT_INPUT_ERROR("Number of steps should be an integer.");
       }
-      for (int n=4; n<num_param; n++){
-        parse_options(param, num_param, n);
-      }
-    if (max_steps <= 0) {
-      PRINT_INPUT_ERROR("Number of steps should > 0.");
-    }
-    printf("\nStart to do neb calculation.\n");
-    printf("    using the fast inertial relaxation engine (FIRE) method.\n");
-    printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
 
-    run_neb();
+
+      for (int n=4; n<num_param; n++){
+        optimizer_opt.push_back(param[n]);
+      }
+      // for (int n=4; n<num_param; n++){
+      //   parse_options(param, num_param, n);
+      // }
+      if (max_steps <= 0) {
+        PRINT_INPUT_ERROR("Number of steps should > 0.");
+      }
+      printf("\nStart to do neb calculation.\n");
+      printf("    using the fast inertial relaxation engine (FIRE) method.\n");
+      printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
+
+      run_neb();
     }
   } else if (strcmp(param[0], "neb_set") == 0){
     for (int n=1; n<num_param; n++){
@@ -330,6 +341,7 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
     printf("New minimization, maximally %d steps.\n", max_steps);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps, force_tolerance));
+    // dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(optimizer_opt.data(), optimizer_opt.size(), 0);
     break;
   default:
     PRINT_INPUT_ERROR("Invalid minimizer.");
@@ -562,6 +574,10 @@ void NEB::compute()
   if (dump_interval == -1){
     if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
   } else if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
+  
+  if (peek_interval == -1){
+    if (step % (2* base) == 0 ) write_neb_traj("peek_traj.xyz", "w");
+  } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
 
   find_min_max();
   // printf("imaxes: ");

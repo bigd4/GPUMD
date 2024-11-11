@@ -60,6 +60,7 @@ private:
   int vi_interval = 20;
   double min_dist = 0.005, max_dist = 0.1;
   int dump_interval = -1;
+  int peek_interval = -1;
   int max_steps = 0;
   string istate_name = "is.xyz";
   string fstate_name = "fs.xyz";
@@ -70,6 +71,7 @@ private:
   // private variables
   cublasHandle_t handle;
   unique_ptr<Minimizer> minimizer;
+  vector<const char *>optimizer_opt;
   list<int> imaxes;
   Dump_Position dump_position;
   vector<pair<int,Atoms*>> mid_list;
