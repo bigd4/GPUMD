@@ -64,6 +64,7 @@ private:
   string istate_name = "is.xyz";
   string fstate_name = "fs.xyz";
   string mid_name = "mid.xyz";
+  vector<string> mid_name_list;
 
 
   // private variables
@@ -71,7 +72,7 @@ private:
   unique_ptr<Minimizer> minimizer;
   list<int> imaxes;
   Dump_Position dump_position;
-  map<int,Atoms*> mid_list;
+  vector<pair<int,Atoms*>> mid_list;
   vector<double> ref_h = vector<double>(9);
   double first_energy = 0.0;
   double last_energy = 0.0;
@@ -117,7 +118,7 @@ public:
 
   void run_neb();
 
-  void write_neb_traj();
+  void write_neb_traj(const char* filename, const char* mode);
 
   void interpolate(int n);
 

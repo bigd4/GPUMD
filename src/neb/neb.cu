@@ -234,6 +234,13 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "mid_name") == 0){
     mid_name.assign(param[n+1]);
     n++;
+  } else if (strcmp(param[n], "mid_name_list") == 0){
+    for (int i=n+1; i<num_param; i++){
+      mid_name_list.push_back(string(param[i]));
+      n++;
+      if (strcmp(param[n], "mid_name_list_end") == 0) break;
+    }
+    n++;
   } else if (strcmp(param[n], "k") == 0){
     if (!is_valid_real(param[n+1], &k)) {
       PRINT_INPUT_ERROR("k should be an real.");
@@ -335,23 +342,24 @@ void NEB::run_neb() {
   vector<double> press_in = {pressure};
   Atoms *p_is = new Atoms(istate_name.data());
   Atoms *p_fs = new Atoms(fstate_name.data());
-  Atoms *p_mid;
-  if (has_mid) p_mid = new Atoms(mid_name.data());
   ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
-  print_arr(ref_h.data(), 9, "vector ref_h");
+  if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
+  // print_arr(ref_h.data(), 9, "vector ref_h");
   if (!variable_cell){
     images.push_back(p_is);
-    if (has_mid) images.push_back(p_mid);
+    // if (has_mid) images.push_back(p_mid);
     images.push_back(p_fs);
-  }
-  else{
+  } else{
     optimize_factor = pow(p_is->get_natoms(), 1.0/4);
     printf("optimize_factor=%f\n", optimize_factor);
     images.push_back(new VCWrapper(*p_is, press_in));
     if (has_mid){
-      Atoms *p_tmp = new VCWrapper(*p_mid, press_in, ref_h.data());
-      images.push_back(p_tmp);
-      mid_list[n_interpolate/2 + 1] = p_tmp;
+      for (int i=0; i<mid_name_list.size(); i++){
+        Atoms *p_mid = new Atoms((mid_name_list[i]).data());
+        Atoms *p_tmp = new VCWrapper(*p_mid, press_in, ref_h.data());
+        images.push_back(p_tmp);
+        mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
+      }
     }
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
     if (remove_transition){
@@ -395,11 +403,19 @@ void NEB::run_neb() {
     reset_minimizer(natoms_per_image, 10000, 0.001);
     minimizer->compute(*images.back());
     printf("-----------relax finish---------\n");
-    write_neb_traj();
+    FILE* fid=fopen("relaxed_is_fs.xyz", "w");
+    Atoms& atoms_is = *images.front()->get_p_atoms();
+    save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), atoms_is.cpu_atom_symbol,
+       atoms_is.get_positions());
+    Atoms& atoms_fs = *images.back()->get_p_atoms();
+    save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), atoms_fs.cpu_atom_symbol,
+       atoms_fs.get_positions());
+    fclose(fid);
   }
   if (n_interpolate > 0){
     interpolate(n_interpolate);
   }
+  for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
   // natoms = (images.size()-2) * natoms_per_image;
   // print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
@@ -422,21 +438,25 @@ void NEB::run_neb() {
       break;
     }
   }
-  write_neb_traj();
+  write_neb_traj("final_traj.xyz", "w");
   dump_position.postprocess();
 }
 
-void NEB::write_neb_traj(){
-  printf("============write neb traj==============\n");
+void NEB::write_neb_traj(const char* filename, const char* mode){
+  printf("============write %s==============\n", filename);
+  FILE* fid=fopen(filename, mode);
   vector<double> cpu_positions(natoms_per_image*3);
-  vector<int> cpu_type((*images[0]->get_p_atoms()).type.size());
-  (*images[0]->get_p_atoms()).type.copy_to_host(cpu_type.data());
+  // vector<int> cpu_type((*images[0]->get_p_atoms()).type.size());
+  // (*images[0]->get_p_atoms()).type.copy_to_host(cpu_type.data());
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
-    dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, cpu_type,
-      atoms.get_positions(), cpu_positions);
+    save_one_frame(fid, atoms.box, atoms.get_energy(), atoms.cpu_atom_symbol,
+       atoms.get_positions(), cpu_positions);
+    // dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, cpu_type,
+    //   atoms.get_positions(), cpu_positions);
     // print_gpu(atoms.get_positions());
   }
+  fclose(fid);
 }
 
 void NEB::interpolate(int n) {
@@ -449,6 +469,7 @@ void NEB::interpolate(int n) {
     i_keyframe.push_back(it->first+n_key);
     keyframe.push_back(it->second);
     n_key++;
+    // images.insert(images.begin()+n_key, it->second);
   }
   i_keyframe.push_back(n_interpolate+n_key+1);
   keyframe.push_back(images.back());
@@ -460,16 +481,16 @@ void NEB::interpolate(int n) {
     // printf("ipos len = %d, fpos len = %d\n", ipos.size(), fpos.size());
     // print_gpu(dpos, "dpos");
     int n_cur = i_keyframe[k+1] - i_keyframe[k];
-    for (int i_cur=1;i_cur<=n_cur;i_cur++){
-      printf("k=%d, i_cur=%d, nimages=(%d)%d\n",k,i_cur,i_keyframe[k]+k+i_cur,images.size());
-      vector_add(cur_pos, ipos, dpos, 1, double(i_cur)/(n_cur+1));
+    for (int i_cur=1;i_cur<n_cur;i_cur++){
+      printf("k=%d, i_cur=%d, nimages=(%d)%d\n",k,i_cur,i_keyframe[k]+i_cur,images.size());
+      vector_add(cur_pos, ipos, dpos, 1, double(i_cur)/(n_cur));
       if (variable_cell){
         // print_gpu(cur_pos,"cur_pos");
         VCWrapper* new_vcatoms = new VCWrapper(images[0], cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+k+i_cur, new_vcatoms);
+        images.insert(images.begin()+i_keyframe[k]+i_cur, new_vcatoms);
       } else {
         Atoms* new_atoms = new Atoms(*images[0], cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+k+i_cur, new_atoms);
+        images.insert(images.begin()+i_keyframe[k]+i_cur, new_atoms);
       }
     }
   }
@@ -539,8 +560,8 @@ void NEB::compute()
 
   }
   if (dump_interval == -1){
-    if (step % (10* base) == 0 ) write_neb_traj();
-  } else if (step % dump_interval == 0) write_neb_traj();
+    if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
+  } else if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
 
   find_min_max();
   // printf("imaxes: ");

@@ -251,7 +251,7 @@ Atoms::Atoms(const char* filename)
   // printf("Atoms initialize\n");
 
   initialize(atom);
-  print_arr(box.cpu_h, 18, "box.cpu_h");
+  // print_arr(box.cpu_h, 18, "box.cpu_h");
   // printf("Atoms initialize 2\n");
 }
 
@@ -334,7 +334,7 @@ VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* ref_h0)
   get_3x3_inverse(ref_h, ref_h+9);
   cell_factor = pow(det_3x3(ref_h), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
   printf("cell factor: %f\n", cell_factor);
-  print_arr(ref_h, 18, "ref_h");
+  // print_arr(ref_h, 18, "ref_h");
   int l_p = p.size();
   if (l_p == 1){
     pressure[0] = pressure[4] = pressure[8] = p[0];
@@ -420,7 +420,7 @@ void VCWrapper::initialize(int natoms0) {
 }
 
 void VCWrapper::set_calc(Force& force) {
-    printf("set calc\n");
+    // printf("set calc\n");
     p_atoms -> p_force = &force;
     }
 
@@ -541,9 +541,6 @@ void save_one_frame(
     box.cpu_h[8],
     enthalpy);
   fflush(fid_);
-  printf("line1\n");
-  printf("cpu_pos size %d\n", cpu_position_per_atom.size());
-  printf("cpu_symbol size %d\n", cpu_atom_symbol.size());
   for (int n = 0; n < num_atoms_total; n++) {
     fprintf(
       fid_,
