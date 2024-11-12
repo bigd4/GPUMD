@@ -19,10 +19,8 @@ using namespace std;
 
 struct Spring
 {
-  double k;
-  double de;
+  double k, de, nt;
   GPU_Vector<double> t;
-  double nt;
   
   Spring(){};
 
@@ -38,21 +36,7 @@ protected:
 public:
   BaseTangentMethod(){};
 
-  BaseTangentMethod(double k0)
-  :k(k0) {};
-
-  // virtual void compute_tangent(
-  //   GPU_Vector<double>& tangent,
-  //   GPU_Vector<double>& t1,
-  //   GPU_Vector<double>& t2,
-  //   double de1,
-  //   double de2) = 0;
-
-  // virtual void add_image_force(
-  //   int size,
-  //   double& tangential_force,
-  //   double* tangent,
-  //   double* imgforce) = 0;
+  BaseTangentMethod(double k0):k(k0) {};
     
   virtual GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2) = 0;
   
@@ -63,40 +47,6 @@ public:
     Spring& spring1,
     Spring& spring2,
     double* imgforce) = 0;
-
-};
-
-class ImprovedTangentMethod: public BaseTangentMethod
-{
-public:
-  ImprovedTangentMethod(){};
-
-  ImprovedTangentMethod(double k0)
-  :BaseTangentMethod(k0) {};
-  
-  // void compute_tangent(
-  //   GPU_Vector<double>& tangent,
-  //   GPU_Vector<double>& t1,
-  //   GPU_Vector<double>& t2,
-  //   double de1,
-  //   double de2);
-
-  // void add_image_force(
-  //   int size,
-  //   double& tangential_force,
-  //   double* tangent,
-  //   double* imgforce);
-  
-  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
-
-  void add_image_force(
-    int size,
-    double& tangential_force,
-    double* tangent,
-    Spring& spring1,
-    Spring& spring2,
-    double* imgforce);
-
 };
 
 class NormalTangentMethod: public BaseTangentMethod
@@ -104,8 +54,7 @@ class NormalTangentMethod: public BaseTangentMethod
 public:
   NormalTangentMethod(){};
 
-  NormalTangentMethod(double k0)
-  :BaseTangentMethod(k0) {};
+  NormalTangentMethod(double k0):BaseTangentMethod(k0) {};
   
   GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
 
@@ -116,8 +65,25 @@ public:
     Spring& spring1,
     Spring& spring2,
     double* imgforce);
-
 };
+class ImprovedTangentMethod: public BaseTangentMethod
+{
+public:
+  ImprovedTangentMethod(){};
+
+  ImprovedTangentMethod(double k0):BaseTangentMethod(k0) {};
+  
+  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce);
+};
+
 
 class NEB: public BaseAtoms
 {
@@ -141,6 +107,7 @@ private:
   string fstate_name = "fs.xyz";
   string mid_name = "mid.xyz";
   vector<string> mid_name_list;
+  string tangent_method_name = "normal";
 
 
   // private variables
@@ -160,7 +127,6 @@ private:
   int nimages, natoms_per_image;
   double optimize_factor;
 
-
   void find_min_max();
 
   void initialize_compute();
@@ -171,7 +137,6 @@ public:
   deque<Atoms*> images;
   vector<double> image_energies;
   BaseTangentMethod* tangentmethod;
-
 
   NEB();
 
@@ -197,7 +162,5 @@ public:
   void write_neb_traj(const char* filename, const char* mode);
 
   void interpolate();
-
-  // void vcneb();
 
 };

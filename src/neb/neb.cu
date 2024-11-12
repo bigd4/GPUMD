@@ -178,7 +178,6 @@ bool in_list(list<int>& mylist, int i){
 Spring::Spring(double k0, double de0, GPU_Vector<double> t0):k(k0),de(de0),t(t0)
   {
     cublasDnrm2(handle, t.size(), t.data(), 1, &nt);
-    // printf("t.size %d\n", t.size());
   };
 
 GPU_Vector<double> NormalTangentMethod::compute_tangent(Spring& spring1, Spring& spring2)
@@ -253,23 +252,8 @@ void ImprovedTangentMethod::add_image_force(
   double* imgforce)
 {
   double scalar = -tangential_force + (spring2.nt*spring2.k - spring1.nt*spring1.k);
-  print_gpu(tangent, 6, "tangent 6");
-  print_gpu(imgforce, 6, "img 6");
   cublasDaxpy_v2(handle, size, &scalar, tangent, 1, imgforce, 1);
-  print_gpu(imgforce, 6, "img 6");
 }
-
-// void ImprovedTangentMethod::add_image_force(
-//   int size,
-//   double& tangential_force,
-//   double* tangent,
-//   double * imgforce
-//   )
-// {
-//   // printf("tangential_force: %f, nt2-nt1: %f\n", tangential_force, nt2-nt1);
-//   double scalar = -tangential_force + (nt2 - nt1) * k;
-//   cublasDaxpy(handle, size, &scalar, tangent, 1, imgforce, 1);
-// }
 
 NEB::NEB(){
   cublasCreate(&handle);
@@ -302,6 +286,9 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     if (!is_valid_real(param[n+1], &k)) {
       PRINT_INPUT_ERROR("k should be an real.");
     }
+    n++;
+  } else if (strcmp(param[n], "tangent") == 0){
+    tangent_method_name = string(param[n+1]);
     n++;
   } else if (strcmp(param[n], "p") == 0){
     if (!is_valid_real(param[n+1], &pressure)) {
@@ -337,8 +324,6 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     climb = true;
   } else if (strcmp(param[n], "need_relax") == 0){
     need_relax = true;
-  } else if (strcmp(param[n], "climb") == 0){
-    need_relax = true;
   } else {
     string text="no keyword match with: ";
     text += param[n];
@@ -350,29 +335,21 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
 {
   p_force = &force;
 
-  
   if (strcmp(param[0], "neb_run") == 0) {
     if (strcmp(param[1], "fire") == 0) {
       minimizer_type = 1;
       if (num_param < 4) {
         PRINT_INPUT_ERROR("minimize fire should have at least 2 parameters.");
       }
-
       if (!is_valid_real(param[2], &force_tolerance)) {
         PRINT_INPUT_ERROR("Force tolerance should be a number.");
       }
-
       if (!is_valid_int(param[3], &max_steps)) {
         PRINT_INPUT_ERROR("Number of steps should be an integer.");
       }
-
-
       for (int n=4; n<num_param; n++){
         optimizer_opt.push_back(param[n]);
       }
-      // for (int n=4; n<num_param; n++){
-      //   parse_options(param, num_param, n);
-      // }
       if (max_steps <= 0) {
         PRINT_INPUT_ERROR("Number of steps should > 0.");
       }
@@ -405,8 +382,20 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
   }
 }
 
+BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
+  if (tangent_method_name == string("improved")){
+    return new ImprovedTangentMethod(k);
+  } else if (tangent_method_name == string("normal")){
+    return new NormalTangentMethod(k);
+  } else {
+     printf("No tangent method match with: %s\n", tangent_method_name.data());
+     printf("valid options: improved, normal\n");
+     exit(-1);
+  }
+}
+
 void NEB::run_neb() {
-  tangentmethod = new NormalTangentMethod(k);
+  tangentmethod = get_tangent_method(tangent_method_name, k);
   // tangentmethod = new ImprovedTangentMethod(k);
   // variable_cell = false;
   vector<double> press_in = {pressure};
