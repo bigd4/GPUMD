@@ -158,18 +158,24 @@ double det_3x3(double *a)
 
 
 Atoms::Atoms() {
+  #ifdef DEBUG
     printf("atoms default construtor for %p\n", this);
+  #endif
 }
 
 Atoms::Atoms(const Atoms& atoms0, double* new_position):Atoms(atoms0)
 {
+  #ifdef DEBUG
   printf("Atoms copy + position constructor %p\n", this);
+  #endif
   positions.copy_from_device(new_position);
 }
 
 Atoms::Atoms(const Atoms& atoms0)
 {
+  #ifdef DEBUG
   printf("Atoms copy constructor %p\n", this);
+  #endif
   natoms = atoms0.natoms;
   p_force = atoms0.p_force;
   cpu_atom_symbol = atoms0.cpu_atom_symbol;
@@ -193,7 +199,9 @@ Atoms::Atoms(
   GPU_Vector<double>& forces0,
   GPU_Vector<double>& virials0)
 {
+  #ifdef DEBUG
   printf("Atoms from seperate info constructor %p\n", this);
+  #endif
   natoms = type0.size();
   p_force = &force0;
   box = box0;
@@ -266,8 +274,10 @@ Atoms::Atoms(const char* filename)
 }
 
 Atoms::~Atoms() {
+  #ifdef DEBUG
     printf("atoms destructor for %p\n", this);
-    p_force = NULL;
+  #endif
+  p_force = NULL;
 }
 
 void Atoms::initialize(Atom& atom) {
@@ -337,14 +347,18 @@ double Atoms::get_energy() { return sum(potential_per_atom);}
 // atoms should be alive with this wrapper.
 VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* ref_h0)
 {
+  #ifdef DEBUG
   printf("-----VCWrapper from atoms constructor-----\n");
+  #endif
   p_atoms = &atoms;
   initialize(atoms.natoms);
   CHECK(cudaMemcpy(ref_h, ref_h0, 9 * sizeof(double), cudaMemcpyHostToDevice));
   get_3x3_inverse(ref_h, ref_h+9);
   cell_factor = pow(det_3x3(ref_h), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
+  #ifdef DEBUG
   printf("cell factor: %f\n", cell_factor);
   // print_arr(ref_h, 18, "ref_h");
+  #endif
   int l_p = p.size();
   if (l_p == 1){
     pressure[0] = pressure[4] = pressure[8] = p[0];
@@ -365,17 +379,23 @@ VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* ref_h0)
   for (int i=0;i<9;i++) pressure[i] /= PRESSURE_UNIT_CONVERSION;
   build_positions();
   // print_gpu(positions, "vc positions");
+  #ifdef DEBUG
   printf("wrapper constrcut finish\n");
+  #endif
 }
 
 VCWrapper::VCWrapper(Atoms& atoms, vector<double> p)
 : VCWrapper{atoms, p, atoms.box.cpu_h}{
+  #ifdef DEBUG
   printf("VCWrapper natoms: %d\n", natoms);
+  #endif
 }
 
 VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
 {
+  #ifdef DEBUG
   printf("VCWrapper copy from atoms0 constructor %p\n", this);
+  #endif
   cublasCreate(&handle);
   natoms = vcatoms0.natoms;
   p_atoms = new Atoms(*vcatoms0.p_atoms);
@@ -400,18 +420,24 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   virials = vcatoms0.virials;
   forces.resize(natoms*3);
   positions.resize(natoms*3);
+  #ifdef DEBUG
   printf("size1: %d, nl: %d\n", positions.size(), natoms);
+  #endif
   positions.copy_from_device(new_position);
   // print_gpu(positions, "pos");
   set_positions();
+  #ifdef DEBUG
   printf("VCWrapper copy from atoms0 constructor finish %p\n", this);
+  #endif
 }
 
 VCWrapper::VCWrapper(Atoms* p_atoms0, double* new_position)
 :VCWrapper(*dynamic_cast<VCWrapper*>(p_atoms0), new_position){}
 
 VCWrapper::~VCWrapper() {
+  #ifdef DEBUG
   printf("VCWrapper default desctructor\n");
+  #endif
   cublasDestroy(handle);
 }
 
@@ -529,7 +555,9 @@ void save_one_frame(
   GPU_Vector<double>& position_per_atom,
   std::vector<double>& cpu_position_per_atom)
 {
+  #ifdef DEBUG
   printf("==========save one frame=============\n");
+  #endif
   const int num_atoms_total = position_per_atom.size() / 3;
   char precision_str_[] = "%s %g %g %g\n";
 

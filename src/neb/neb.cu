@@ -155,13 +155,23 @@ void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
 }
 
-
 double max_abs(int size, double* vec)
 {
   int index;
   double result;
   cublasIdamax(handle, size, vec, 1, &index);
   printf("max index: %d, ", index);
+  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+  return abs(result);
+}
+
+double max_abs(int size, double* vec, int nsingle)
+{
+  int index;
+  double result;
+  cublasIdamax(handle, size, vec, 1, &index);
+  printf("max index: %d, ", index);
+  if ((index+9) % nsingle < 9) {printf("cell, ");} else {printf(" pos, ");}
   cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
@@ -389,7 +399,7 @@ BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
     return new NormalTangentMethod(k);
   } else {
      printf("No tangent method match with: %s\n", tangent_method_name.data());
-     printf("valid options: improved, normal\n");
+     printf("Valid Options: improved, normal\n");
      exit(-1);
   }
 }
@@ -476,7 +486,9 @@ void NEB::run_neb() {
     interpolate();
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
+  #ifdef DEBUG
   printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  #endif
   // natoms = (images.size()-2) * natoms_per_image;
   // print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
 
@@ -554,7 +566,6 @@ void NEB::compute()
   Spring spring1{k, image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
-    // vector_substract(t1, images[i]->get_positions(), images[i-1]->get_positions());
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
     Spring spring2{k, image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
@@ -567,7 +578,7 @@ void NEB::compute()
      tangent.data(), 1, &tangential_force);
     // print_gpu(tangential_force, "tangential_force");
     // if (climb && in_list())
-    if (in_list(imaxes, i)){
+    if (climb && in_list(imaxes, i)){
       // print_gpu(spring_force, "spring_force");
       double tmp_num = -2.0 * tangential_force;
       cublasDaxpy(handle, natoms_per_image*3, &tmp_num,
@@ -684,7 +695,7 @@ void NEB::initialize_compute() {
 
 void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  double fmax = max_abs(natoms*3, forces.data());
+  double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
   printf("fmax=%f\n",fmax);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
       (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
