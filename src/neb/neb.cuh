@@ -99,6 +99,26 @@ public:
 
 };
 
+class NormalTangentMethod: public BaseTangentMethod
+{
+public:
+  NormalTangentMethod(){};
+
+  NormalTangentMethod(double k0)
+  :BaseTangentMethod(k0) {};
+  
+  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce);
+
+};
+
 class NEB: public BaseAtoms
 {
 private:
@@ -150,7 +170,7 @@ private:
 public:
   deque<Atoms*> images;
   vector<double> image_energies;
-  ImprovedTangentMethod tangentmethod;
+  BaseTangentMethod* tangentmethod;
 
 
   NEB();

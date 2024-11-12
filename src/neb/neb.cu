@@ -36,7 +36,8 @@ void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<do
     (result.data(), a.data(), b.data(), size, alpha, beta, c);
 }
 
-void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+// vec result = vec a + scalar alpha
+void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
 {
   int size = a.size();
   gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
@@ -173,44 +174,37 @@ bool in_list(list<int>& mylist, int i){
 
 } // namespace
 
-// void ImprovedTangentMethod::compute_tangent(
-//   GPU_Vector<double>& tangent,
-//   GPU_Vector<double>& t1,
-//   GPU_Vector<double>& t2,
-//   double de1,
-//   double de2)
-// {
-//   int size = t1.size();
-//   double nt;
-//   // printf("de1=%f, de2=%f\n", de1, de2);
-//   // print_gpu(t1, "t1");
-//   // print_gpu(t2, "t2");
-//   cublasDnrm2(handle, size, t1.data(), 1, &nt1);
-//   cublasDnrm2(handle, size, t2.data(), 1, &nt2);
-//   // printf("nt1= %f, nt2= %f\n", nt1, nt2);
-//   if (de1 > 0 && de2 > 0) tangent.copy_from_device(t2.data());
-//   else if (de1 < 0 && de2 < 0) tangent.copy_from_device(t1.data());
-//   else{
-//     double scale1, scale2;
-//     double de_max = max(abs(de1), abs(de2));
-//     double de_min = min(abs(de1), abs(de2));
-//     tangent.fill(0.0);
-//     if (de2 + de1 > 0){
-//       scale1 = de_min / nt1;
-//       scale2 = de_max / nt2;
-//     }
-//     else{
-//       scale1 = de_max / nt1;
-//       scale2 = de_min / nt2;
-//     }
-//     cublasDaxpy(handle, size, &scale1, t1.data(), 1, tangent.data(), 1);
-//     cublasDaxpy(handle, size, &scale2, t2.data(), 1, tangent.data(), 1);
-//   }
-//   cublasDnrm2(handle, size, tangent.data(), 1, &nt);
-//   // printf("nt= %f\n", nt);
-//   scalar_multiply(tangent, 1/(nt+1e-10), tangent);
-//   // print_gpu(tangent, "tangent");
-// }
+
+Spring::Spring(double k0, double de0, GPU_Vector<double> t0):k(k0),de(de0),t(t0)
+  {
+    cublasDnrm2(handle, t.size(), t.data(), 1, &nt);
+    // printf("t.size %d\n", t.size());
+  };
+
+GPU_Vector<double> NormalTangentMethod::compute_tangent(Spring& spring1, Spring& spring2)
+{
+  GPU_Vector<double>& t1 = spring1.t;
+  GPU_Vector<double>& t2 = spring2.t;
+  int size = spring1.t.size();
+  GPU_Vector<double> tangent(size);
+  double nt;
+  vector_add(tangent, t1, t2);
+  cublasDnrm2(handle, size, tangent.data(), 1, &nt);
+  scalar_multiply(tangent, 1/(nt+1e-10), tangent);
+  return tangent;
+}
+
+void NormalTangentMethod::add_image_force(
+  int size,
+  double& tangential_force,
+  double* tangent,
+  Spring& spring1,
+  Spring& spring2,
+  double* imgforce)
+{
+  double scalar = -tangential_force + (spring2.nt*spring2.k - spring1.nt*spring1.k);
+  cublasDaxpy_v2(handle, size, &scalar, tangent, 1, imgforce, 1);
+}
 
 GPU_Vector<double> ImprovedTangentMethod::compute_tangent(Spring& spring1, Spring& spring2)
 {
@@ -247,7 +241,7 @@ GPU_Vector<double> ImprovedTangentMethod::compute_tangent(Spring& spring1, Sprin
   // printf("nt= %f\n", nt);
   scalar_multiply(tangent, 1/(nt+1e-10), tangent);
   // print_gpu(tangent, "tangent");
-  return GPU_Vector<double>();
+  return tangent;
 }
 
 void ImprovedTangentMethod::add_image_force(
@@ -259,7 +253,10 @@ void ImprovedTangentMethod::add_image_force(
   double* imgforce)
 {
   double scalar = -tangential_force + (spring2.nt*spring2.k - spring1.nt*spring1.k);
-  cublasDaxpy(handle, size, &scalar, tangent, 1, imgforce, 1);
+  print_gpu(tangent, 6, "tangent 6");
+  print_gpu(imgforce, 6, "img 6");
+  cublasDaxpy_v2(handle, size, &scalar, tangent, 1, imgforce, 1);
+  print_gpu(imgforce, 6, "img 6");
 }
 
 // void ImprovedTangentMethod::add_image_force(
@@ -353,7 +350,6 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
 {
   p_force = &force;
 
-  tangentmethod = ImprovedTangentMethod(k);
   
   if (strcmp(param[0], "neb_run") == 0) {
     if (strcmp(param[1], "fire") == 0) {
@@ -410,6 +406,8 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
 }
 
 void NEB::run_neb() {
+  tangentmethod = new NormalTangentMethod(k);
+  // tangentmethod = new ImprovedTangentMethod(k);
   // variable_cell = false;
   vector<double> press_in = {pressure};
   Atoms *p_is = new Atoms(istate_name.data());
@@ -558,7 +556,7 @@ void NEB::compute()
   // for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
   // printf("\n");
 
-  // --------------start to compute spring force----------------------
+  // -----------------start to compute spring force----------------------
   // GPU_Vector<double> tangent(natoms_per_image*3);
   GPU_Vector<double> t1(natoms_per_image*3);
   GPU_Vector<double> t2(natoms_per_image*3);
@@ -573,7 +571,7 @@ void NEB::compute()
     // print_gpu(t1, "t1");
     // tangentmethod.compute_tangent(tangent, t1, t2,
     //  image_energies[i] - image_energies[i-1], image_energies[i+1] - image_energies[i]);
-    GPU_Vector<double> tangent = tangentmethod.compute_tangent(spring1, spring2);
+    GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
     double tangential_force;
     cublasDdot(handle, 3*natoms_per_image, images[i]->get_forces().data(), 1,
@@ -589,9 +587,11 @@ void NEB::compute()
     else{
       // tangentmethod.add_image_force(natoms_per_image*3,
       //  tangential_force, tangent.data(), &forces[(i-1)*natoms_per_image*3]);
-      tangentmethod.add_image_force(natoms_per_image*3,
+      tangentmethod->add_image_force(natoms_per_image*3,
         tangential_force, tangent.data(), spring1, spring2,
         &forces[(i-1)*natoms_per_image*3]);
+        
+    // print_gpu(tangent, "t");
       // cublasDaxpy(handle, natoms_per_image*3, (new double(1.0)),
       //   spring_force.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
     }
@@ -778,50 +778,3 @@ void NEB::set_positions()
   }
 }
 
-
-// void test(BaseAtoms& atoms){
-//   printf("-------go in test-----------\n");
-//   atoms.get_positions();
-//   printf("-------go out of test-----------\n");
-// }
-
-// void NEB::vcneb() {
-//   unique_ptr<Minimizer> minimizer;
-//   VCWrapper& image = *dynamic_cast<VCWrapper *>(images[0]);
-//   const char* para[] = {"a","1"};
-//   printf("parse_neb image natoms %d\n", images[0]->get_natoms());
-//   image.set_calc(*p_force);
-//   minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
-//   printf("k = %f\n", k);
-//   dump_position.parse(para, 2, image.group);
-//   dump_position.preprocess();
-//   printf("image addr: %p\n", &image);
-//   Atoms& atoms = *image.p_atoms;
-//   vector<double> cpu_positions(atoms.get_positions().size());
-//   printf("------dump_position--------\n");
-//   dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-//       atoms.get_positions(), cpu_positions);
-//   minimizer->compute(image);
-//   printf("------dump_position2--------\n");
-//   dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, atoms.cpu_type,
-//       atoms.get_positions(), cpu_positions);
-// }
-
-// void NEB::norm_neb() {
-//   unique_ptr<Minimizer> minimizer;
-//   Atoms& image = *images[0];
-//   const char* para[] = {"a","1"};
-//   image.set_calc(*p_force);
-//   minimizer.reset(new Minimizer_FIRE_JQH(images[0]->get_natoms(), max_steps, force_tolerance));
-//   printf("k = %f\n", k); 
-//   dump_position.parse(para, 2, image.group);
-//   dump_position.preprocess();
-//   // printf("image addr: %p\n", &image);
-//   minimizer->compute(image);
-// }
-
-Spring::Spring(double k0, double de0, GPU_Vector<double> t0):k(k0),de(de0),t(t0)
-  {
-    cublasDnrm2(handle, t.size(), t.data(), 1, &nt);
-    // printf("t.size %d\n", t.size());
-  };

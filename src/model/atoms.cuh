@@ -213,6 +213,8 @@ void print_gpu(GPU_Vector<int>& a, const char* name="");
 
 void print_gpu(GPU_Vector<double>& a, const char* name="");
 
+void print_gpu(double* a, int size, const char* name="");
+
 void save_one_frame(
   FILE* fid_,
   const Box& box,

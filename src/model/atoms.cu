@@ -38,6 +38,15 @@ void print_gpu(GPU_Vector<double>& a, const char* name){
   printf("\n---gpu------%s--------------\n", name);
 }
 
+void print_gpu(double* a, int size, const char* name){
+  double temp[size];
+  cudaMemcpy(temp, a, size*sizeof(double), cudaMemcpyDeviceToHost);
+  for (int i=0;i<size;i++){
+    printf("%7.4f ", temp[i]);
+  }
+  printf("\n---gpu arr------%s--------------\n", name);
+}
+
 namespace
 {
 cublasHandle_t handle;
