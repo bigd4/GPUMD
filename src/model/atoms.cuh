@@ -68,7 +68,7 @@ class Atoms: public BaseAtoms
 friend class VCWrapper;
 
 protected:
-  cublasHandle_t handle;
+  // cublasHandle_t handle;
 
 public:
   Box box;
@@ -131,6 +131,8 @@ public:
   virtual double get_energy();
 
   // GPU_Vector<double>& get_positions();
+  
+  virtual void set_positions(){};
   
   // GPU_Vector<double>& get_potential_per_atom();
 

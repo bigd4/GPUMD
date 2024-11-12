@@ -17,31 +17,86 @@ using namespace std;
 #include "measure/dump_position.cuh"
 #include "measure/parse_utilities.cuh"
 
-class ImprovedTangentMethod
+struct Spring
 {
-private:
-  double k = 0.1;
-  double nt1, nt2, scale1, scale2;
-  cublasHandle_t handle;
+  double k;
+  double de;
+  GPU_Vector<double> t;
+  double nt;
+  
+  Spring(){};
 
+  Spring(double k0, double de0, GPU_Vector<double> t0);
+};
+
+class BaseTangentMethod
+{
+protected:
+  double k = 0.1;
+  // double nt1, nt2;
+
+public:
+  BaseTangentMethod(){};
+
+  BaseTangentMethod(double k0)
+  :k(k0) {};
+
+  // virtual void compute_tangent(
+  //   GPU_Vector<double>& tangent,
+  //   GPU_Vector<double>& t1,
+  //   GPU_Vector<double>& t2,
+  //   double de1,
+  //   double de2) = 0;
+
+  // virtual void add_image_force(
+  //   int size,
+  //   double& tangential_force,
+  //   double* tangent,
+  //   double* imgforce) = 0;
+    
+  virtual GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2) = 0;
+  
+  virtual void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) = 0;
+
+};
+
+class ImprovedTangentMethod: public BaseTangentMethod
+{
 public:
   ImprovedTangentMethod(){};
 
-  ImprovedTangentMethod(cublasHandle_t& handle0, double k0)
-  :handle(handle0), k(k0) {};
+  ImprovedTangentMethod(double k0)
+  :BaseTangentMethod(k0) {};
   
-  void compute_tangent(
-    GPU_Vector<double>& tangent,
-    GPU_Vector<double>& t1,
-    GPU_Vector<double>& t2,
-    double de1,
-    double de2);
+  // void compute_tangent(
+  //   GPU_Vector<double>& tangent,
+  //   GPU_Vector<double>& t1,
+  //   GPU_Vector<double>& t2,
+  //   double de1,
+  //   double de2);
+
+  // void add_image_force(
+  //   int size,
+  //   double& tangential_force,
+  //   double* tangent,
+  //   double* imgforce);
+  
+  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
 
   void add_image_force(
     int size,
     double& tangential_force,
     double* tangent,
+    Spring& spring1,
+    Spring& spring2,
     double* imgforce);
+
 };
 
 class NEB: public BaseAtoms
@@ -69,13 +124,13 @@ private:
 
 
   // private variables
-  cublasHandle_t handle;
+  // cublasHandle_t handle;
   unique_ptr<Minimizer> minimizer;
   vector<const char *>optimizer_opt;
   list<int> imaxes;
   Dump_Position dump_position;
   vector<pair<int,Atoms*>> mid_list;
-  vector<double> ref_h = vector<double>(9);
+  vector<double> ref_h{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
@@ -102,9 +157,8 @@ public:
 
   void parse_options(const char** param, int num_param, int& n);
 
-  NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)
-  {
-  }
+  // NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)
+  // {}
 
   void parse_neb(const char** param, int num_param, Force& force);
 
@@ -122,7 +176,7 @@ public:
 
   void write_neb_traj(const char* filename, const char* mode);
 
-  void interpolate(int n);
+  void interpolate();
 
   // void vcneb();
 

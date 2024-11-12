@@ -1,7 +1,6 @@
 #include "atoms.cuh"
 #include <unistd.h> // For UNIX/Linux systems
 
-cublasHandle_t handle;
 
 
 void print_arr(double* a, size_t size, const char* name){
@@ -41,6 +40,8 @@ void print_gpu(GPU_Vector<double>& a, const char* name){
 
 namespace
 {
+cublasHandle_t handle;
+
 __global__ void gpu_sum(double* a, const int size, double* result)
 {
   int number_of_patches = (size - 1) / 1024 + 1;
