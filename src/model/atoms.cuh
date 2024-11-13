@@ -28,6 +28,17 @@
 // #include <cuda_runtime.h>
 using namespace std;
 
+
+void print_arr(double* a, size_t size,const char* name="");
+
+void print_arr(int* a, size_t size,const char* name="");
+
+void print_gpu(GPU_Vector<int>& a, const char* name="");
+
+void print_gpu(GPU_Vector<double>& a, const char* name="");
+
+void print_gpu(double* a, int size, const char* name="");
+
 class BaseAtoms;
 class Atoms;
 class VCWrapper;
@@ -37,9 +48,9 @@ class BaseAtoms
 {
 protected:
   int natoms;
-  GPU_Vector<double> positions;
-  GPU_Vector<double> potential_per_atom;
-  GPU_Vector<double> forces;
+  GPU_Vector<double> positions; // size: (natoms, 3)
+  GPU_Vector<double> potential_per_atom; // size: (natoms)
+  GPU_Vector<double> forces; // size: (natoms, 3)
 
 public:
   Force* p_force;
@@ -67,22 +78,19 @@ class Atoms: public BaseAtoms
 {
 friend class VCWrapper;
 
-protected:
-  // cublasHandle_t handle;
-
 public:
   Box box;
   // vector<int> cpu_type;
-  vector<string> cpu_atom_symbol;
+  vector<string> cpu_atom_symbol; // symbol strings
   vector<Group> group;
   // vector<double> cpu_positions;
-  GPU_Vector<int> type;
+  GPU_Vector<int> type; // size: (natoms), type(int) of each atom
   // GPU_Vector<double> masses;
   // vector<GPU_Vector<double>> velocities;
   // std::vector<GPU_Vector<double>> forces;
   // std::vector<GPU_Vector<double>> virials;
   // double *h; // 18 elements, first 9 are cell, last 9 are the inverse of cell.
-  GPU_Vector<double> virials;
+  GPU_Vector<double> virials; // size: (natoms, 9)
   // double *test;
 
   Atoms();
@@ -151,18 +159,15 @@ public:
 class VCWrapper: public Atoms
 {
 private:
-  double* virial;
+  double* virial; // size: 9, managed memory
 
 public:
   double cell_factor = 1.0;
   vector<double> pressure = vector<double>(9,0.0);
-  double* ref_h; // 18 elements, first 9 are reference cell, last 9 are the inverse.
+  double* ref_h; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
   Atoms* p_atoms;
-  double* deform; // 18 elements, first 9 are deform, last 9 are the inverse.
-  GPU_Vector<double> d_h;
-
-  // VCWrapper(Atoms& atoms, double *p, int l_p, double* h0);
-  // VCWrapper(Atoms& atoms, double* p, int l_p);
+  double* deform; // size: 18, managed memory. first 9 are deform, last 9 are the inverse.
+  GPU_Vector<double> d_h; // size: 18, device memory
 
   VCWrapper(Atoms& atoms, vector<double> p, double* h0);
   VCWrapper(Atoms& atoms, vector<double> p);
@@ -195,25 +200,7 @@ public:
 
   void compute_deform();
 
-
-
 };
-
-// Atoms& xyz2atoms();
-
-// void xyz2atoms(Atoms& atoms);
-
-// Atoms xyz2atoms();
-
-void print_arr(double* a, size_t size,const char* name="");
-
-void print_arr(int* a, size_t size,const char* name="");
-
-void print_gpu(GPU_Vector<int>& a, const char* name="");
-
-void print_gpu(GPU_Vector<double>& a, const char* name="");
-
-void print_gpu(double* a, int size, const char* name="");
 
 void save_one_frame(
   FILE* fid_,

@@ -1,10 +1,9 @@
 #include "neb.cuh"
-#include "force/nep3.cuh"
-#include <algorithm>
 
 namespace
 {
 cublasHandle_t handle;
+cusolverDnHandle_t cusolverH;
 
 __global__ void gpu_multiply(double* result, double a, double* b, const int size)
 {
@@ -108,6 +107,26 @@ void gpu_matmul(double* mA, double* mB, double* mC,
   // printf("cublas error code: %d\n", stat);
 }
 
+void get_3x3_inverse(double* m, double* m_inv)
+{
+  double det;
+    m_inv[0] = m[4] * m[8] - m[5] * m[7];
+    m_inv[1] = m[2] * m[7] - m[1] * m[8];
+    m_inv[2] = m[1] * m[5] - m[2] * m[4];
+    m_inv[3] = m[5] * m[6] - m[3] * m[8];
+    m_inv[4] = m[0] * m[8] - m[2] * m[6];
+    m_inv[5] = m[2] * m[3] - m[0] * m[5];
+    m_inv[6] = m[3] * m[7] - m[4] * m[6];
+    m_inv[7] = m[1] * m[6] - m[0] * m[7];
+    m_inv[8] = m[0] * m[4] - m[1] * m[3];
+    det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
+          m[1] * (m[5] * m[6] - m[3] * m[8]) +
+          m[2] * (m[3] * m[7] - m[4] * m[6]);
+    for (int n = 0; n < 9; n++) {
+      m_inv[n] /= det;
+    }
+}
+
 __global__ void gpu_sum(double* a, const int size, double* result)
 {
   int number_of_patches = (size - 1) / 1024 + 1;
@@ -156,7 +175,6 @@ void sum2d(GPU_Vector<double>& a, double* result, int len, int nla=0)
   GPU_Vector<double> temp(a.size());
   GPU_Vector<double> d_result(len);
   temp.copy_from_device(a.data());
-
   for (int i=0;i<len;i++){
     gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
   }
@@ -288,6 +306,7 @@ void ImprovedTangentMethod::add_image_force(
 
 NEB::NEB(){
   cublasCreate(&handle);
+  cusolverDnCreate(&cusolverH);
 }
 
 void NEB::parse_options(const char** param, int num_param, int& n){
@@ -322,9 +341,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     tangent_method_name = string(param[n+1]);
     n++;
   } else if (strcmp(param[n], "p") == 0){
-    if (!is_valid_real(param[n+1], &pressure)) {
+    double press_scalar;
+    if (!is_valid_real(param[n+1], &press_scalar)) {
       PRINT_INPUT_ERROR("p should be an real.");
     }
+    pressure = {press_scalar};
     n++;
   } else if (strcmp(param[n], "interpolate") == 0){
     if (!is_valid_int(param[n+1], &n_interpolate)) {
@@ -425,35 +446,91 @@ BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
   }
 }
 
+void cell_best_match(double* cell_ref, double* cell, double* new_cell){
+  double *H, HTH, *rot;
+  cudaMalloc(&H, 9*sizeof(double));
+  cudaMalloc(&rot, 9*sizeof(double));
+  // gpu_matmul(cell_ref, cell, H, 3, 3, 3, 1, 0);
+  // gpu_matmul(rot, cell, new_cell, 3, 3, 3);
+
+  int m=3, n=3, lda=m;
+    // 步骤2：申请空间
+    double *A = nullptr;
+    double *S = nullptr;
+    double *U = nullptr;       // 左奇异矩阵
+    double *VT = nullptr;      // 又奇异矩阵的复共轭转置
+    const int ldu = m;                  // 根据公式，U为m行m列的方阵
+    const int ldvh = n;                 // 根据公式，VH为n行n列的仿真
+    double *W = nullptr;       // W = S*VT 没看懂啥意思
+    int *devInfo = nullptr;             // 函数运行状态返回值
+    int lwork = 0;                      // 工作空间大小
+    double *Work = nullptr;    // 工作空间指针
+    double *rwork = nullptr;
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvh * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&W), sizeof(double) * lda * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+    cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
+
+    // 步骤3：SVD计算
+    signed char jobu = 'A';  // all m columns of U
+    signed char jobvt = 'A'; // all n columns of VT
+    cusolverDnDgesvd(
+        cusolverH, jobu, jobvt,
+        m, n, A, lda,
+        S, 
+        U, ldu, // ldu
+        VT, ldvh, // ldvt,
+        Work, lwork, rwork,
+        devInfo
+    );
+  CUDA_CHECK_KERNEL
+}
+
 void NEB::run_neb() {
+  printf("midname: %s\n", mid_name.data());
   tangentmethod = get_tangent_method(tangent_method_name, k);
   // tangentmethod = new ImprovedTangentMethod(k);
   // variable_cell = false;
-  vector<double> press_in = {pressure};
+  // vector<double> press_in = {press_scalar};
   Atoms *p_is = new Atoms(istate_name.data());
   Atoms *p_fs = new Atoms(fstate_name.data());
   ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
+  GPU_Vector<double> tmp_h = 9, tmp_h2(9);
+  tmp_h.copy_from_host(ref_h.data());
+  tmp_h2.copy_from_host(p_fs->box.cpu_h);
+  print_gpu(tmp_h, "tmp_h");
+  print_gpu(tmp_h2, "tmp_h2");
+  // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
+  print_gpu(tmp_h2, "tmp_h2");
   if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
   // print_arr(ref_h.data(), 9, "vector ref_h");
   if (!variable_cell){
     images.push_back(p_is);
-    // if (has_mid) images.push_back(p_mid);
+    if (has_mid){
+      for (int i=0; i<mid_name_list.size(); i++){
+        Atoms *p_mid = new Atoms((mid_name_list[i]).data());
+        mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_mid));
+      }
+    }
     images.push_back(p_fs);
   } else{
     optimize_factor = pow(p_is->get_natoms(), 1.0/4);
     printf("optimize_factor=%f\n", optimize_factor);
-    images.push_back(new VCWrapper(*p_is, press_in));
+    images.push_back(new VCWrapper(*p_is, pressure));
     if (has_mid){
       for (int i=0; i<mid_name_list.size(); i++){
         Atoms *p_mid = new Atoms((mid_name_list[i]).data());
-        Atoms *p_tmp = new VCWrapper(*p_mid, press_in, ref_h.data());
+        Atoms *p_tmp = new VCWrapper(*p_mid, pressure, ref_h.data());
         images.push_back(p_tmp);
         mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
       }
     }
-    images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
+    images.push_back(new VCWrapper(*p_fs, pressure, ref_h.data()));
     if (remove_transition){
-      int natoms = images.front()->get_p_atoms()->type.size();
+      int n_realatoms = images.front()->get_p_atoms()->type.size();
       double center[3];
       double ref_center[3];
       ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
@@ -464,9 +541,9 @@ void NEB::run_neb() {
         sum2d(pos, center, 3, natoms);
         // print_arr(center, 3, "center");
         for (int i=0;i<3;i++){
-          center[i] /= natoms;
-          gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>
-              (pos.data() + i*natoms, pos.data() + i*natoms, ref_center[i]-center[i], natoms);
+          center[i] /= n_realatoms;
+          gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
+              (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
           (*it)->set_positions();
         }
       }
@@ -542,13 +619,6 @@ void NEB::run_neb() {
   // dump_position.postprocess();
 }
 
-void cell_best_match(double* cell_ref, double* cell, double* new_cell){
-  double *rot;
-  cudaMalloc(&rot, 9*sizeof(double));
-  gpu_matmul(cell, cell_ref, rot, 3, 3, 3, 1, 0);
-  gpu_matmul(rot, cell, new_cell, 3, 3, 3);
-  CUDA_CHECK_KERNEL
-}
 
 void NEB::compute()
 {
@@ -625,10 +695,10 @@ void NEB::compute()
       for (int j=0;j<3;j++){
         mean_force = sum(forces.data() + (3*(i-1)+j)*natoms_per_image, natoms_per_image);
         mean_force /= natoms;
-        gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>
-            (forces.data() + (3*(i-1)+j)*natoms_per_image,
-             forces.data() + (3*(i-1)+j)*natoms_per_image,
-             -mean_force, natoms_per_image);
+        gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>(
+          forces.data() + (3*(i-1)+j)*natoms_per_image,
+          forces.data() + (3*(i-1)+j)*natoms_per_image,
+          -mean_force, natoms_per_image);
       }
     }
     if (remove_rotation){

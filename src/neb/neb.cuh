@@ -1,21 +1,22 @@
 #pragma once
 #include "force/force.cuh"
+#include "force/nep3.cuh"
 // #include "minimize/minimizer.cuh"
 #include "minimize/minimizer_fire_jqh.cuh"
 #include "utilities/common.cuh"
-#include "utilities/read_file.cuh"
-#include "model/read_xyz.cuh"
 #include "model/atoms.cuh"
 #include "model/box.cuh"
 #include "model/atom.cuh"
+#include "measure/dump_position.cuh"
+#include "measure/parse_utilities.cuh"
+#include <algorithm>
 #include <deque>
 #include <list>
 #include <map>
 #include <cstring>
 #include <cmath>
+#include <cusolverDn.h>
 using namespace std;
-#include "measure/dump_position.cuh"
-#include "measure/parse_utilities.cuh"
 
 struct Spring
 {
@@ -90,7 +91,7 @@ class NEB: public BaseAtoms
 private:
   // compute setting
   double k = 0.1;
-  double pressure = 0.0;
+  vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 3;
   bool need_relax = false;
