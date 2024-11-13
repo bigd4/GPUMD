@@ -572,12 +572,14 @@ void NEB::compute()
   
   int base = (max_steps >= 100) ? (max_steps / 100) : 1;
   if (step % base == 0 ){
-    printf("image_energies: ");
-    for_each(image_energies.begin(), image_energies.end(),
-            [this](double i){printf("%.4f ", i - first_energy);});
+    printf("        image_energies:");
+    for (int i=0;i<image_energies.size();i++){
+      if (i%10==0) printf("\n");
+      printf("%.3f ", image_energies[i] - first_energy);
+    }
     double max_energy = *max_element(image_energies.begin(), image_energies.end());
     potential_per_atom[0] = max_energy;
-    printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+    printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
   }
   if (dump_interval == -1){
     if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
@@ -588,9 +590,6 @@ void NEB::compute()
   } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
 
   find_min_max();
-  // printf("imaxes: ");
-  // for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
-  // printf("\n");
 
   // -----------------start to compute spring force----------------------
   // GPU_Vector<double> tangent(natoms_per_image*3);
@@ -638,7 +637,6 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
-  check_dist();
   for (int i=1; i < nimages - 1; i++){
     // &forces[(i-1) * natoms_per_image*3]
     gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
@@ -649,6 +647,7 @@ void NEB::compute()
   step++;
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
+  check_dist();
 }
 
 
