@@ -96,6 +96,7 @@ private:
   bool need_relax = false;
   bool climb = false;
   bool remove_transition = true;
+  bool remove_rotation = true;
   bool variable_cell = true;
   bool var_image_number = true;
   int vi_interval = 20;

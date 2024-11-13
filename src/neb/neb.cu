@@ -95,6 +95,18 @@ void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<d
 //   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
 //   }
 // }
+void gpu_matmul(double* mA, double* mB, double* mC,
+  int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
+  double alpha=1.0, double beta=0.0)
+{
+  int lda = (transa != CUBLAS_OP_T)? M: K;
+  int ldb = (transb != CUBLAS_OP_T)? K: N;
+  cublasStatus_t stat;
+  // printf("lda: %d, ldb: %d\n",lda, ldb);
+  cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
+    M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
+  // printf("cublas error code: %d\n", stat);
+}
 
 __global__ void gpu_sum(double* a, const int size, double* result)
 {
@@ -124,6 +136,15 @@ double sum(GPU_Vector<double>& a)
   double ret;
   GPU_Vector<double> result(1);
   gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
+  result.copy_to_host(&ret);
+  return ret;
+}
+
+double sum(double* a, int size)
+{
+  double ret;
+  GPU_Vector<double> result(1);
+  gpu_sum<<<1, 1024>>>(a, size, result.data());
   result.copy_to_host(&ret);
   return ret;
 }
@@ -432,13 +453,13 @@ void NEB::run_neb() {
     }
     images.push_back(new VCWrapper(*p_fs, press_in, ref_h.data()));
     if (remove_transition){
+      int natoms = images.front()->get_p_atoms()->type.size();
       double center[3];
       double ref_center[3];
       ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
       ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
       ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
       for (auto it=images.begin();it!=images.end();it++){
-        int natoms = (*it)->get_p_atoms()->type.size();
         GPU_Vector<double>& pos = (*it)->get_positions();
         sum2d(pos, center, 3, natoms);
         // print_arr(center, 3, "center");
@@ -498,11 +519,18 @@ void NEB::run_neb() {
   last_energy = images.back()->get_energy();
 
   double fnrm2; // used to check if minimization is finished or nimages changes
+  // -------------------------main loop------------------------------
   while (true){
     initialize_compute();
     reset_minimizer(natoms, max_steps - step, force_tolerance);
     minimizer->compute(*this);
     printf("neb total steps: %d\n", step);
+        printf("image_energies: ");
+    for_each(image_energies.begin(), image_energies.end(),
+            [this](double i){printf("%.4f ", i - first_energy);});
+    double max_energy = *max_element(image_energies.begin(), image_energies.end());
+    potential_per_atom[0] = max_energy;
+    printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
 
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
@@ -512,6 +540,14 @@ void NEB::run_neb() {
   }
   write_neb_traj("final_traj.xyz", "w");
   // dump_position.postprocess();
+}
+
+void cell_best_match(double* cell_ref, double* cell, double* new_cell){
+  double *rot;
+  cudaMalloc(&rot, 9*sizeof(double));
+  gpu_matmul(cell, cell_ref, rot, 3, 3, 3, 1, 0);
+  gpu_matmul(rot, cell, new_cell, 3, 3, 3);
+  CUDA_CHECK_KERNEL
 }
 
 void NEB::compute()
@@ -542,7 +578,6 @@ void NEB::compute()
     double max_energy = *max_element(image_energies.begin(), image_energies.end());
     potential_per_atom[0] = max_energy;
     printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
-
   }
   if (dump_interval == -1){
     if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
@@ -569,31 +604,36 @@ void NEB::compute()
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
     Spring spring2{k, image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
-    // tangentmethod.compute_tangent(tangent, t1, t2,
-    //  image_energies[i] - image_energies[i-1], image_energies[i+1] - image_energies[i]);
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
     double tangential_force;
-    cublasDdot(handle, 3*natoms_per_image, images[i]->get_forces().data(), 1,
+    cublasDdot(handle, 3*natoms_per_image, &forces[(i-1)*natoms_per_image*3], 1,
      tangent.data(), 1, &tangential_force);
     // print_gpu(tangential_force, "tangential_force");
-    // if (climb && in_list())
     if (climb && in_list(imaxes, i)){
-      // print_gpu(spring_force, "spring_force");
       double tmp_num = -2.0 * tangential_force;
       cublasDaxpy(handle, natoms_per_image*3, &tmp_num,
         tangent.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
     }
     else{
-      // tangentmethod.add_image_force(natoms_per_image*3,
-      //  tangential_force, tangent.data(), &forces[(i-1)*natoms_per_image*3]);
       tangentmethod->add_image_force(natoms_per_image*3,
         tangential_force, tangent.data(), spring1, spring2,
         &forces[(i-1)*natoms_per_image*3]);
-        
-    // print_gpu(tangent, "t");
-      // cublasDaxpy(handle, natoms_per_image*3, (new double(1.0)),
-      //   spring_force.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
+    }
+      
+    if (remove_transition){
+      double mean_force;
+      for (int j=0;j<3;j++){
+        mean_force = sum(forces.data() + (3*(i-1)+j)*natoms_per_image, natoms_per_image);
+        mean_force /= natoms;
+        gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>
+            (forces.data() + (3*(i-1)+j)*natoms_per_image,
+             forces.data() + (3*(i-1)+j)*natoms_per_image,
+             -mean_force, natoms_per_image);
+      }
+    }
+    if (remove_rotation){
+      1;
     }
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
@@ -695,8 +735,10 @@ void NEB::initialize_compute() {
 
 void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
+  printf("step: %d, ", step);
   double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
   printf("fmax=%f\n",fmax);
+  fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
       (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
     vi_count++;

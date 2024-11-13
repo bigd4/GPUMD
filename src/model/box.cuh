@@ -43,7 +43,9 @@ public:
   // } 
 
   Box& operator=(const Box& box0){
+    #ifdef DEBUG
     printf("box = constructor\n");
+    #endif
     pbc_x = box0.pbc_x;
     pbc_y = box0.pbc_y;
     pbc_z = box0.pbc_z;
