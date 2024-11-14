@@ -222,7 +222,7 @@ double sum(double* a, int size)
 void sum2d(GPU_Vector<double>& a, double* result, int len, int nla=0)
 {
   int nl = (nla==0) ? a.size() / len : nla;
-  GPU_Vector<double> temp(a.size());
+  GPU_Vector<double> temp(len * nla);
   GPU_Vector<double> d_result(len);
   temp.copy_from_device(a.data());
   for (int i=0;i<len;i++){
@@ -536,7 +536,7 @@ void NEB::run_neb() {
   } else{
     optimize_factor = pow(p_is->get_natoms(), 1.0/4);
     printf("optimize_factor=%f\n", optimize_factor);
-    images.push_back(new VCWrapper(*p_is, pressure));
+    images.push_back(new VCWrapper(*p_is, pressure, ref_h.data()));
     if (has_mid){
       for (int i=0; i<mid_name_list.size(); i++){
         Atoms *p_mid = new Atoms((mid_name_list[i]).data());
@@ -549,31 +549,9 @@ void NEB::run_neb() {
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
-  if (remove_transition){
-    double center[3];
-    double ref_center[3];
-    ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
-    ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
-    ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
-    for (auto it=images.begin();it!=images.end();it++){
-      GPU_Vector<double>& pos = (*it)->get_positions();
-      sum2d(pos, center, 3, n_realatoms);
-      // print_arr(center, 3, "center");
-      for (int i=0;i<3;i++){
-        center[i] /= n_realatoms;
-        gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
-            (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
-        (*it)->set_positions();
-      }
-    }
-  }
-  // for dump_position
-  // const char* para[] = {"","1"};
-  // dump_position.parse(para, 2, images[0]->group);
-  // dump_position.preprocess();
-  //
+  
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
-  // reinitialize nep to make sure that natom in it is right
+  // -----reinitialize nep to make sure that natom in it is right------
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
     printf("nep forces\n");
     dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n_realatoms);
@@ -594,6 +572,28 @@ void NEB::run_neb() {
     save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), atoms_fs.cpu_atom_symbol,
        atoms_fs.get_positions());
     fclose(fid);
+  }
+  if (remove_translation){
+    double center[3], ref_center[3];
+    ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
+    ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
+    ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
+    for (auto it=images.begin();it!=images.end();it++){
+      GPU_Vector<double>& pos = (*it)->get_positions();
+      sum2d(pos, center, 3, n_realatoms);
+      // print_arr(ref_center, 3, "ref_center");
+      // print_arr(center, 3, "center");
+        // print_gpu(pos, "pos_0");
+      for (int i=0;i<3;i++){
+        center[i] /= n_realatoms;
+        // printf("center %d: %f, ref_center[i]-center[i]:%f\n", i, center[i], ref_center[i]-center[i]);
+        gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
+            (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
+        // printf("meanpos: %f\n", sum(pos.data() + i*n_realatoms, n_realatoms)/n_realatoms);
+        (*it)->set_positions();
+      }
+        // print_gpu(pos, "pos_1");
+    }
   }
   if (n_interpolate > 0){
     interpolate();
@@ -707,7 +707,7 @@ void NEB::compute()
         &forces[(i-1)*natoms_per_image*3]);
     }
       
-    if (remove_transition){
+    if (remove_translation){
       double mean_force;
       for (int j=0;j<3;j++){
         mean_force = sum(forces.data() + 3*(i-1)*natoms_per_image + j*n_realatoms, n_realatoms);
