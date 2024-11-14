@@ -78,6 +78,18 @@ void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<d
   gpu_pairwise_product<<<(size - 1) / 128 + 1, 128>>>(c.data(), a.data(), b.data(), size);
 }
 
+// __global__ void symmetrize_3x3(double* dst, double* src)
+// {
+//   int n = blockDim.x * blockIdx.x + threadIdx.x;
+//   if (n<9){
+//     if (n%4 == 0){
+//       dst[n] = src[n];
+//     }
+//     else if (n < 4){
+//       dst[n] = 
+//     }
+//   }
+// }
 // void n_nx3_multiply(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
 //                     int nl, double alpha=1.0)
 // {
@@ -125,6 +137,44 @@ void get_3x3_inverse(double* m, double* m_inv)
     for (int n = 0; n < 9; n++) {
       m_inv[n] /= det;
     }
+}
+
+
+void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
+{
+    // int m=3, n=3;
+    // 步骤2：申请空间
+    // double *A = nullptr;
+    // double *S = nullptr;
+    // double *U = nullptr;       // 左奇异矩阵
+    // double *VT = nullptr;      // 又奇异矩阵的复共轭转置
+    int lda=m;
+    const int ldu = m;                  // 根据公式，U为m行m列的方阵
+    const int ldvt = n;                 // 根据公式，VH为n行n列的仿真
+    int *devInfo = nullptr;             // 函数运行状态返回值
+    double *Work = nullptr;    // 工作空间指针
+    int lwork = 0;                      // 工作空间大小
+    double *rwork = nullptr;
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvt * n));
+    cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
+    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+
+    // 步骤3：SVD计算
+    signed char jobu = 'A';  // all m columns of U
+    signed char jobvt = 'A'; // all n columns of VT
+    cusolverDnDgesvd(
+        cusolverH, jobu, jobvt,
+        m, n, A, lda,
+        S, 
+        U, ldu, // ldu
+        VT, ldvt, // ldvt,
+        Work, lwork, rwork,
+        devInfo
+    );
+  CUDA_CHECK_KERNEL
 }
 
 __global__ void gpu_sum(double* a, const int size, double* result)
@@ -453,40 +503,7 @@ void cell_best_match(double* cell_ref, double* cell, double* new_cell){
   // gpu_matmul(cell_ref, cell, H, 3, 3, 3, 1, 0);
   // gpu_matmul(rot, cell, new_cell, 3, 3, 3);
 
-  int m=3, n=3, lda=m;
-    // 步骤2：申请空间
-    double *A = nullptr;
-    double *S = nullptr;
-    double *U = nullptr;       // 左奇异矩阵
-    double *VT = nullptr;      // 又奇异矩阵的复共轭转置
-    const int ldu = m;                  // 根据公式，U为m行m列的方阵
-    const int ldvh = n;                 // 根据公式，VH为n行n列的仿真
-    double *W = nullptr;       // W = S*VT 没看懂啥意思
-    int *devInfo = nullptr;             // 函数运行状态返回值
-    int lwork = 0;                      // 工作空间大小
-    double *Work = nullptr;    // 工作空间指针
-    double *rwork = nullptr;
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvh * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&W), sizeof(double) * lda * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
-    cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
 
-    // 步骤3：SVD计算
-    signed char jobu = 'A';  // all m columns of U
-    signed char jobvt = 'A'; // all n columns of VT
-    cusolverDnDgesvd(
-        cusolverH, jobu, jobvt,
-        m, n, A, lda,
-        S, 
-        U, ldu, // ldu
-        VT, ldvh, // ldvt,
-        Work, lwork, rwork,
-        devInfo
-    );
-  CUDA_CHECK_KERNEL
 }
 
 void NEB::run_neb() {
@@ -504,7 +521,7 @@ void NEB::run_neb() {
   print_gpu(tmp_h, "tmp_h");
   print_gpu(tmp_h2, "tmp_h2");
   // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
-  print_gpu(tmp_h2, "tmp_h2");
+  // print_gpu(tmp_h2, "tmp_h2");
   if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
   // print_arr(ref_h.data(), 9, "vector ref_h");
   if (!variable_cell){
@@ -702,7 +719,28 @@ void NEB::compute()
       }
     }
     if (remove_rotation){
-      1;
+      // printf("remove rot\n");
+      GPU_Vector<double> virial_real(9, Memory_Type::managed), cur_deform(18, Memory_Type::managed);
+      cur_deform.copy_from_device(positions.data() + 3*i*natoms_per_image-9, 9);
+      get_3x3_inverse(cur_deform.data(), cur_deform.data() + 9);
+      // print_gpu(cur_deform);
+      gpu_matmul(
+        positions.data() + 3*i*natoms_per_image-9,
+        forces.data() + 3*i*natoms_per_image-9,
+        virial_real.data(),
+        3, 3, 3, 1, 0);
+      CUDA_CHECK_KERNEL;
+      cudaDeviceSynchronize();
+      // print_gpu(virial_real);
+      virial_real[1] = virial_real[3] = 0.5 * (virial_real[1] + virial_real[3]);
+      virial_real[2] = virial_real[6] = 0.5 * (virial_real[2] + virial_real[6]);
+      virial_real[5] = virial_real[7] = 0.5 * (virial_real[5] + virial_real[7]);
+      gpu_matmul(
+        cur_deform.data() + 9,
+        virial_real.data(),
+        forces.data() + 3*i*natoms_per_image-9,
+        3, 3, 3, 1, 0);
+      CUDA_CHECK_KERNEL;
     }
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
