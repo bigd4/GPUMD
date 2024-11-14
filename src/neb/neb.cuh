@@ -126,7 +126,7 @@ private:
   int step = 0;
   double force_tolerance;
   int minimizer_type;
-  int nimages, natoms_per_image;
+  int nimages, natoms_per_image, n_realatoms;
   double optimize_factor;
 
   void find_min_max();

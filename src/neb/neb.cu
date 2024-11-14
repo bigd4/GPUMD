@@ -259,8 +259,8 @@ double max_abs(int size, double* vec, int nsingle)
   int index;
   double result;
   cublasIdamax(handle, size, vec, 1, &index);
-  printf("max index: %d, ", index);
-  if ((index+9) % nsingle < 9) {printf("cell, ");} else {printf(" pos, ");}
+  printf("i_fmax: %d", index);
+  if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
   cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
@@ -546,27 +546,27 @@ void NEB::run_neb() {
       }
     }
     images.push_back(new VCWrapper(*p_fs, pressure, ref_h.data()));
-    if (remove_transition){
-      int n_realatoms = images.front()->get_p_atoms()->type.size();
-      double center[3];
-      double ref_center[3];
-      ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
-      ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
-      ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
-      for (auto it=images.begin();it!=images.end();it++){
-        GPU_Vector<double>& pos = (*it)->get_positions();
-        sum2d(pos, center, 3, natoms);
-        // print_arr(center, 3, "center");
-        for (int i=0;i<3;i++){
-          center[i] /= n_realatoms;
-          gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
-              (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
-          (*it)->set_positions();
-        }
+  }
+  natoms_per_image = images[0]->get_natoms();
+  n_realatoms = images[0]->get_p_atoms()->get_natoms();
+  if (remove_transition){
+    double center[3];
+    double ref_center[3];
+    ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
+    ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
+    ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
+    for (auto it=images.begin();it!=images.end();it++){
+      GPU_Vector<double>& pos = (*it)->get_positions();
+      sum2d(pos, center, 3, n_realatoms);
+      // print_arr(center, 3, "center");
+      for (int i=0;i<3;i++){
+        center[i] /= n_realatoms;
+        gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
+            (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
+        (*it)->set_positions();
       }
     }
   }
-  natoms_per_image = images[0]->get_natoms();
   // for dump_position
   // const char* para[] = {"","1"};
   // dump_position.parse(para, 2, images[0]->group);
@@ -576,9 +576,7 @@ void NEB::run_neb() {
   // reinitialize nep to make sure that natom in it is right
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
     printf("nep forces\n");
-    int n = natoms_per_image;
-    if (variable_cell) n -= 3;
-    dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n);
+    dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n_realatoms);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
@@ -604,8 +602,6 @@ void NEB::run_neb() {
   #ifdef DEBUG
   printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
   #endif
-  // natoms = (images.size()-2) * natoms_per_image;
-  // print_arr(images[0]->get_p_atoms()->box.cpu_h, 18, "box.h");
 
   images.front()->compute();
   images.back()->compute();
@@ -619,12 +615,14 @@ void NEB::run_neb() {
     reset_minimizer(natoms, max_steps - step, force_tolerance);
     minimizer->compute(*this);
     printf("neb total steps: %d\n", step);
-        printf("image_energies: ");
-    for_each(image_energies.begin(), image_energies.end(),
-            [this](double i){printf("%.4f ", i - first_energy);});
+    printf("        image_energies:");
+    for (int i=0;i<image_energies.size();i++){
+      if (i%10==0) printf("\n");
+      printf("%.3f ", image_energies[i] - first_energy);
+    }
     double max_energy = *max_element(image_energies.begin(), image_energies.end());
     potential_per_atom[0] = max_energy;
-    printf("\nEmax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+    printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
 
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
@@ -641,10 +639,12 @@ void NEB::compute()
 {
   // printf("neb compute\n");
   // compute original forces
-  for (int i=1; i < nimages - 1; i++){
-    // &forces[(i-1) * natoms_per_image*3]
-    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
-          optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+  if (variable_cell){
+    for (int i=1; i < nimages - 1; i++){
+      // &forces[(i-1) * natoms_per_image*3]
+      gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
+            optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+    }
   }
   set_positions();
   for (int i=1; i < nimages - 1; i++){
@@ -710,12 +710,12 @@ void NEB::compute()
     if (remove_transition){
       double mean_force;
       for (int j=0;j<3;j++){
-        mean_force = sum(forces.data() + (3*(i-1)+j)*natoms_per_image, natoms_per_image);
-        mean_force /= natoms;
+        mean_force = sum(forces.data() + 3*(i-1)*natoms_per_image + j*n_realatoms, n_realatoms);
+        mean_force /= n_realatoms;
         gpu_vector_add_scalar<<<(natoms-1)/128+1,128>>>(
-          forces.data() + (3*(i-1)+j)*natoms_per_image,
-          forces.data() + (3*(i-1)+j)*natoms_per_image,
-          -mean_force, natoms_per_image);
+          forces.data() + 3*(i-1)*natoms_per_image + j*n_realatoms,
+          forces.data() + 3*(i-1)*natoms_per_image + j*n_realatoms,
+          -mean_force, n_realatoms);
       }
     }
     if (remove_rotation){
@@ -731,10 +731,11 @@ void NEB::compute()
         3, 3, 3, 1, 0);
       CUDA_CHECK_KERNEL;
       cudaDeviceSynchronize();
-      // print_gpu(virial_real);
+      // print_gpu(virial_real, "vr1");
       virial_real[1] = virial_real[3] = 0.5 * (virial_real[1] + virial_real[3]);
       virial_real[2] = virial_real[6] = 0.5 * (virial_real[2] + virial_real[6]);
       virial_real[5] = virial_real[7] = 0.5 * (virial_real[5] + virial_real[7]);
+      // print_gpu(virial_real, "vr2");
       gpu_matmul(
         cur_deform.data() + 9,
         virial_real.data(),
@@ -745,12 +746,14 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
-  for (int i=1; i < nimages - 1; i++){
-    // &forces[(i-1) * natoms_per_image*3]
-    gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
-          1/optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
-    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
-          1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+  if (variable_cell){
+    for (int i=1; i < nimages - 1; i++){
+      // &forces[(i-1) * natoms_per_image*3]
+      gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
+            1/optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
+      gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
+            1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
+    }
   }
   step++;
   // print_gpu(forces, "neb forces");
@@ -816,7 +819,9 @@ void NEB::interpolate() {
 }
 
 void NEB::initialize_compute() {
+  #ifdef DEBUG
   printf("neb initialize\n");
+  #endif
   nimages = images.size();
   printf("nimages: %d, natoms_per_image: %d\n", nimages, natoms_per_image);
   natoms = (nimages - 2) * natoms_per_image; // remove first and last images
@@ -844,6 +849,8 @@ void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
   printf("step: %d, ", step);
   double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
+  auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
+  printf("emax= %f(%d), ", *it_max_energy - first_energy, it_max_energy-image_energies.begin());
   printf("fmax=%f\n",fmax);
   fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
@@ -901,7 +908,9 @@ void NEB::find_min_max()
 
 GPU_Vector<double>& NEB::build_positions()
 {
+  #ifdef DEBUG
   printf("neb build_position\n");
+  #endif
   for (int i=1; i<nimages - 1; i++){
     images[i]->get_positions().copy_to_device(
       &positions[(i-1) * natoms_per_image*3],
