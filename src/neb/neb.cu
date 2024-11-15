@@ -1,4 +1,5 @@
 #include "neb.cuh"
+#include <thrust/device_vector.h>
 
 namespace
 {
@@ -615,15 +616,7 @@ void NEB::run_neb() {
     reset_minimizer(natoms, max_steps - step, force_tolerance);
     minimizer->compute(*this);
     printf("neb total steps: %d\n", step);
-    printf("        image_energies:");
-    for (int i=0;i<image_energies.size();i++){
-      if (i%10==0) printf("\n");
-      printf("%.3f ", image_energies[i] - first_energy);
-    }
-    double max_energy = *max_element(image_energies.begin(), image_energies.end());
-    potential_per_atom[0] = max_energy;
-    printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
-
+    write_energies();
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
       // minimizer->reset_number_of_atoms((images.size()-2) * natoms_per_image);
@@ -659,14 +652,7 @@ void NEB::compute()
   
   int base = (max_steps >= 100) ? (max_steps / 100) : 1;
   if (step % base == 0 ){
-    printf("        image_energies:");
-    for (int i=0;i<image_energies.size();i++){
-      if (i%10==0) printf("\n");
-      printf("%.3f ", image_energies[i] - first_energy);
-    }
-    double max_energy = *max_element(image_energies.begin(), image_energies.end());
-    potential_per_atom[0] = max_energy;
-    printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+    write_energies();
   }
   if (dump_interval == -1){
     if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
@@ -746,6 +732,7 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
+  check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
       // &forces[(i-1) * natoms_per_image*3]
@@ -758,7 +745,6 @@ void NEB::compute()
   step++;
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
-  check_dist();
 }
 
 
@@ -936,3 +922,18 @@ void NEB::set_positions()
   }
 }
 
+void NEB::write_energies() {
+  FILE* fid = fopen("neb_energies.out", "w");
+  
+  printf("        image_energies:");
+  for (int i=0;i<image_energies.size();i++){
+    if (i%10==0) printf("\n");
+    printf("%.3f ", image_energies[i] - first_energy);
+    fprintf(fid, "%f.5\n", image_energies[i] - first_energy);
+  }
+  double max_energy = *max_element(image_energies.begin(), image_energies.end());
+  potential_per_atom[0] = max_energy;
+  printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
+
+  fclose(fid);
+}

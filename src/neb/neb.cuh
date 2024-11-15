@@ -163,6 +163,8 @@ public:
 
   void write_neb_traj(const char* filename, const char* mode);
 
+  void write_energies();
+
   void interpolate();
 
 };

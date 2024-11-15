@@ -439,6 +439,9 @@ VCWrapper::~VCWrapper() {
   printf("VCWrapper default desctructor\n");
   #endif
   cublasDestroy(handle);
+  cudaFree(ref_h);
+  cudaFree(deform);
+  cudaFree(virial);
 }
 
 void VCWrapper::initialize(int natoms0) {
