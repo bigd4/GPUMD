@@ -216,3 +216,10 @@ void save_one_frame(
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom);
+
+
+void save_xyz_virials(
+  const Box& box,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom,
+  GPU_Vector<double>& virial_per_atom);

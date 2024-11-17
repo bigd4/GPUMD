@@ -929,7 +929,7 @@ void NEB::write_energies() {
   for (int i=0;i<image_energies.size();i++){
     if (i%10==0) printf("\n");
     printf("%.3f ", image_energies[i] - first_energy);
-    fprintf(fid, "%.5f\n", image_energies[i] - first_energy);
+    fprintf(fid, "%f.5\n", image_energies[i] - first_energy);
   }
   double max_energy = *max_element(image_energies.begin(), image_energies.end());
   potential_per_atom[0] = max_energy;

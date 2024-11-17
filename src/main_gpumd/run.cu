@@ -497,6 +497,12 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     // nothing here; will be handled elsewhere
   } else if (strcmp(param[0], "compute_lsqt") == 0) {
     measure.lsqt.parse(param, num_param);
+  } else if (strcmp(param[0], "save_virials") == 0) {
+    save_xyz_virials(
+      box,
+      atom.cpu_atom_symbol,
+      atom.position_per_atom,
+      atom.virial_per_atom);
   } else if (strcmp(param[0], "neb_run") == 0 ||
              strcmp(param[0], "neb_set") == 0) {
     neb.parse_neb(param, num_param, force);

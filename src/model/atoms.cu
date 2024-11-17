@@ -153,6 +153,26 @@ double det_3x3(double *a)
   return result;
 }
 
+__global__ void gpu_norm_axis1(double* rst, double* a, const int nl, const int ncol)
+{
+  int n = blockDim.x * blockIdx.x + threadIdx.x;
+  int sum = 0;
+  if (n < nl)
+    for (int i = 0; i < ncol; i++){
+      sum += a[n + i * nl] * a[n + i * nl];
+    }
+    rst[n] = sqrtf(sum);
+}
+
+
+GPU_Vector<double> norm_axis1(GPU_Vector<double>& a, const int ncol)
+{
+  int nl = a.size()/ncol;
+  GPU_Vector<double> temp(nl);
+  gpu_norm_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
+  return temp;
+}
+
 } // namespace
 
 
@@ -581,7 +601,6 @@ void save_one_frame(
     box.cpu_h[5],
     box.cpu_h[8],
     enthalpy);
-  fflush(fid_);
   for (int n = 0; n < num_atoms_total; n++) {
     fprintf(
       fid_,
@@ -604,4 +623,62 @@ void save_one_frame(
   vector<double> cpu_position_per_atom(position_per_atom.size());
   save_one_frame(fid_, box, enthalpy, cpu_atom_symbol,
     position_per_atom, cpu_position_per_atom);
+}
+
+void save_xyz_virials(
+  const Box& box,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom,
+  GPU_Vector<double>& virial_per_atom)
+{
+  printf("==========save virials=============\n");
+  FILE *fid_ = fopen("virials.xyz", "w");
+  const int num_atoms_total = position_per_atom.size() / 3;
+  vector<double> cpu_position_per_atom(position_per_atom.size());
+  position_per_atom.copy_to_host(cpu_position_per_atom.data());
+    // xx xy xz    0 3 4
+    // yx yy yz    6 1 5
+    // zx zy zz    7 8 2
+  vector<double> cpu_virial_per_atom(virial_per_atom.size());
+  virial_per_atom.copy_to_host(cpu_virial_per_atom.data());
+  vector<double> virials_norm(num_atoms_total);
+  norm_axis1(virial_per_atom, 9).copy_to_host(virials_norm.data());
+
+
+  char precision_str_[] = "%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n";
+
+  fprintf(fid_, "%d\n", num_atoms_total);
+  fprintf(
+    fid_,
+    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
+    "Properties=species:S:1:pos:R:3:virials:R:9:nv:R:1\n",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8]);
+  for (int n = 0; n < num_atoms_total; n++) {
+    fprintf(
+      fid_,
+      precision_str_,
+      cpu_atom_symbol[n].c_str(),
+      cpu_position_per_atom[n],
+      cpu_position_per_atom[n + num_atoms_total],
+      cpu_position_per_atom[n + 2 * num_atoms_total],
+      cpu_virial_per_atom[n],
+      cpu_virial_per_atom[n + num_atoms_total],
+      cpu_virial_per_atom[n + 2 * num_atoms_total],
+      cpu_virial_per_atom[n + 3 * num_atoms_total],
+      cpu_virial_per_atom[n + 4 * num_atoms_total],
+      cpu_virial_per_atom[n + 5 * num_atoms_total],
+      cpu_virial_per_atom[n + 6 * num_atoms_total],
+      cpu_virial_per_atom[n + 7 * num_atoms_total],
+      cpu_virial_per_atom[n + 8 * num_atoms_total],
+      virials_norm[n]);
+  }
+  fflush(fid_);
 }

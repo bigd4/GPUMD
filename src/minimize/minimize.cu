@@ -152,6 +152,8 @@ void Minimize::parse_minimize(
         box = atoms.box;
         position_per_atom = atoms.get_positions();
         potential_per_atom = atoms.get_potential_per_atom();
+        force_per_atom = atoms.get_forces();
+        virial_per_atom = atoms.virials;
         if (cpu_atom_symbol.size() > 0){
           FILE *fid = my_fopen("relaxed.xyz", "w");
           save_one_frame(fid, box, vcatoms.get_energy(), cpu_atom_symbol, position_per_atom);
