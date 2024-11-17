@@ -398,6 +398,29 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     pressure = {press_scalar};
     n++;
+  } else if (strcmp(param[n], "p3") == 0){
+    pressure.resize(3);
+    for (int i=0; i<3; i++){
+      if (!is_valid_real(param[n+1+i], &pressure[i])) {
+        PRINT_INPUT_ERROR("p3 should be 3 reals.");
+      }
+    }
+    n += 3;
+  } else if (strcmp(param[n], "p6") == 0){
+    vector<double> press_in(6);
+    pressure.resize(9);
+    for (int i=0; i<6; i++){
+      if (!is_valid_real(param[n+1+i], &press_in[i])) {
+        PRINT_INPUT_ERROR("p6 should be 6 reals.");
+      }
+    }
+    pressure[0] = press_in[0];
+    pressure[4] = press_in[1];
+    pressure[8] = press_in[2];
+    pressure[5] = pressure[7] = press_in[3];
+    pressure[2] = pressure[6] = press_in[4];
+    pressure[1] = pressure[3] = press_in[5];
+    n += 6;
   } else if (strcmp(param[n], "interpolate") == 0){
     if (!is_valid_int(param[n+1], &n_interpolate)) {
       PRINT_INPUT_ERROR("interpolate should be an real.");
