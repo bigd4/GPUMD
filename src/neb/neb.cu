@@ -639,7 +639,7 @@ void NEB::run_neb() {
     reset_minimizer(natoms, max_steps - step, force_tolerance);
     minimizer->compute(*this);
     printf("neb total steps: %d\n", step);
-    write_energies();
+    if (vi_count != 0) write_energies();
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
       // minimizer->reset_number_of_atoms((images.size()-2) * natoms_per_image);
@@ -755,7 +755,6 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
-  check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
       // &forces[(i-1) * natoms_per_image*3]
@@ -765,11 +764,61 @@ void NEB::compute()
             1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
     }
   }
+  check_dist();
   step++;
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
 }
 
+void NEB::check_dist() {
+  // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
+  printf("step: %d, ", step);
+  double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
+  auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
+  printf("emax= %f(%d), ", *it_max_energy - first_energy, it_max_energy-image_energies.begin());
+  printf("fmax=%f\n",fmax);
+  fflush(stdout);
+  if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
+      (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
+    vi_count++;
+    return;
+  }
+  GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
+  double nrm2, dist;
+  // for (auto it = images.begin()+1; it != images.end()-1; it++)
+  // printf("dist:");
+  for (int i = 1; i < images.size(); i++)
+  {
+    GPU_Vector<double>& pos1 = images[i-1]->get_positions();
+    GPU_Vector<double>& pos2 = images[i]->get_positions();
+    vector_add(dpos, pos2, pos1, 1.0, -1.0);
+
+    //calc_dist
+    cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
+    dist = nrm2/sqrt(natoms_per_image);
+    // printf(" %f ", dist);
+    if (dist > max_dist){
+      printf("imaxes: ");
+      for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
+      printf("\n");
+
+      vector_add(new_pos, pos1, pos2, 0.5, 0.5);
+      // print_gpu(new_pos, "new_pos");
+      images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
+      printf("add an image: %d , nimages: %d\n", i, images.size());
+      i+=2; //skip 2 images
+      vi_count = 0;
+    }else if (dist < min_dist && i != images.size()-1){
+      delete(images[i]);
+      images.erase(images.begin()+i);
+      printf("remove an image: %d , nimages: %d\n", i, images.size());
+      // i--; // skip 2 images
+      vi_count = 0;
+    }
+  }
+  
+  if (vi_count==0) forces.fill(0);
+}
 
 void NEB::write_neb_traj(const char* filename, const char* mode){
   printf("============write %s==============\n", filename);
@@ -854,55 +903,6 @@ void NEB::initialize_compute() {
   // print_gpu(images[2]->get_positions(), "pos_fs");
 }
 
-void NEB::check_dist() {
-  // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  printf("step: %d, ", step);
-  double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
-  auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
-  printf("emax= %f(%d), ", *it_max_energy - first_energy, it_max_energy-image_energies.begin());
-  printf("fmax=%f\n",fmax);
-  fflush(stdout);
-  if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
-      (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
-    vi_count++;
-    return;
-  }
-  GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
-  double nrm2, dist;
-  // for (auto it = images.begin()+1; it != images.end()-1; it++)
-  // printf("dist:");
-  for (int i = 1; i < images.size(); i++)
-  {
-    GPU_Vector<double>& pos1 = images[i-1]->get_positions();
-    GPU_Vector<double>& pos2 = images[i]->get_positions();
-    vector_add(dpos, pos2, pos1, 1.0, -1.0);
-
-    //calc_dist
-    cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
-    dist = nrm2/sqrt(natoms_per_image);
-    // printf(" %f ", dist);
-    if (dist > max_dist){
-      printf("imaxes: ");
-      for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
-      printf("\n");
-
-      vector_add(new_pos, pos1, pos2, 0.5, 0.5);
-      // print_gpu(new_pos, "new_pos");
-      images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
-      printf("add an image: %d , nimages: %d\n", i, images.size());
-      i+=2; //skip 2 images
-      vi_count = 0;
-    }else if (dist < min_dist && i != images.size()-1){
-      delete(images[i]);
-      images.erase(images.begin()+i);
-      printf("remove an image: %d , nimages: %d\n", i, images.size());
-      // i--; // skip 2 images
-      vi_count = 0;
-    }
-  }
-  
-  if (vi_count==0) initialize_compute();
-}
 
 void NEB::find_min_max()
 {
@@ -955,6 +955,7 @@ void NEB::write_energies() {
     fprintf(fid, "%f.5\n", image_energies[i] - first_energy);
   }
   double max_energy = *max_element(image_energies.begin(), image_energies.end());
+  cudaDeviceSynchronize();
   potential_per_atom[0] = max_energy;
   printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
 

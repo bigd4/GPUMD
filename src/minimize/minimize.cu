@@ -139,7 +139,7 @@ void Minimize::parse_minimize(
       printf("    for maximally %d steps.\n", number_of_steps);
 
       if (vc){
-        printf("variable cell is enabled");
+        printf("variable cell is enabled.\n");
         vector<double> press={pressure};
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
