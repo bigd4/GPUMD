@@ -388,6 +388,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
       PRINT_INPUT_ERROR("k should be an real.");
     }
     n++;
+  } else if (strcmp(param[n], "auto_k") == 0){
+    auto_k = true;
   } else if (strcmp(param[n], "tangent") == 0){
     tangent_method_name = string(param[n+1]);
     n++;
@@ -631,6 +633,8 @@ void NEB::run_neb() {
   images.back()->compute();
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
+  
+  klist.resize(images.size() - 1, k);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -686,6 +690,15 @@ void NEB::compute()
   } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
 
   find_min_max();
+  // printf("k_target: ");
+  if (auto_k) {
+    for (int i=1; i<nimages-1;i++){
+      double k_target = k / (1 - 0.8*pow(0.9, pow(i-imax,2)));
+      klist[i] = 0.9 * klist[i] + 0.1 * k_target;
+      // printf("%.3f ", klist[i]);
+    }
+  }
+  // printf("\n"); 
 
   // -----------------start to compute spring force----------------------
   // GPU_Vector<double> tangent(natoms_per_image*3);
@@ -693,11 +706,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{k, image_energies[1] - image_energies[0], t1};
+  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{k, image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -805,12 +818,14 @@ void NEB::check_dist() {
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
       images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
+      klist.insert(klist.begin() + i, klist[i-1]);
       printf("add an image: %d , nimages: %d\n", i, images.size());
       i+=2; //skip 2 images
       vi_count = 0;
     }else if (dist < min_dist && i != images.size()-1){
       delete(images[i]);
       images.erase(images.begin()+i);
+      klist.erase(klist.begin()+i);
       printf("remove an image: %d , nimages: %d\n", i, images.size());
       // i--; // skip 2 images
       vi_count = 0;
@@ -913,6 +928,7 @@ void NEB::find_min_max()
       imaxes.push_back(i);
       }
   }
+  imax = max_element(image_energies.begin(), image_energies.end()) - image_energies.begin();
 }
 
 GPU_Vector<double>& NEB::build_positions()
@@ -955,8 +971,8 @@ void NEB::write_energies() {
     fprintf(fid, "%.5f\n", image_energies[i] - first_energy);
   }
   double max_energy = *max_element(image_energies.begin(), image_energies.end());
-  potential_per_atom[0] = max_energy;
   cudaDeviceSynchronize();
+  potential_per_atom[0] = max_energy;
   printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
 
   fclose(fid);

@@ -143,6 +143,18 @@ void get_3x3_inverse(double* m, double* m_inv)
     }
 }
 
+void matmul_3x3(double* rst, double* a, double* b, int m=3, int n=3)
+{
+  memset(rst, 0, sizeof(double));
+  for (int i=0; i<m; i++){
+    for (int j=0; j<n; j++){
+      for (int k=0; k<3; k++){
+        rst[i+m*j] += a[i+k*j] * b[k+j];
+      }
+    }
+  }
+}
+
 double det_3x3(double *a)
 {
   double result;
@@ -511,6 +523,12 @@ void VCWrapper::compute() {
 double VCWrapper::get_energy()
 {
   double diag_press = (pressure[0] + pressure[4] + pressure[8]) / 3.0;
+  GPU_Vector<double> F{18, Memory_Type::managed};
+
+  // F = h h_ref^(-1)
+  gpu_matmul(handle, d_h.data(), ref_h + 9, F.data(), 3, 3, 3);
+
+
 
   double internal_energy = p_atoms->get_energy();
   return internal_energy + diag_press * p_atoms->box.get_volume(); 

@@ -100,6 +100,7 @@ private:
   bool remove_rotation = true;
   bool variable_cell = true;
   bool var_image_number = true;
+  bool auto_k = false;
   int vi_interval = 20;
   double min_dist = 0.005, max_dist = 0.1;
   int dump_interval = -1;
@@ -114,8 +115,10 @@ private:
 
   // private variables
   // cublasHandle_t handle;
+  vector<double> klist;
   unique_ptr<Minimizer> minimizer;
   vector<const char *>optimizer_opt;
+  int imax;
   list<int> imaxes;
   Dump_Position dump_position;
   vector<pair<int,Atoms*>> mid_list;
