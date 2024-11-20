@@ -147,6 +147,7 @@ void matmul_3x3(double* rst, double* a, double* b, int m=3, int n=3)
 {
   memset(rst, 0, sizeof(double));
   for (int i=0; i<m; i++){
+
     for (int j=0; j<n; j++){
       for (int k=0; k<3; k++){
         rst[i+m*j] += a[i+k*j] * b[k+j];
@@ -168,7 +169,7 @@ double det_3x3(double *a)
 __global__ void gpu_norm_axis1(double* rst, double* a, const int nl, const int ncol)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
-  int sum = 0;
+  double sum = 0;
   if (n < nl)
     for (int i = 0; i < ncol; i++){
       sum += a[n + i * nl] * a[n + i * nl];

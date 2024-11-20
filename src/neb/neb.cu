@@ -1,4 +1,5 @@
 #include "neb.cuh"
+#include <thrust/sort.h>
 #include <thrust/device_vector.h>
 
 namespace
@@ -245,6 +246,27 @@ void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
 }
 
+__global__ void gpu_sum_square_axis1(double* rst, double* a, const int nl, const int ncol)
+{
+  int n = blockDim.x * blockIdx.x + threadIdx.x;
+  double sum = 0;
+  if (n < nl){
+    for (int i = 0; i < ncol; i++){
+      sum += a[n + i * nl] * a[n + i * nl];
+    }
+    rst[n] = sum;
+  }
+}
+
+
+GPU_Vector<double> sum_square_axis1(GPU_Vector<double>& a, const int ncol)
+{
+  int nl = a.size()/ncol;
+  GPU_Vector<double> temp(nl);
+  gpu_sum_square_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
+  return temp;
+}
+
 double max_abs(int size, double* vec)
 {
   int index;
@@ -434,6 +456,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
       PRINT_INPUT_ERROR("dist_range should be two reals.");
     }
     n+=2;
+  } else if (strcmp(param[n], "dist_ncount") == 0){
+    if (!is_valid_int(param[n+1], &dist_ncount)) {
+      PRINT_INPUT_ERROR("dist_ncount should be an int.");
+    }
+    n++;
   } else if (strcmp(param[n], "dump_interval") == 0){
     if (!is_valid_int(param[n+1], &dump_interval)) {
       PRINT_INPUT_ERROR("dump_interval should be an int.");
@@ -575,6 +602,7 @@ void NEB::run_neb() {
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
+  dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
@@ -634,7 +662,7 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
   
-  klist.resize(images.size() - 1, k);
+  klist.resize(images.size(), k);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -690,15 +718,17 @@ void NEB::compute()
   } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
 
   find_min_max();
-  // printf("k_target: ");
+  printf("klist: ");
   if (auto_k) {
-    for (int i=1; i<nimages-1;i++){
+    for (int i=0; i<nimages;i++){
       double k_target = k / (1 - 0.8*pow(0.9, pow(i-imax,2)));
-      klist[i] = 0.9 * klist[i] + 0.1 * k_target;
-      // printf("%.3f ", klist[i]);
+      if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
+      else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
+      else klist[i] -= 0.1*(k_target - k);
+      printf("%.3f ", klist[i]);
     }
   }
-  // printf("\n"); 
+  printf("\n"); 
 
   // -----------------start to compute spring force----------------------
   // GPU_Vector<double> tangent(natoms_per_image*3);
@@ -706,11 +736,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
+  Spring spring1{(klist[0]+klist[1])/2, image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{(klist[i]+klist[i+1])/2, image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -800,15 +830,30 @@ void NEB::check_dist() {
   double nrm2, dist;
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
+  printf("image_dist: ");
   for (int i = 1; i < images.size(); i++)
   {
     GPU_Vector<double>& pos1 = images[i-1]->get_positions();
     GPU_Vector<double>& pos2 = images[i]->get_positions();
     vector_add(dpos, pos2, pos1, 1.0, -1.0);
 
+    // only count the largest dist_ncount displacement
+    GPU_Vector<double> r2_arr = sum_square_axis1(dpos, 3);
+    thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
+    thrust::sort(d_ptr, d_ptr + n_realatoms);
+    double r_sum_square = sum(r2_arr.data()+n_realatoms - dist_ncount, dist_ncount);
+    // print_gpu(r2_arr.data() + n_realatoms - dist_ncount, dist_ncount, "largest n");
+    if (variable_cell){
+      double h_sum_square = sum(r2_arr.data() + n_realatoms, 3);
+      dist = sqrt(r_sum_square/dist_ncount + h_sum_square/3/n_realatoms);
+    } else {
+      dist = sqrt(r_sum_square/dist_ncount);
+    }
+    printf("%f ", dist);
+
     //calc_dist
-    cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
-    dist = nrm2/sqrt(natoms_per_image);
+    // cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
+    // dist = nrm2/sqrt(natoms_per_image);
     // printf(" %f ", dist);
     if (dist > max_dist){
       printf("imaxes: ");
@@ -845,8 +890,6 @@ void NEB::write_neb_traj(const char* filename, const char* mode){
     Atoms& atoms = *images[i]->get_p_atoms();
     save_one_frame(fid, atoms.box, atoms.get_energy(), atoms.cpu_atom_symbol,
        atoms.get_positions(), cpu_positions);
-    // dump_position.process(1, atoms.box, atoms.group, atoms.cpu_atom_symbol, cpu_type,
-    //   atoms.get_positions(), cpu_positions);
     // print_gpu(atoms.get_positions());
   }
   fclose(fid);
@@ -900,8 +943,6 @@ void NEB::initialize_compute() {
   natoms = (nimages - 2) * natoms_per_image; // remove first and last images
 
   potential_per_atom.resize(1, Memory_Type::managed);
-  // print_gpu(potential_per_atom, "E");
-  // CHECK(cudaMallocManaged(&image_energies, nimages * sizeof(double)));
   image_energies.resize(nimages);
   positions.resize(natoms * 3);
   forces.resize(natoms * 3, 0);
@@ -909,13 +950,7 @@ void NEB::initialize_compute() {
   build_positions();
   image_energies.front() = first_energy;
   image_energies.back() = last_energy;
-  
-  // GPU_Vector<double>  t1;
-  // t1.resize(natoms_per_image*3);
-  // vector_substract(t1, images[2]->get_positions(), images[0]->get_positions());
-  // print_gpu(t1, "fs-is");
-  // print_gpu(images[0]->get_positions(), "pos_is");
-  // print_gpu(images[2]->get_positions(), "pos_fs");
+
 }
 
 
@@ -926,8 +961,12 @@ void NEB::find_min_max()
     if (image_energies[i] > image_energies[i-1] &&
         image_energies[i] > image_energies[i+1]){
       imaxes.push_back(i);
-      }
+    } else if (image_energies[i] < image_energies[i-1] &&
+               image_energies[i] < image_energies[i+1]){
+      imins.push_back(i);
+    }
   }
+
   imax = max_element(image_energies.begin(), image_energies.end()) - image_energies.begin();
 }
 
@@ -945,16 +984,13 @@ GPU_Vector<double>& NEB::build_positions()
     gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
           1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
   }
-  // print_gpu(positions,"neb positions");
   return positions;
 }
 
 void NEB::set_positions()
 {
   // printf("neb set_position\n");
-    // print_gpu(positions, "neb positions");
   for (int i=1; i<nimages-1;i++){
-    // print_gpu(images[i]->get_positions(), "set_pos images[i]->get_positions()");
     images[i]->get_positions().copy_from_device(
       &positions[(i-1) * natoms_per_image*3],
       natoms_per_image*3);

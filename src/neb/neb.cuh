@@ -103,6 +103,7 @@ private:
   bool auto_k = false;
   int vi_interval = 20;
   double min_dist = 0.005, max_dist = 0.1;
+  int dist_ncount = 10;
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;
@@ -119,6 +120,7 @@ private:
   unique_ptr<Minimizer> minimizer;
   vector<const char *>optimizer_opt;
   int imax;
+  list<int> imins;
   list<int> imaxes;
   Dump_Position dump_position;
   vector<pair<int,Atoms*>> mid_list;
