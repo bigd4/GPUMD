@@ -711,16 +711,22 @@ void NEB::compute()
   }
   
   int base = (max_steps >= 100) ? (max_steps / 100) : 1;
-  if (step % base == 0 ){
-    write_energies();
-  }
+  // if (step % base == 0 ){
+  //   write_energies();
+  // }
   if (dump_interval == -1){
     if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
   } else if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
   
   if (peek_interval == -1){
-    if (step % (2* base) == 0 ) write_neb_traj("peek_traj.xyz", "w");
-  } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
+    if (step % (2* base) == 0 ){
+      write_neb_traj("peek_traj.xyz", "w");
+      write_energies();
+    }
+  } else if (step % peek_interval == 0){
+    write_neb_traj("peek_traj.xyz", "w");
+    write_energies();
+  }
 
   find_min_max();
   // printf("klist: ");
@@ -861,9 +867,6 @@ void NEB::check_dist() {
     // dist = nrm2/sqrt(natoms_per_image);
     // printf(" %f ", dist);
     if (dist > max_dist){
-      printf("imaxes: ");
-      for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
-      printf("\n");
 
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
@@ -882,7 +885,12 @@ void NEB::check_dist() {
     }
   }
   
-  if (vi_count==0) forces.fill(0);
+  if (vi_count==0){
+    forces.fill(0);
+    printf("imaxes: ");
+    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
+    printf("\n");
+  }
 }
 
 void NEB::write_neb_traj(const char* filename, const char* mode){
