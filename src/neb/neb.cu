@@ -461,6 +461,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
       PRINT_INPUT_ERROR("dist_ncount should be an int.");
     }
     n++;
+  } else if (strcmp(param[n], "vi_interval") == 0){
+    if (!is_valid_int(param[n+1], &vi_interval)) {
+      PRINT_INPUT_ERROR("vi_interval should be an int.");
+    }
+    n++;
   } else if (strcmp(param[n], "dump_interval") == 0){
     if (!is_valid_int(param[n+1], &dump_interval)) {
       PRINT_INPUT_ERROR("dump_interval should be an int.");
@@ -718,17 +723,17 @@ void NEB::compute()
   } else if (step % peek_interval == 0) write_neb_traj("peek_traj.xyz", "w");
 
   find_min_max();
-  printf("klist: ");
+  // printf("klist: ");
   if (auto_k) {
     for (int i=0; i<nimages;i++){
       double k_target = k / (1 - 0.8*pow(0.9, pow(i-imax,2)));
       if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
       else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
       else klist[i] -= 0.1*(k_target - k);
-      printf("%.3f ", klist[i]);
+      // printf("%.3f ", klist[i]);
     }
   }
-  printf("\n"); 
+  // printf("\n"); 
 
   // -----------------start to compute spring force----------------------
   // GPU_Vector<double> tangent(natoms_per_image*3);
@@ -830,7 +835,7 @@ void NEB::check_dist() {
   double nrm2, dist;
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
-  printf("image_dist: ");
+  // printf("image_dist: ");
   for (int i = 1; i < images.size(); i++)
   {
     GPU_Vector<double>& pos1 = images[i-1]->get_positions();
@@ -849,7 +854,7 @@ void NEB::check_dist() {
     } else {
       dist = sqrt(r_sum_square/dist_ncount);
     }
-    printf("%f ", dist);
+    // printf("%f ", dist);
 
     //calc_dist
     // cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
