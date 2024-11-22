@@ -246,7 +246,7 @@ void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
 }
 
-__global__ void gpu_sum_square_axis1(double* rst, double* a, const int nl, const int ncol)
+__global__ void gpu_sum_square_axis1(double* dst, double* a, const int nl, const int ncol)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   double sum = 0;
@@ -254,7 +254,7 @@ __global__ void gpu_sum_square_axis1(double* rst, double* a, const int nl, const
     for (int i = 0; i < ncol; i++){
       sum += a[n + i * nl] * a[n + i * nl];
     }
-    rst[n] = sum;
+    dst[n] = sum;
   }
 }
 
@@ -397,6 +397,9 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n++;
   } else if (strcmp(param[n], "mid_name") == 0){
     mid_name.assign(param[n+1]);
+    n++;
+  } else if (strcmp(param[n], "traj_name") == 0){
+    traj_name.assign(param[n+1]);
     n++;
   } else if (strcmp(param[n], "mid_name_list") == 0){
     for (int i=n+1; i<num_param; i++){
@@ -564,49 +567,84 @@ void cell_best_match(double* cell_ref, double* cell, double* new_cell){
 
 }
 
-void NEB::run_neb() {
+
+void NEB::initialize_images() {
   printf("midname: %s\n", mid_name.data());
-  tangentmethod = get_tangent_method(tangent_method_name, k);
   // tangentmethod = new ImprovedTangentMethod(k);
   // variable_cell = false;
   // vector<double> press_in = {press_scalar};
+  if (traj_name.size() != 0){
+    printf("--------------file %s to traj-------------------\n", traj_name);
+    ifstream input(traj_name);
+    bool read_success;
+    if (!variable_cell){
+      while (true){
+        unique_ptr<Atoms> p_tmp = make_unique<Atoms>(input, read_success);
+        if (read_success) {
+          images.emplace_back(move(p_tmp));
+        } else break;
+      }
+    }
+    else {
+      unique_ptr<VCWrapper> p_is = make_unique<VCWrapper>(input, read_success, pressure);
+      h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
+      if (read_success) {
+        images.emplace_back(move(p_is));
+      } else {
+        printf("read traj failed\n");
+        exit(-1);
+      }
+      while (true){
+        unique_ptr<VCWrapper> p_tmp = make_unique<VCWrapper>(input, read_success, pressure, h_ref.data());
+        if (read_success) {
+          images.emplace_back(move(p_tmp));
+        } else break;
+      }
+    }
+  }
   Atoms *p_is = new Atoms(istate_name.data());
   Atoms *p_fs = new Atoms(fstate_name.data());
-  ref_h.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
+  h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
   GPU_Vector<double> tmp_h = 9, tmp_h2(9);
-  tmp_h.copy_from_host(ref_h.data());
+  tmp_h.copy_from_host(h_ref.data());
   tmp_h2.copy_from_host(p_fs->box.cpu_h);
   print_gpu(tmp_h, "tmp_h");
   print_gpu(tmp_h2, "tmp_h2");
   // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
   // print_gpu(tmp_h2, "tmp_h2");
   if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
-  // print_arr(ref_h.data(), 9, "vector ref_h");
+  // print_arr(h_ref.data(), 9, "vector h_ref");
   if (!variable_cell){
-    images.push_back(p_is);
+    images.push_back(unique_ptr<Atoms>(p_is));
     if (has_mid){
       for (int i=0; i<mid_name_list.size(); i++){
         Atoms *p_mid = new Atoms((mid_name_list[i]).data());
         mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_mid));
       }
     }
-    images.push_back(p_fs);
+    images.push_back(unique_ptr<Atoms>(p_fs));
   } else{
     optimize_factor = pow(p_is->get_natoms(), 1.0/4);
     printf("optimize_factor=%f\n", optimize_factor);
-    images.push_back(new VCWrapper(*p_is, pressure, ref_h.data()));
+    images.push_back(make_unique<VCWrapper>(*p_is, pressure, h_ref.data()));
     if (has_mid){
       for (int i=0; i<mid_name_list.size(); i++){
         Atoms *p_mid = new Atoms((mid_name_list[i]).data());
-        Atoms *p_tmp = new VCWrapper(*p_mid, pressure, ref_h.data());
-        images.push_back(p_tmp);
+        Atoms *p_tmp = new VCWrapper(*p_mid, pressure, h_ref.data());
+        images.push_back(unique_ptr<Atoms>(p_tmp));
         mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
       }
     }
-    images.push_back(new VCWrapper(*p_fs, pressure, ref_h.data()));
+    images.push_back(make_unique<VCWrapper>(*p_fs, pressure, h_ref.data()));
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
+}
+
+
+void NEB::run_neb() {
+  initialize_images();
+  tangentmethod = get_tangent_method(tangent_method_name, k);
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
@@ -634,9 +672,9 @@ void NEB::run_neb() {
   }
   if (remove_translation){
     double center[3], ref_center[3];
-    ref_center[0] = (ref_h[0] + ref_h[1] + ref_h[2])/2;
-    ref_center[1] = (ref_h[3] + ref_h[4] + ref_h[5])/2;
-    ref_center[2] = (ref_h[6] + ref_h[7] + ref_h[8])/2;
+    ref_center[0] = (h_ref[0] + h_ref[1] + h_ref[2])/2;
+    ref_center[1] = (h_ref[3] + h_ref[4] + h_ref[5])/2;
+    ref_center[2] = (h_ref[6] + h_ref[7] + h_ref[8])/2;
     for (auto it=images.begin();it!=images.end();it++){
       GPU_Vector<double>& pos = (*it)->get_positions();
       sum2d(pos, center, 3, n_realatoms);
@@ -659,7 +697,7 @@ void NEB::run_neb() {
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   #ifdef DEBUG
-  printf("neb() images[0] natoms %d\n", images[0]->get_natoms());
+  printf("run_neb() images[0] natoms %d\n", images[0]->get_natoms());
   #endif
 
   images.front()->compute();
@@ -684,7 +722,6 @@ void NEB::run_neb() {
     }
   }
   write_neb_traj("final_traj.xyz", "w");
-  // dump_position.postprocess();
 }
 
 
@@ -870,13 +907,13 @@ void NEB::check_dist() {
 
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
-      images.insert(images.begin()+i, new VCWrapper(images[0], new_pos.data()));
+      images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       klist.insert(klist.begin() + i, klist[i-1]);
       printf("add an image: %d , nimages: %d\n", i, images.size());
       i+=2; //skip 2 images
       vi_count = 0;
     }else if (dist < min_dist && i != images.size()-1){
-      delete(images[i]);
+      // delete(images[i]);
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
       printf("remove an image: %d , nimages: %d\n", i, images.size());
@@ -901,7 +938,7 @@ void NEB::write_neb_traj(const char* filename, const char* mode){
   // (*images[0]->get_p_atoms()).type.copy_to_host(cpu_type.data());
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
-    save_one_frame(fid, atoms.box, atoms.get_energy(), atoms.cpu_atom_symbol,
+    save_one_frame(fid, atoms.box, images[i]->get_energy(), atoms.cpu_atom_symbol,
        atoms.get_positions(), cpu_positions);
     // print_gpu(atoms.get_positions());
   }
@@ -912,7 +949,7 @@ void NEB::interpolate() {
   // printf("neb interpolate, size of images[0]->get_positions().size()=%d\n", images[0]->get_positions().size());
   GPU_Vector<double> dpos(images[0]->get_positions().size()), cur_pos(images[0]->get_positions().size());
   vector<int> i_keyframe={0};
-  vector<Atoms*> keyframe={images.front()};
+  vector<Atoms*> keyframe={images.front().get()};
   int n_key=0;
   for (auto it=mid_list.begin(); it!=mid_list.end();it++){
     i_keyframe.push_back(it->first+n_key);
@@ -921,7 +958,7 @@ void NEB::interpolate() {
     // images.insert(images.begin()+n_key, it->second);
   }
   i_keyframe.push_back(n_interpolate+n_key+1);
-  keyframe.push_back(images.back());
+  keyframe.push_back(images.back().get());
   print_arr(i_keyframe.data(), i_keyframe.size(), "i_k");  
   for (int k=0; k<n_key+1;k++){
     GPU_Vector<double>& ipos = keyframe[k]->get_positions();
@@ -935,11 +972,11 @@ void NEB::interpolate() {
       vector_add(cur_pos, ipos, dpos, 1, double(i_cur)/(n_cur));
       if (variable_cell){
         // print_gpu(cur_pos,"cur_pos");
-        VCWrapper* new_vcatoms = new VCWrapper(images[0], cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+i_cur, new_vcatoms);
+        VCWrapper* new_vcatoms = new VCWrapper(images[0].get(), cur_pos.data());
+        images.insert(images.begin()+i_keyframe[k]+i_cur, unique_ptr<VCWrapper>(new_vcatoms));
       } else {
-        Atoms* new_atoms = new Atoms(*images[0], cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+i_cur, new_atoms);
+        Atoms* new_atoms = new Atoms(*images[0].get(), cur_pos.data());
+        images.insert(images.begin()+i_keyframe[k]+i_cur, unique_ptr<Atoms>(new_atoms));
       }
     }
   }

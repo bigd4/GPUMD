@@ -21,11 +21,15 @@ class Group;
 class Atom;
 #include "utilities/gpu_vector.cuh"
 #include <vector>
+#include <fstream>
 
 void initialize_position(
   int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom);
 
 void initialize_position(
   const char* xyzname, int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom);
+
+bool initialize_position(
+  std::ifstream& input, int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom);
 
 void allocate_memory_gpu(std::vector<Group>& group, Atom& atom, GPU_Vector<double>& thermo);

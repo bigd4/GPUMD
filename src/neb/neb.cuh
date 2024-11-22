@@ -110,6 +110,7 @@ private:
   string istate_name = "is.xyz";
   string fstate_name = "fs.xyz";
   string mid_name = "mid.xyz";
+  string traj_name = "";
   vector<string> mid_name_list;
   string tangent_method_name = "normal";
 
@@ -124,7 +125,7 @@ private:
   list<int> imaxes;
   Dump_Position dump_position;
   vector<pair<int,Atoms*>> mid_list;
-  vector<double> ref_h{9};
+  vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
@@ -136,12 +137,14 @@ private:
 
   void find_min_max();
 
+  void initialize_images();
+
   void initialize_compute();
 
   void check_dist();
 
 public:
-  deque<Atoms*> images;
+  vector<unique_ptr<Atoms>> images;
   vector<double> image_energies;
   BaseTangentMethod* tangentmethod;
 

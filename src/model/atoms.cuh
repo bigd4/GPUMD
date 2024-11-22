@@ -86,12 +86,8 @@ public:
   // vector<double> cpu_positions;
   GPU_Vector<int> type; // size: (natoms), type(int) of each atom
   // GPU_Vector<double> masses;
-  // vector<GPU_Vector<double>> velocities;
-  // std::vector<GPU_Vector<double>> forces;
-  // std::vector<GPU_Vector<double>> virials;
   // double *h; // 18 elements, first 9 are cell, last 9 are the inverse of cell.
   GPU_Vector<double> virials; // size: (natoms, 9)
-  // double *test;
 
   Atoms();
 
@@ -128,6 +124,8 @@ public:
 
   Atoms(const char* filename);
 
+  Atoms(ifstream& input, bool& success);
+
   ~Atoms();
 
   void initialize(Atom& atom);
@@ -161,19 +159,25 @@ class VCWrapper: public Atoms
 private:
   double* virial; // size: 9, managed memory
 
+  void build_VCWrapper(vector<double> p, double* h_ref0);
+
 public:
   double cell_factor = 1.0;
   vector<double> pressure = vector<double>(9,0.0);
-  double* ref_h; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
-  Atoms* p_atoms;
+  double* h_ref; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
+  unique_ptr<Atoms> p_atoms;
   double* deform; // size: 18, managed memory. first 9 are deform, last 9 are the inverse.
   GPU_Vector<double> d_h; // size: 18, device memory
 
-  VCWrapper(Atoms& atoms, vector<double> p, double* h0);
+
+  VCWrapper(Atoms& atoms, vector<double> p, double* h_ref0);
   VCWrapper(Atoms& atoms, vector<double> p);
 
-  VCWrapper(const VCWrapper& atoms0, double* new_position);
+  VCWrapper(const char* filename, vector<double> p, double* h_ref0);
+  VCWrapper(ifstream& input, bool& success, vector<double> p, double* h_ref0);
+  VCWrapper(ifstream& input, bool& success, vector<double> p);
 
+  VCWrapper(const VCWrapper& atoms0, double* new_position);
   VCWrapper(Atoms* p_atoms0, double* new_position);
 
   ~VCWrapper();
@@ -194,7 +198,7 @@ public:
   // use updated vcwrapper positions to reset atoms positions and box
   void set_positions();
 
-  Atoms* get_p_atoms() {return p_atoms;}
+  Atoms* get_p_atoms() {return p_atoms.get();}
 
   // void set_box(Box& box0);
 
