@@ -569,76 +569,76 @@ void cell_best_match(double* cell_ref, double* cell, double* new_cell){
 
 
 void NEB::initialize_images() {
-  printf("midname: %s\n", mid_name.data());
-  // tangentmethod = new ImprovedTangentMethod(k);
-  // variable_cell = false;
-  // vector<double> press_in = {press_scalar};
   if (traj_name.size() != 0){
-    printf("--------------file %s to traj-------------------\n", traj_name);
+    printf("--------------file %s to traj-------------------\n", traj_name.data());
     ifstream input(traj_name);
     bool read_success;
     if (!variable_cell){
       while (true){
-        unique_ptr<Atoms> p_tmp = make_unique<Atoms>(input, read_success);
+        Atoms* p_tmp = new Atoms(input, read_success);
         if (read_success) {
-          images.emplace_back(move(p_tmp));
+          images.emplace_back(unique_ptr<Atoms>(p_tmp));
         } else break;
       }
     }
     else {
-      unique_ptr<VCWrapper> p_is = make_unique<VCWrapper>(input, read_success, pressure);
-      h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
+      Atoms* p_is = new Atoms(input, read_success);
       if (read_success) {
-        images.emplace_back(move(p_is));
+        images.push_back(make_unique<VCWrapper>(*p_is, pressure));
       } else {
         printf("read traj failed\n");
         exit(-1);
       }
+      h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
       while (true){
-        unique_ptr<VCWrapper> p_tmp = make_unique<VCWrapper>(input, read_success, pressure, h_ref.data());
+        VCWrapper* p_tmp = new VCWrapper(input, read_success, pressure, h_ref.data());
         if (read_success) {
-          images.emplace_back(move(p_tmp));
+          images.push_back(unique_ptr<VCWrapper>(p_tmp)); 
         } else break;
       }
     }
+    printf("traj nimages: %d\n", images.size());
+    input.close();
   }
-  Atoms *p_is = new Atoms(istate_name.data());
-  Atoms *p_fs = new Atoms(fstate_name.data());
-  h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
-  GPU_Vector<double> tmp_h = 9, tmp_h2(9);
-  tmp_h.copy_from_host(h_ref.data());
-  tmp_h2.copy_from_host(p_fs->box.cpu_h);
-  print_gpu(tmp_h, "tmp_h");
-  print_gpu(tmp_h2, "tmp_h2");
-  // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
-  // print_gpu(tmp_h2, "tmp_h2");
-  if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
-  // print_arr(h_ref.data(), 9, "vector h_ref");
-  if (!variable_cell){
-    images.push_back(unique_ptr<Atoms>(p_is));
-    if (has_mid){
-      for (int i=0; i<mid_name_list.size(); i++){
-        Atoms *p_mid = new Atoms((mid_name_list[i]).data());
-        mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_mid));
+  else {
+    printf("midname: %s\n", mid_name.data());
+    Atoms *p_is = new Atoms(istate_name.data());
+    Atoms *p_fs = new Atoms(fstate_name.data());
+    h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
+    GPU_Vector<double> tmp_h = 9, tmp_h2(9);
+    tmp_h.copy_from_host(h_ref.data());
+    tmp_h2.copy_from_host(p_fs->box.cpu_h);
+    print_gpu(tmp_h, "tmp_h");
+    print_gpu(tmp_h2, "tmp_h2");
+    // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
+    // print_gpu(tmp_h2, "tmp_h2");
+    if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
+    // print_arr(h_ref.data(), 9, "vector h_ref");
+    if (!variable_cell){
+      images.push_back(unique_ptr<Atoms>(p_is));
+      if (has_mid){
+        for (int i=0; i<mid_name_list.size(); i++){
+          Atoms *p_mid = new Atoms((mid_name_list[i]).data());
+          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_mid));
+        }
       }
-    }
-    images.push_back(unique_ptr<Atoms>(p_fs));
-  } else{
-    optimize_factor = pow(p_is->get_natoms(), 1.0/4);
-    printf("optimize_factor=%f\n", optimize_factor);
-    images.push_back(make_unique<VCWrapper>(*p_is, pressure, h_ref.data()));
-    if (has_mid){
-      for (int i=0; i<mid_name_list.size(); i++){
-        Atoms *p_mid = new Atoms((mid_name_list[i]).data());
-        Atoms *p_tmp = new VCWrapper(*p_mid, pressure, h_ref.data());
-        images.push_back(unique_ptr<Atoms>(p_tmp));
-        mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
+      images.push_back(unique_ptr<Atoms>(p_fs));
+    } else{
+      images.push_back(make_unique<VCWrapper>(*p_is, pressure, h_ref.data()));
+      if (has_mid){
+        for (int i=0; i<mid_name_list.size(); i++){
+          Atoms *p_tmp = new VCWrapper((mid_name_list[i]).data(), pressure, h_ref.data());
+          images.push_back(unique_ptr<Atoms>(p_tmp));
+          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
+        }
       }
+      images.push_back(make_unique<VCWrapper>(*p_fs, pressure, h_ref.data()));
     }
-    images.push_back(make_unique<VCWrapper>(*p_fs, pressure, h_ref.data()));
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
+  optimize_factor = pow(n_realatoms, 1.0/4);
+  printf("optimize_factor=%f\n", optimize_factor);
 }
 
 
@@ -687,12 +687,12 @@ void NEB::run_neb() {
         gpu_vector_add_scalar<<<(n_realatoms-1)/128+1,128>>>
             (pos.data() + i*n_realatoms, pos.data() + i*n_realatoms, ref_center[i]-center[i], n_realatoms);
         // printf("meanpos: %f\n", sum(pos.data() + i*n_realatoms, n_realatoms)/n_realatoms);
-        (*it)->set_positions();
       }
+      (*it)->set_positions();
         // print_gpu(pos, "pos_1");
     }
   }
-  if (n_interpolate > 0){
+  if (n_interpolate > 0 && traj_name.size() == 0){
     interpolate();
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);

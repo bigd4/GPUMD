@@ -119,7 +119,7 @@ private:
   // cublasHandle_t handle;
   vector<double> klist;
   unique_ptr<Minimizer> minimizer;
-  vector<const char *>optimizer_opt;
+  vector<const char *> optimizer_opt;
   int imax;
   list<int> imins;
   list<int> imaxes;

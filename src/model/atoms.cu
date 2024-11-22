@@ -49,7 +49,7 @@ void print_gpu(double* a, int size, const char* name){
 
 namespace
 {
-cublasHandle_t handle;
+cublasHandle_t handle = nullptr;
 
 __global__ void gpu_sum(double* a, const int size, double* result)
 {
@@ -110,7 +110,7 @@ void sum2d(GPU_Vector<double>& a, double* result, int len)
 // printf("sum2d finish\n");
 }
 
-void gpu_matmul(cublasHandle_t& handle, double* mA, double* mB, double* mC,
+void gpu_matmul(double* mA, double* mB, double* mC,
   int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
   double alpha=1.0, double beta=0.0)
 {
@@ -390,6 +390,7 @@ void VCWrapper::build_VCWrapper(vector<double> p, double* h_ref0)
   #ifdef DEBUG
   printf("-----VCWrapper from atoms constructor-----\n");
   #endif
+  if (!handle) cublasCreate(&handle);
   initialize(p_atoms->natoms);
   CHECK(cudaMemcpy(h_ref, h_ref0, 9 * sizeof(double), cudaMemcpyHostToDevice));
   get_3x3_inverse(h_ref, h_ref+9);
@@ -463,7 +464,7 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   #ifdef DEBUG
   printf("VCWrapper copy from atoms0 constructor %p\n", this);
   #endif
-  cublasCreate(&handle);
+  if (!handle) cublasCreate(&handle);
   natoms = vcatoms0.natoms;
   p_atoms.reset(new Atoms(*vcatoms0.p_atoms));
   cudaDeviceSynchronize();
@@ -505,7 +506,7 @@ VCWrapper::~VCWrapper() {
   #ifdef DEBUG
   printf("VCWrapper default desctructor\n");
   #endif
-  cublasDestroy(handle);
+  // cublasDestroy(handle);
   cudaFree(h_ref);
   cudaFree(deform);
   cudaFree(virial);
@@ -513,7 +514,7 @@ VCWrapper::~VCWrapper() {
 
 void VCWrapper::initialize(int natoms0) {
   // printf("VCWrapper initial\n");
-  cublasCreate(&handle);
+  if (!handle) cublasCreate(&handle);
   natoms = natoms0 + 3;
   cudaDeviceSynchronize();
   CHECK(cudaMallocManaged(&h_ref, 18 * sizeof(double)));
@@ -547,9 +548,9 @@ void VCWrapper::compute() {
 
   // print_arr(virial, 9, "virial");
   // first n*3 : forces @ D^T
-  gpu_matmul(handle, p_atoms->forces.data(), deform, forces.data(), natoms-3, 3, 3, 0, 1);
+  gpu_matmul(p_atoms->forces.data(), deform, forces.data(), natoms-3, 3, 3, 0, 1);
   // last 9 : D^(-T) @ virial
-  gpu_matmul(handle, &deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0, 1/cell_factor);
+  gpu_matmul( &deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0, 1/cell_factor);
   // print_gpu(positions, "positions");
   // print_arr(p_atoms->box.cpu_h, 9, "cpu_h");
   // print_gpu(forces, "forces");
@@ -561,7 +562,7 @@ double VCWrapper::get_energy()
   GPU_Vector<double> F{18, Memory_Type::managed};
 
   // F = h h_ref^(-1)
-  gpu_matmul(handle, d_h.data(), h_ref + 9, F.data(), 3, 3, 3);
+  gpu_matmul(d_h.data(), h_ref + 9, F.data(), 3, 3, 3);
 
 
 
@@ -581,7 +582,7 @@ GPU_Vector<double>& VCWrapper::build_positions()
   // print_gpu(d_h, "d_h");
   compute_deform();
   // first n*3 are positions @ D^-1 (recording to h_ref)
-  gpu_matmul(handle, p_atoms->positions.data(), &deform[9], positions.data(), natoms-3, 3, 3);
+  gpu_matmul(p_atoms->positions.data(), &deform[9], positions.data(), natoms-3, 3, 3);
   // last 9 are deform
   // CHECK(cudaMemcpy(&positions[natoms * 3 - 9], deform, 9*sizeof(double),
   //  cudaMemcpyDeviceToDevice));
@@ -604,9 +605,9 @@ void VCWrapper::set_positions() {
   p_atoms->positions.copy_from_device(positions.data());
   // printf("size1: %d, size2: %d, nl: %d\n", positions.size(), p_atoms->positions.size(), natoms-3);
   // first n*3 : R = R~ @ D (recording to h_ref)
-  gpu_matmul(handle, positions.data(), deform, p_atoms->positions.data(), natoms-3, 3, 3);
+  gpu_matmul(positions.data(), deform, p_atoms->positions.data(), natoms-3, 3, 3);
   // last 9 : h = h0 @ D (recording to h_ref)
-  gpu_matmul(handle, h_ref, deform, d_h.data(), 3, 3, 3);
+  gpu_matmul(h_ref, deform, d_h.data(), 3, 3, 3);
   CUDA_CHECK_KERNEL;
   p_atoms->set_box(d_h, 9);
   // printf("vcwrapper set_positions finish\n");
@@ -616,7 +617,7 @@ void VCWrapper::compute_deform()
 {
   // printf("vcwrapper compute_deform\n");
   // deform = h0^-1 @ h
-  gpu_matmul(handle, &h_ref[9], d_h.data(), deform, 3, 3, 3);
+  gpu_matmul(&h_ref[9], d_h.data(), deform, 3, 3, 3);
   cudaDeviceSynchronize();
   get_3x3_inverse(deform, deform + 9);
   // print_arr(deform, 18, "deform");
