@@ -45,7 +45,8 @@ void Minimize::parse_minimize(
   int minimizer_type = 0;
   int number_of_steps = 0;
   bool vc = false;
-  double pressure = 0.0;
+  int n = 4;
+  vector<double> pressure = {0.0};
   double force_tolerance = 0.0;
   std::unique_ptr<Minimizer> minimizer;
   const int number_of_atoms = type.size();
@@ -88,26 +89,51 @@ void Minimize::parse_minimize(
     vc = true;
     minimizer_type = 1;
 
-    if (num_param < 5) {
-      PRINT_INPUT_ERROR("minimize vcfire should have at least 3 parameters: pressure, force_tol, nsteps.");
+    if (num_param < 4) {
+      PRINT_INPUT_ERROR("minimize vcfire should have at least 2 parameters: force_tol, nsteps.");
     }
 
-    if (!is_valid_real(param[2], &pressure)) {
-      PRINT_INPUT_ERROR("Pressure should be a number.");
-    }
-
-    if (!is_valid_real(param[3], &force_tolerance)) {
+    if (!is_valid_real(param[2], &force_tolerance)) {
       PRINT_INPUT_ERROR("Force tolerance should be a number.");
     }
 
-    if (!is_valid_int(param[4], &number_of_steps)) {
+    if (!is_valid_int(param[3], &number_of_steps)) {
       PRINT_INPUT_ERROR("Number of steps should be an integer.");
     }
     if (number_of_steps <= 0) {
       PRINT_INPUT_ERROR("Number of steps should > 0.");
     }
-  } else {
-    PRINT_INPUT_ERROR("Invalid minimizer.");
+    if (strcmp(param[n], "p") == 0){
+      if (!is_valid_real(param[n+1], &pressure[0])) {
+        PRINT_INPUT_ERROR("p should be an real.");
+      }
+      n += 2;
+    } else if (strcmp(param[n], "p3") == 0){
+      pressure.resize(3);
+      for (int i=0; i<3; i++){
+        if (!is_valid_real(param[n+1+i], &pressure[i])) {
+          PRINT_INPUT_ERROR("p3 should be 3 reals.");
+        }
+      }
+      n += 4;
+    } else if (strcmp(param[n], "p6") == 0){
+      vector<double> press_in(6);
+      pressure.resize(9);
+      for (int i=0; i<6; i++){
+        if (!is_valid_real(param[n+1+i], &press_in[i])) {
+          PRINT_INPUT_ERROR("p6 should be 6 reals.");
+        }
+      }
+      pressure[0] = press_in[0];
+      pressure[4] = press_in[1];
+      pressure[8] = press_in[2];
+      pressure[5] = pressure[7] = press_in[3];
+      pressure[2] = pressure[6] = press_in[4];
+      pressure[1] = pressure[3] = press_in[5];
+      n += 7;
+    } else {
+      PRINT_INPUT_ERROR("Invalid input for vcfire.");
+    }
   }
 
   switch (minimizer_type) {
@@ -143,7 +169,7 @@ void Minimize::parse_minimize(
         vector<double> press={pressure};
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
-        dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, 5);
+        dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, n);
         VCWrapper& vcatoms = *new VCWrapper(atoms, press);
         vcatoms.compute();
         printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());
