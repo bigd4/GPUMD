@@ -113,25 +113,25 @@ static __global__ void calc_spring_force(
       double diff_vert_x = diff_x - diff_par_x;
       double diff_vert_y = diff_y - diff_par_y;
       double diff_vert_z = diff_z - diff_par_z;
-      double cur_fx = k * (diff_par_x + vert_part * diff_vert_x);
-      double cur_fy = k * (diff_par_y + vert_part * diff_vert_y);
-      double cur_fz = k * (diff_par_z + vert_part * diff_vert_z);
+      double f12_x = k * (diff_par_x + vert_part * diff_vert_x);
+      double f12_y = k * (diff_par_y + vert_part * diff_vert_y);
+      double f12_z = k * (diff_par_z + vert_part * diff_vert_z);
 
-      atomicAdd(&f_x[n1], cur_fx);
-      atomicAdd(&f_y[n1], cur_fy);
-      atomicAdd(&f_z[n1], cur_fz);
-      atomicAdd(&f_x[n2], -cur_fx);
-      atomicAdd(&f_y[n2], -cur_fy);
-      atomicAdd(&f_z[n2], -cur_fz);
-      s_sxx -= x12 * cur_fx;
-      s_sxy -= x12 * cur_fy;
-      s_sxz -= x12 * cur_fz;
-      s_syx -= y12 * cur_fx;
-      s_syy -= y12 * cur_fy;
-      s_syz -= y12 * cur_fz;
-      s_szx -= z12 * cur_fx;
-      s_szy -= z12 * cur_fy;
-      s_szz -= z12 * cur_fz;
+      atomicAdd(&f_x[n1], f12_x);
+      atomicAdd(&f_y[n1], f12_y);
+      atomicAdd(&f_z[n1], f12_z);
+      atomicAdd(&f_x[n2], -f12_x);
+      atomicAdd(&f_y[n2], -f12_y);
+      atomicAdd(&f_z[n2], -f12_z);
+      s_sxx -= x12 * f12_x;
+      s_sxy -= x12 * f12_y;
+      s_sxz -= x12 * f12_z;
+      s_syx -= y12 * f12_x;
+      s_syy -= y12 * f12_y;
+      s_syz -= y12 * f12_z;
+      s_szx -= z12 * f12_x;
+      s_szy -= z12 * f12_y;
+      s_szz -= z12 * f12_z;
 
     }
 
@@ -217,7 +217,7 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   GPU_Vector<int> cell_count_sum(natoms);
   GPU_Vector<int> cell_contents(natoms);
   max_neighbor = 100;
-  print_arr(tmp_box.cpu_h, 18, "box");
+  // print_arr(tmp_box.cpu_h, 18, "box");
   NN_target.resize(natoms); // neighbor number
   NL_target.resize(natoms * max_neighbor); // neighbor list
   dpos_target.resize(n_pick * max_neighbor * 3);
@@ -234,11 +234,11 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
     NN_target,
     NL_target
   );
-  print_arr(tmp_box.cpu_h, 18, "box");
-  print_gpu(tmp_atom.position_per_atom, "r0");
-  print_gpu(NN_target, "NN0");
-  print_gpu(i_pick, "i_pick");
-  print_gpu(NL_target, "NL_target");
+  // print_arr(tmp_box.cpu_h, 18, "box");
+  // print_gpu(tmp_atom.position_per_atom, "r0");
+  // print_gpu(NN_target, "NN0");
+  // print_gpu(i_pick, "i_pick");
+  // print_gpu(NL_target, "NL_target");
   CUDA_CHECK_KERNEL;
   get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
     natoms,
@@ -258,7 +258,7 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   );
   cudaDeviceSynchronize();
   CUDA_CHECK_KERNEL;
-  print_gpu(dpos_target, "dpos");
+  // print_gpu(dpos_target, "dpos");
 
   force.set_multiple_potentials_mode("average");
 
