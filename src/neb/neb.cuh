@@ -93,7 +93,7 @@ private:
   double k = 0.1;
   vector<double> pressure = {0.0};
   bool has_mid = false;
-  int n_interpolate = 3;
+  int n_interpolate = 0;
   bool need_relax = false;
   bool climb = false;
   bool remove_translation = true;

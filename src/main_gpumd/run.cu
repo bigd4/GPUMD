@@ -35,6 +35,7 @@ Run simulation according to the inputs in the run.in file.
 #include "utilities/error.cuh"
 #include "utilities/read_file.cuh"
 #include "velocity.cuh"
+#include "force/target_opt.cuh"
 
 static __global__ void gpu_find_largest_v2(
   int N, int number_of_rounds, double* g_vx, double* g_vy, double* g_vz, double* g_v2_max)
@@ -340,6 +341,10 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
+  } else if (strcmp(param[0], "target_opt") == 0) {
+    TargetOpt* p_target_opt = new TargetOpt();
+    p_target_opt->parse_target_opt(param, num_param, force);
+    force.potentials.push_back(std::unique_ptr<Potential>(std::move(p_target_opt)));
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);

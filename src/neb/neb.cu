@@ -846,6 +846,7 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
+  check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
       // &forces[(i-1) * natoms_per_image*3]
@@ -855,7 +856,6 @@ void NEB::compute()
             1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
     }
   }
-  check_dist();
   step++;
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
