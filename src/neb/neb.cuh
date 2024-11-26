@@ -150,6 +150,8 @@ public:
 
   NEB();
 
+  double get_energy();
+
   void parse_options(const char** param, int num_param, int& n);
 
   // NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)

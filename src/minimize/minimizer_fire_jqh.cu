@@ -100,6 +100,16 @@ void vector_add(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>
   int size = a.size();
   gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
 }
+
+cublasHandle_t handle;
+double max_abs(int size, double* vec)
+{
+  int index;
+  double result;
+  cublasIdamax(handle, size, vec, 1, &index);
+  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+  return abs(result);
+}
 } // namespace
 
 void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstart)
@@ -150,6 +160,17 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
     PRINT_INPUT_ERROR(text.data());
     }
   }
+  printf("----------vcfire settings---------------\n");
+  printf("%+12s = %.4f\n", "max_move", max_move);
+  printf("%+12s = %.4f\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
+  printf("%+12s = %.4f\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
+  printf("%+12s = %.4f\n", "f_inc", f_inc);
+  printf("%+12s = %.4f\n", "alpha_start", alpha_start);
+  printf("%+12s = %.4f\n", "f_alphat", f_alpha);
+  printf("%+12s = %d\n", "N_min", N_min);
+
+  printf("----------------------------------------\n");
+  cublasCreate(&handle);
 
 }
 
@@ -270,9 +291,9 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
 
     if (step % base == 0 || force_max < force_tolerance_) {
       printf(
-        "    step %d: total_potential = %.10f eV, f_max = %.10f eV/A.\n",
+        "    step %d: total_energy = %.10f eV, f_max = %.10f eV/A.\n",
         step,
-        cpu_total_potential_[0],
+        atoms.get_energy(),
         force_max);
       fflush(stdout);
       if (force_max < force_tolerance_)
@@ -306,15 +327,15 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     double F_modulus = sqrt(dot(force_per_atom, force_per_atom));
     double v_modulus = sqrt(dot(v, v));
     // dv = F/m*dt
-    scalar_multiply(dt / m, force_per_atom, temp2);
+    scalar_multiply(dt / m, force_per_atom, temp2); // temp2 = dv
     vector_add(v, temp2, v);
     scalar_multiply(1 - alpha, v, temp1);
     scalar_multiply(alpha * v_modulus / F_modulus, force_per_atom, temp2);
     vector_add(temp1, temp2, v);
     // dx = v*dt
-    scalar_multiply(dt, v, temp1);
-    double dr_modulus = sqrt(dot(temp1, temp1));
-    if (dr_modulus > max_move) scalar_multiply(max_move/dr_modulus, temp1, temp1);
+    scalar_multiply(dt, v, temp1);  // temp1 = dr
+    double dr_max = max_abs(size, temp1.data());
+    if (dr_max > max_move) scalar_multiply(max_move/dr_max, temp1, temp1);
     vector_add(position_per_atom, temp1, position_per_atom);
 
     // print_gpu(position_per_atom, "r2"); 

@@ -83,8 +83,8 @@ static __device__ void find_cell_id(
 
 static __global__ void gpu_sort_neighbor_list(const int N, const int* NN, int* NL)
 {
-  int bid = blockIdx.x;
-  int tid = threadIdx.x;
+  int bid = blockIdx.x; // i_atom1
+  int tid = threadIdx.x; // i_neighbor
   int neighbor_number = NN[bid];
   int atom_index;
   extern __shared__ int atom_index_copy[];

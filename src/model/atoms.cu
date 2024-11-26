@@ -479,6 +479,7 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   d_h = vcatoms0.d_h;
   // print_gpu(d_h, "d_h");
   cell_factor = vcatoms0.cell_factor;
+  optimize_factor = vcatoms0.optimize_factor;
   // print_gpu(const_cast<GPU_Vector<double>&>(atoms0.positions), "atoms0.pos");
   pressure = vcatoms0.pressure;
   p_force = vcatoms0.p_force;
@@ -550,7 +551,7 @@ void VCWrapper::compute() {
   // first n*3 : forces @ D^T
   gpu_matmul(p_atoms->forces.data(), deform, forces.data(), natoms-3, 3, 3, 0, 1);
   // last 9 : D^(-T) @ virial
-  gpu_matmul( &deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0, 1/cell_factor);
+  gpu_matmul(&deform[9], virial, &forces[natoms*3-9], 3, 3, 3, 1, 0, 1/cell_factor/optimize_factor);
   // print_gpu(positions, "positions");
   // print_arr(p_atoms->box.cpu_h, 9, "cpu_h");
   // print_gpu(forces, "forces");
@@ -563,8 +564,6 @@ double VCWrapper::get_energy()
 
   // F = h h_ref^(-1)
   gpu_matmul(d_h.data(), h_ref + 9, F.data(), 3, 3, 3);
-
-
 
   double internal_energy = p_atoms->get_energy();
   return internal_energy + diag_press * p_atoms->box.get_volume(); 
@@ -586,7 +585,7 @@ GPU_Vector<double>& VCWrapper::build_positions()
   // last 9 are deform
   // CHECK(cudaMemcpy(&positions[natoms * 3 - 9], deform, 9*sizeof(double),
   //  cudaMemcpyDeviceToDevice));
-  gpu_multiply<<<1, 9>>>(9, cell_factor, deform, &positions[natoms * 3 - 9]);
+  gpu_multiply<<<1, 9>>>(9, cell_factor/optimize_factor, deform, &positions[natoms * 3 - 9]);
   return positions;
 }
 
@@ -594,7 +593,7 @@ void VCWrapper::set_positions() {
   // printf("vcwrapper set_positions\n");
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
   //  cudaMemcpyDeviceToDevice)); 
-  gpu_multiply<<<1, 9>>>(9, 1/cell_factor, &positions[natoms * 3 - 9], deform);
+  gpu_multiply<<<1, 9>>>(9, 1/cell_factor*optimize_factor, &positions[natoms * 3 - 9], deform);
   cudaDeviceSynchronize();
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
     // cudaMemcpyDeviceToDevice)); 
@@ -627,6 +626,7 @@ void VCWrapper::compute_deform()
 void save_one_frame(
   FILE* fid_,
   const Box& box,
+  double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom,
@@ -644,6 +644,7 @@ void save_one_frame(
     fid_,
     "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
     "Properties=species:S:1:pos:R:3 "
+    "energy=%.6f "
     "enthalpy=%.6f\n",
     box.cpu_h[0],
     box.cpu_h[3],
@@ -654,6 +655,7 @@ void save_one_frame(
     box.cpu_h[2],
     box.cpu_h[5],
     box.cpu_h[8],
+    energy,
     enthalpy);
   for (int n = 0; n < num_atoms_total; n++) {
     fprintf(
@@ -670,13 +672,61 @@ void save_one_frame(
 void save_one_frame(
   FILE* fid_,
   const Box& box,
+  double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom)
 {
   vector<double> cpu_position_per_atom(position_per_atom.size());
-  save_one_frame(fid_, box, enthalpy, cpu_atom_symbol,
+  save_one_frame(fid_, box, energy, enthalpy, cpu_atom_symbol,
     position_per_atom, cpu_position_per_atom);
+}
+
+void save_one_frame(
+  FILE* fid_,
+  const Box& box,
+  double energy,
+  double enthalpy,
+  const std::vector<std::string>& cpu_atom_symbol,
+  GPU_Vector<double>& position_per_atom,
+  std::vector<double>& cpu_position_per_atom,
+  vector<Group>& groups)
+{
+  #ifdef DEBUG
+  printf("==========save one frame=============\n");
+  #endif
+  const int num_atoms_total = position_per_atom.size() / 3;
+  char precision_str_[] = "%s %g %g %g\n";
+
+  position_per_atom.copy_to_host(cpu_position_per_atom.data());
+  fprintf(fid_, "%d\n", num_atoms_total);
+  fprintf(
+    fid_,
+    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
+    "Properties=species:S:1:pos:R:3 "
+    "energy=%.6f "
+    "enthalpy=%.6f\n",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8],
+    energy,
+    enthalpy);
+  for (int n = 0; n < num_atoms_total; n++) {
+    fprintf(
+      fid_,
+      precision_str_,
+      cpu_atom_symbol[n].c_str(),
+      cpu_position_per_atom[n],
+      cpu_position_per_atom[n + num_atoms_total],
+      cpu_position_per_atom[n + 2 * num_atoms_total]);
+  }
+  fflush(fid_);
 }
 
 void save_xyz_virials(

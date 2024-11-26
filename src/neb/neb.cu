@@ -663,10 +663,10 @@ void NEB::run_neb() {
     printf("-----------relax finish---------\n");
     FILE* fid=fopen("relaxed_is_fs.xyz", "w");
     Atoms& atoms_is = *images.front()->get_p_atoms();
-    save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), atoms_is.cpu_atom_symbol,
+    save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), images.front()->get_energy(), atoms_is.cpu_atom_symbol,
        atoms_is.get_positions());
     Atoms& atoms_fs = *images.back()->get_p_atoms();
-    save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), atoms_fs.cpu_atom_symbol,
+    save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), images.back()->get_energy(), atoms_fs.cpu_atom_symbol,
        atoms_fs.get_positions());
     fclose(fid);
   }
@@ -938,7 +938,7 @@ void NEB::write_neb_traj(const char* filename, const char* mode){
   // (*images[0]->get_p_atoms()).type.copy_to_host(cpu_type.data());
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
-    save_one_frame(fid, atoms.box, images[i]->get_energy(), atoms.cpu_atom_symbol,
+    save_one_frame(fid, atoms.box, atoms.get_energy(), images[i]->get_energy(), atoms.cpu_atom_symbol,
        atoms.get_positions(), cpu_positions);
     // print_gpu(atoms.get_positions());
   }
@@ -1062,4 +1062,9 @@ void NEB::write_energies() {
   printf("\n    Emax=%f, Ei=%f, Ef=%f\n", max_energy, max_energy-first_energy, max_energy-last_energy);
 
   fclose(fid);
+}
+
+double NEB::get_energy()
+{ 
+  return potential_per_atom[0];
 }

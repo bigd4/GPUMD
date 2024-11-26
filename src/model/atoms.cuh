@@ -28,6 +28,7 @@
 // #include <cuda_runtime.h>
 using namespace std;
 
+extern cublasHandle_t cublashandle;
 
 void print_arr(double* a, size_t size,const char* name="");
 
@@ -61,6 +62,8 @@ public:
   virtual GPU_Vector<double>& get_potential_per_atom(){
     return potential_per_atom;
   }
+
+  virtual double get_energy() = 0;
   
   virtual GPU_Vector<double>& get_forces() {
     return forces;
@@ -134,7 +137,7 @@ public:
 
   void compute();
 
-  virtual double get_energy();
+  double get_energy();
 
   // GPU_Vector<double>& get_positions();
   
@@ -163,6 +166,7 @@ private:
 
 public:
   double cell_factor = 1.0;
+  double optimize_factor = 1.0;
   vector<double> pressure = vector<double>(9,0.0);
   double* h_ref; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
   unique_ptr<Atoms> p_atoms;
@@ -209,6 +213,7 @@ public:
 void save_one_frame(
   FILE* fid_,
   const Box& box,
+  double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom,
@@ -217,6 +222,7 @@ void save_one_frame(
 void save_one_frame(
   FILE* fid_,
   const Box& box,
+  double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom);

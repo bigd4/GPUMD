@@ -27,21 +27,21 @@ public:
   GPU_Vector<double>& virial_per_atom);
   
 private:
-  int step = 0;
+  double rc = 2.0;
   double k_end = 5.0;
   int tau = 100;
-  int natoms;
-  double core_size;
-  double rc;
   double vert_part = 0.0;
+  double core_size;
+  int max_neighbor = 100;
 
+  int step = 0;
+  int natoms;
   bool is_small_box = false;
   int i_group;
   Force* p_force;
-  GPU_Vector<int> i_pick;
-  int max_neighbor = 100;
   double k;
   GPU_Vector<int> NN_target; // neighbor number
   GPU_Vector<int> NL_target; // neighbor list
-  GPU_Vector<double> dpos_target; // dpos corresponding to NL_target
+  std::vector<GPU_Vector<int>> i_pick_list;
+  std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
 };

@@ -171,8 +171,11 @@ void Minimize::parse_minimize(
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
         dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, n);
         VCWrapper& vcatoms = *new VCWrapper(atoms, press);
-        vcatoms.compute();
-        printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());
+        vcatoms.optimize_factor = pow(atoms.get_natoms(), 1.0/4);
+        printf("cell_factor = %f, optimize_factor = %f\n", vcatoms.cell_factor, vcatoms.optimize_factor);
+        vcatoms.build_positions();
+        // vcatoms.compute();
+        // printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());
         minimizer->compute(vcatoms);
         printf("    final enthalpy = %f eV\n", vcatoms.get_energy());
         box = atoms.box;
@@ -182,11 +185,10 @@ void Minimize::parse_minimize(
         virial_per_atom = atoms.virials;
         if (cpu_atom_symbol.size() > 0){
           FILE *fid = my_fopen("relaxed.xyz", "w");
-          save_one_frame(fid, box, vcatoms.get_energy(), cpu_atom_symbol, position_per_atom);
+          save_one_frame(fid, box, atoms.get_energy(), vcatoms.get_energy(), cpu_atom_symbol, position_per_atom);
           fclose(fid);
         }
-        }
-      else{
+      } else{
         minimizer.reset(new Minimizer_FIRE(number_of_atoms, number_of_steps, force_tolerance));
 
         minimizer->compute(
