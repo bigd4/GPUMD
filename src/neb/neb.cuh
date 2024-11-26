@@ -102,7 +102,7 @@ private:
   bool var_image_number = true;
   bool auto_k = false;
   int vi_interval = 20;
-  double min_dist = 0.005, max_dist = 0.1;
+  double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
   int dump_interval = -1;
   int peek_interval = -1;
@@ -112,7 +112,7 @@ private:
   string mid_name = "mid.xyz";
   string traj_name = "";
   vector<string> mid_name_list;
-  string tangent_method_name = "normal";
+  string tangent_method_name = "improved";
 
 
   // private variables

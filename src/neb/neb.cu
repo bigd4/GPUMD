@@ -641,11 +641,57 @@ void NEB::initialize_images() {
   printf("optimize_factor=%f\n", optimize_factor);
 }
 
+void print_setting(const char* name, int value){
+  printf("%-20s = %d\n", name, value);
+}
+void print_setting(const char* name, bool value){
+  printf("%-20s = %s\n", name, value?"true":"false");
+}
+void print_setting(const char* name, double value){
+  printf("%-20s = %.5f\n", name, value);
+}
+void print_setting(const char* name, const char* value){
+  printf("%-20s = %s\n", name, value);
+}
+void print_setting(const char* name, string value){
+  printf("%-20s = %s\n", name, value.data());
+}
 
 void NEB::run_neb() {
   initialize_images();
   tangentmethod = get_tangent_method(tangent_method_name, k);
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
+  if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
+  if (peek_interval == -1) peek_interval = (max_steps - 1) / 50 + 1;
+
+  printf("-----------------neb settings-----------------\n");
+  print_setting("k", k);
+  print_setting("auto_k", auto_k);
+  print_setting("variable_cell", variable_cell);
+  if (variable_cell){
+    printf("%-20s =", "pressure");
+    for (auto x:pressure) printf(" %.4f", x);
+    printf("\n");
+  }
+  print_setting("climb", climb);
+  print_setting("var_image_number", var_image_number);
+  if (var_image_number) {
+    print_setting("vi_interval", vi_interval);
+    print_setting("min_dist", min_dist);
+    print_setting("max_dist", max_dist);
+    print_setting("dist_ncount", dist_ncount);
+  }
+  print_setting("has_mid", has_mid);
+  if (has_mid) print_setting("n_interpolate", n_interpolate);
+  print_setting("need_relax", need_relax);
+  print_setting("remove_translation", remove_translation);
+  print_setting("remove_rotation", remove_rotation);
+  print_setting("tangent_method", tangent_method_name);
+  print_setting("max_steps", max_steps);
+  print_setting("dump_interval", dump_interval);
+  print_setting("peek_interval", peek_interval);
+  printf("----------------------------------------------\n");
+
   
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
