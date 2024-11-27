@@ -503,6 +503,12 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     if (vicc_num < 0) PRINT_INPUT_ERROR("vicc_num should >= 0");
     n++;
+  } else if (strcmp(param[n], "vicc_rc") == 0){
+    if (!is_valid_real(param[n+1], &vicc_rc)) {
+      PRINT_INPUT_ERROR("vicc_rc should be an real.");
+    }
+    if (vicc_rc <= 0) PRINT_INPUT_ERROR("vicc_rc should > 0");
+    n++;
   } else if (strcmp(param[n], "dist_range") == 0){
     if (!is_valid_real(param[n+1], &min_dist) ||
         !is_valid_real(param[n+2], &max_dist)) {
@@ -955,6 +961,7 @@ void NEB::check_dist() {
   // printf("image_dist: ");
   for (int i = 1; i < images.size(); i++)
   {
+    double cur_min_dist(min_dist), cur_max_dist(max_dist);
     if (vi_check_coord != 0.0){
       bool small_box = false;
       if (small_box){ // TODO
@@ -962,24 +969,20 @@ void NEB::check_dist() {
       }
       else {
         find_neighbor(
-          0,
-          n_realatoms,
-          1.7,
+          0, n_realatoms, 1.7,
           images[i]->get_p_atoms()->box,
           images[i]->get_p_atoms()->type,
           images[i]->get_p_atoms()->get_positions(),
-          cell_count,
-          cell_count_sum,
-          cell_contents,
-          NN,
-          NL
+          cell_count, cell_count_sum, cell_contents,
+          NN, NL
         );
       }
       thrust::device_ptr<int> d_ptr = thrust::device_pointer_cast(NN.data());
       n_sp3 = thrust::count_if(d_ptr, d_ptr + n_realatoms, is_greater_equal(vi_check_coord));
       if (n_sp3 > vicc_num){
         // printf("n_sp3 = %d\n", n_sp3);
-        continue;
+        cur_min_dist *= 3;
+        cur_max_dist *= 3;
       }
     };
 
