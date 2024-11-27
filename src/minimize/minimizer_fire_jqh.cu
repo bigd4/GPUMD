@@ -112,6 +112,13 @@ double max_abs(int size, double* vec)
 }
 } // namespace
 
+Minimizer_FIRE_JQH::Minimizer_FIRE_JQH(
+  const int number_of_atoms, const int number_of_steps, const double force_tolerance)
+  : Minimizer(number_of_atoms, number_of_steps, force_tolerance)
+{
+  cublasCreate(&handle);
+}
+
 void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstart)
 {
   for (int n=nstart; n<num_param; n++){
@@ -170,7 +177,6 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   printf("%12s = %d\n", "N_min", N_min);
 
   printf("----------------------------------------\n");
-  cublasCreate(&handle);
 
 }
 
@@ -337,6 +343,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     double dr_max = max_abs(size, temp1.data());
     if (dr_max > max_move) scalar_multiply(max_move/dr_max, temp1, temp1);
     vector_add(position_per_atom, temp1, position_per_atom);
+    CUDA_CHECK_KERNEL;
 
     // print_gpu(position_per_atom, "r2"); 
     // printf("sizeof minimizer pos %d\n", position_per_atom.size());

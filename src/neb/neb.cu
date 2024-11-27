@@ -969,7 +969,7 @@ void NEB::check_dist() {
       }
       else {
         find_neighbor(
-          0, n_realatoms, 1.7,
+          0, n_realatoms, vicc_rc,
           images[i]->get_p_atoms()->box,
           images[i]->get_p_atoms()->type,
           images[i]->get_p_atoms()->get_positions(),
@@ -1003,7 +1003,7 @@ void NEB::check_dist() {
       dist = sqrt(r_sum_square/dist_ncount);
     }
 
-    if (dist > max_dist){
+    if (dist > cur_max_dist){
 
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
@@ -1012,7 +1012,7 @@ void NEB::check_dist() {
       printf("add an image: %d , nimages: %d\n", i, int(images.size()));
       i+=2; //skip 2 images
       vi_count = 0;
-    }else if (dist < min_dist && i != images.size()-1){
+    }else if (dist < cur_min_dist && i != images.size()-1){
       // delete(images[i]);
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);

@@ -38,10 +38,10 @@ private:
   double max_move = 0.2;
 
 public:
-  Minimizer_FIRE_JQH(const int number_of_atoms, const int number_of_steps, const double force_tolerance)
-    : Minimizer(number_of_atoms, number_of_steps, force_tolerance)
-  {
-  }
+  Minimizer_FIRE_JQH(
+    const int number_of_atoms,
+    const int number_of_steps,
+    const double force_tolerance);
 
   void parse_FIRE(const char** param, int num_param, int nstart);
 

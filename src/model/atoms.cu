@@ -592,9 +592,10 @@ GPU_Vector<double>& VCWrapper::build_positions()
 void VCWrapper::set_positions() {
   // printf("vcwrapper set_positions\n");
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
-  //  cudaMemcpyDeviceToDevice)); 
+  //  cudaMemcpyDeviceToDevice));
   gpu_multiply<<<1, 9>>>(9, 1/cell_factor*optimize_factor, &positions[natoms * 3 - 9], deform);
   cudaDeviceSynchronize();
+  CUDA_CHECK_KERNEL;
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
     // cudaMemcpyDeviceToDevice)); 
   get_3x3_inverse(deform, deform + 9);
