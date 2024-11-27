@@ -296,10 +296,10 @@ void find_neighbor(
   const GPU_Vector<int>& type,
   const GPU_Vector<double>& position_per_atom,
   GPU_Vector<int>& cell_count,
-  GPU_Vector<int>& cell_count_sum,
-  GPU_Vector<int>& cell_contents,
-  GPU_Vector<int>& NN,
-  GPU_Vector<int>& NL)
+  GPU_Vector<int>& cell_count_sum, // n_neighbor of each cell
+  GPU_Vector<int>& cell_contents, // i_neighbor of each cell
+  GPU_Vector<int>& NN, // neighbor number
+  GPU_Vector<int>& NL) // neighbor list
 {
   const int N = NN.size();
   const int block_size = 256;

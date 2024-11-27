@@ -16,6 +16,7 @@
 #include <cstring>
 #include <cmath>
 #include <cusolverDn.h>
+#include <force/neighbor.cuh>
 using namespace std;
 
 struct Spring
@@ -91,6 +92,7 @@ class NEB: public BaseAtoms
 private:
   // compute setting
   double k = 0.1;
+  bool auto_k = false;
   vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 0;
@@ -100,7 +102,8 @@ private:
   bool remove_rotation = true;
   bool variable_cell = true;
   bool var_image_number = true;
-  bool auto_k = false;
+  int vi_check_coord = 0; //  0: no check
+  double vicc_num = 0.0; // >0 & <1: percent, >=1: number
   int vi_interval = 20;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;

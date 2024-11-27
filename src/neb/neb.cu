@@ -1,5 +1,6 @@
 #include "neb.cuh"
 #include <thrust/sort.h>
+#include <thrust/count.h>
 #include <thrust/device_vector.h>
 
 namespace
@@ -309,6 +310,25 @@ namespace
   void print_setting(const char* name, string value){
     printf("%-20s = %s\n", name, value.data());
   }
+
+  struct is_greater_equal
+  {
+    int n_;
+    is_greater_equal(int n){n_=n;}
+
+    __host__ __device__
+    bool operator()(int x)const {
+      return x>=n_;
+    }
+  };
+
+  // struct is_great
+  // {
+  //   __host__ __device__
+  //   bool operator()(int x)const {
+  //     return x>4;
+  //   }
+  // };
 } // namespace
 
 
@@ -433,6 +453,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "tangent") == 0){
     tangent_method_name = string(param[n+1]);
     n++;
+  } else if (strcmp(param[n], "no_vc") == 0){
+    variable_cell = false;
   } else if (strcmp(param[n], "p") == 0){
     double press_scalar;
     if (!is_valid_real(param[n+1], &press_scalar)) {
@@ -465,8 +487,21 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n += 6;
   } else if (strcmp(param[n], "interpolate") == 0){
     if (!is_valid_int(param[n+1], &n_interpolate)) {
-      PRINT_INPUT_ERROR("interpolate should be an real.");
+      PRINT_INPUT_ERROR("interpolate should be an int.");
     }
+    n++;
+  } else if (strcmp(param[n], "no_vi") == 0){
+    var_image_number = false;
+  } else if (strcmp(param[n], "vi_check_coord") == 0){
+    if (!is_valid_int(param[n+1], &vi_check_coord)) {
+      PRINT_INPUT_ERROR("vi_check_coord should be an int.");
+    }
+    n++;
+  } else if (strcmp(param[n], "vicc_num") == 0){
+    if (!is_valid_real(param[n+1], &vicc_num)) {
+      PRINT_INPUT_ERROR("vicc_num should be an real.");
+    }
+    if (vicc_num < 0) PRINT_INPUT_ERROR("vicc_num should >= 0");
     n++;
   } else if (strcmp(param[n], "dist_range") == 0){
     if (!is_valid_real(param[n+1], &min_dist) ||
@@ -612,7 +647,7 @@ void NEB::initialize_images() {
         } else break;
       }
     }
-    printf("traj nimages: %d\n", images.size());
+    printf("traj nimages: %d\n", int(images.size()));
     input.close();
   }
   else {
@@ -633,8 +668,9 @@ void NEB::initialize_images() {
       images.push_back(unique_ptr<Atoms>(p_is));
       if (has_mid){
         for (int i=0; i<mid_name_list.size(); i++){
-          Atoms *p_mid = new Atoms((mid_name_list[i]).data());
-          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_mid));
+          Atoms *p_tmp = new Atoms((mid_name_list[i]).data());
+          images.push_back(unique_ptr<Atoms>(p_tmp));
+          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
         }
       }
       images.push_back(unique_ptr<Atoms>(p_fs));
@@ -679,6 +715,7 @@ void NEB::run_neb() {
     print_setting("min_dist", min_dist);
     print_setting("max_dist", max_dist);
     print_setting("dist_ncount", dist_ncount);
+    print_setting("vi_check_coord", vi_check_coord);
   }
   print_setting("has_mid", has_mid);
   if (has_mid) print_setting("n_interpolate", n_interpolate);
@@ -691,7 +728,7 @@ void NEB::run_neb() {
   print_setting("peek_interval", peek_interval);
   printf("----------------------------------------------\n");
 
-  
+  if (vicc_num < 1) vicc_num *= n_realatoms;
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
@@ -791,21 +828,10 @@ void NEB::compute()
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
+
+  if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
   
-  int base = (max_steps >= 100) ? (max_steps / 100) : 1;
-  // if (step % base == 0 ){
-  //   write_energies();
-  // }
-  if (dump_interval == -1){
-    if (step % (10* base) == 0 ) write_neb_traj("dump_traj.xyz", "a");
-  } else if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
-  
-  if (peek_interval == -1){
-    if (step % (2* base) == 0 ){
-      write_neb_traj("peek_traj.xyz", "w");
-      write_energies();
-    }
-  } else if (step % peek_interval == 0){
+  if (step % peek_interval == 0){
     write_neb_traj("peek_traj.xyz", "w");
     write_energies();
   }
@@ -891,7 +917,7 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
-  check_dist();
+  if (var_image_number) check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
       // &forces[(i-1) * natoms_per_image*3]
@@ -911,7 +937,7 @@ void NEB::check_dist() {
   printf("step: %d, ", step);
   double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
   auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
-  printf("emax= %f(%d), ", *it_max_energy - first_energy, it_max_energy-image_energies.begin());
+  printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
   printf("fmax=%f\n",fmax);
   fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
@@ -921,16 +947,47 @@ void NEB::check_dist() {
   }
   GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
   double nrm2, dist;
+  int max_neighbor = 10, n_sp3;
+  GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
+  GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
   // printf("image_dist: ");
   for (int i = 1; i < images.size(); i++)
   {
+    if (vi_check_coord != 0.0){
+      bool small_box = false;
+      if (small_box){ // TODO
+
+      }
+      else {
+        find_neighbor(
+          0,
+          n_realatoms,
+          1.7,
+          images[i]->get_p_atoms()->box,
+          images[i]->get_p_atoms()->type,
+          images[i]->get_p_atoms()->get_positions(),
+          cell_count,
+          cell_count_sum,
+          cell_contents,
+          NN,
+          NL
+        );
+      }
+      thrust::device_ptr<int> d_ptr = thrust::device_pointer_cast(NN.data());
+      n_sp3 = thrust::count_if(d_ptr, d_ptr + n_realatoms, is_greater_equal(vi_check_coord));
+      if (n_sp3 > vicc_num){
+        // printf("n_sp3 = %d\n", n_sp3);
+        continue;
+      }
+    };
+
     GPU_Vector<double>& pos1 = images[i-1]->get_positions();
     GPU_Vector<double>& pos2 = images[i]->get_positions();
     vector_add(dpos, pos2, pos1, 1.0, -1.0);
 
-    // only count the largest dist_ncount displacement
+    // only count the largest dist_ncount displacements
     GPU_Vector<double> r2_arr = sum_square_axis1(dpos, 3);
     thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
     thrust::sort(d_ptr, d_ptr + n_realatoms);
@@ -942,26 +999,21 @@ void NEB::check_dist() {
     } else {
       dist = sqrt(r_sum_square/dist_ncount);
     }
-    // printf("%f ", dist);
 
-    //calc_dist
-    // cublasDnrm2(handle, natoms_per_image*3, dpos.data(), 1, &nrm2);
-    // dist = nrm2/sqrt(natoms_per_image);
-    // printf(" %f ", dist);
     if (dist > max_dist){
 
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
       images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       klist.insert(klist.begin() + i, klist[i-1]);
-      printf("add an image: %d , nimages: %d\n", i, images.size());
+      printf("add an image: %d , nimages: %d\n", i, int(images.size()));
       i+=2; //skip 2 images
       vi_count = 0;
     }else if (dist < min_dist && i != images.size()-1){
       // delete(images[i]);
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
-      printf("remove an image: %d , nimages: %d\n", i, images.size());
+      printf("remove an image: %d , nimages: %d\n", i, int(images.size()));
       // i--; // skip 2 images
       vi_count = 0;
     }
@@ -969,8 +1021,8 @@ void NEB::check_dist() {
   
   if (vi_count==0){
     forces.fill(0);
-    printf("imaxes: ");
-    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ",a );});
+    printf("imaxes before change: ");
+    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
     printf("\n");
   }
 }
@@ -1009,19 +1061,19 @@ void NEB::interpolate() {
     GPU_Vector<double>& ipos = keyframe[k]->get_positions();
     GPU_Vector<double>& fpos = keyframe[k+1]->get_positions();
     vector_add(dpos, fpos, ipos, 1.0, -1.0);
-    // printf("ipos len = %d, fpos len = %d\n", ipos.size(), fpos.size());
-    // print_gpu(dpos, "dpos");
     int n_cur = i_keyframe[k+1] - i_keyframe[k];
     for (int i_cur=1;i_cur<n_cur;i_cur++){
-      printf("k=%d, i_cur=%d, nimages=(%d)%d\n",k,i_cur,i_keyframe[k]+i_cur,images.size());
+      printf("k=%d, i_cur=%d, nimages=(%d)%d\n",
+        k, i_cur, i_keyframe[k]+i_cur, int(images.size()));
       vector_add(cur_pos, ipos, dpos, 1, double(i_cur)/(n_cur));
       if (variable_cell){
-        // print_gpu(cur_pos,"cur_pos");
-        VCWrapper* new_vcatoms = new VCWrapper(images[0].get(), cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+i_cur, unique_ptr<VCWrapper>(new_vcatoms));
+        // VCWrapper* new_vcatoms = new VCWrapper(images[0].get(), cur_pos.data());
+        images.insert(images.begin()+i_keyframe[k]+i_cur,
+          make_unique<VCWrapper>(images[0].get(), cur_pos.data()));
       } else {
-        Atoms* new_atoms = new Atoms(*images[0].get(), cur_pos.data());
-        images.insert(images.begin()+i_keyframe[k]+i_cur, unique_ptr<Atoms>(new_atoms));
+        // Atoms* new_atoms = new Atoms(*images[0].get(), cur_pos.data());
+        images.insert(images.begin()+i_keyframe[k]+i_cur,
+          make_unique<Atoms>(*images[0].get(), cur_pos.data()));
       }
     }
   }
