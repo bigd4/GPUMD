@@ -232,8 +232,8 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   for (int i=0; i<group.number-1; i++){
     int n_pick = group.cpu_size[i+1];
     i_pick_list.emplace_back(n_pick);
-    if (n_pick==0) continue;
     dpos_target_list.emplace_back(n_pick * max_neighbor * 3);
+    if (n_pick==0) continue;
     auto& i_pick = i_pick_list.back();
     auto& dpos_target = dpos_target_list.back();
     i_pick.copy_from_device(group.contents.data() + group.cpu_size_sum[i+1], group.cpu_size[i+1]);
