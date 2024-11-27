@@ -49,154 +49,154 @@ void print_gpu(double* a, int size, const char* name){
 
 namespace
 {
-cublasHandle_t handle = nullptr;
+  cublasHandle_t handle = nullptr;
 
-__global__ void gpu_sum(double* a, const int size, double* result)
-{
-  int number_of_patches = (size - 1) / 1024 + 1;
-  int tid = threadIdx.x;
-  int n, patch;
-  __shared__ double data[1024];
-  data[tid] = 0.0;
-  for (patch = 0; patch < number_of_patches; ++patch) {
-    n = tid + patch * 1024;
-    if (n < size)
-      data[tid] += a[n];
-  }
-  __syncthreads();
-  for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
-    if (tid < offset) {
-      data[tid] += data[tid + offset];
+  __global__ void gpu_sum(double* a, const int size, double* result)
+  {
+    int number_of_patches = (size - 1) / 1024 + 1;
+    int tid = threadIdx.x;
+    int n, patch;
+    __shared__ double data[1024];
+    data[tid] = 0.0;
+    for (patch = 0; patch < number_of_patches; ++patch) {
+      n = tid + patch * 1024;
+      if (n < size)
+        data[tid] += a[n];
     }
     __syncthreads();
-  }
-  if (tid == 0)
-    *result = data[0];
-}
-
-__global__ void gpu_multiply(const int size, double a, double* b, double* c)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    c[n] = b[n] * a;
-}
-
-
-
-double sum(GPU_Vector<double>& a)
-{
-  double ret;
-  GPU_Vector<double> result(1);
-  gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
-  result.copy_to_host(&ret);
-  return ret;
-}
-
-
-void sum2d(GPU_Vector<double>& a, double* result, int len)
-{
-  // double* ret;
-  int nl = a.size() / len;
-  GPU_Vector<double> temp(a.size());
-  GPU_Vector<double> d_result(len);
-  // printf("nl %d, size() %d\n", nl, a.size());
-  temp.copy_from_device(a.data());
-  // printf("sum2d start\n");
-
-  for (int i=0;i<len;i++){
-    gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
-  }
-  d_result.copy_to_host(result);
-// printf("sum2d finish\n");
-}
-
-void gpu_matmul(double* mA, double* mB, double* mC,
-  int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
-  double alpha=1.0, double beta=0.0)
-{
-  int lda = (transa != CUBLAS_OP_T)? M: K;
-  int ldb = (transb != CUBLAS_OP_T)? K: N;
-  cublasStatus_t stat;
-  // printf("lda: %d, ldb: %d\n",lda, ldb);
-  cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
-    M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
-  // printf("cublas error code: %d\n", stat);
-}
-
-void get_3x3_inverse(double* m, double* m_inv)
-{
-  double det;
-    m_inv[0] = m[4] * m[8] - m[5] * m[7];
-    m_inv[1] = m[2] * m[7] - m[1] * m[8];
-    m_inv[2] = m[1] * m[5] - m[2] * m[4];
-    m_inv[3] = m[5] * m[6] - m[3] * m[8];
-    m_inv[4] = m[0] * m[8] - m[2] * m[6];
-    m_inv[5] = m[2] * m[3] - m[0] * m[5];
-    m_inv[6] = m[3] * m[7] - m[4] * m[6];
-    m_inv[7] = m[1] * m[6] - m[0] * m[7];
-    m_inv[8] = m[0] * m[4] - m[1] * m[3];
-    det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
-          m[1] * (m[5] * m[6] - m[3] * m[8]) +
-          m[2] * (m[3] * m[7] - m[4] * m[6]);
-    for (int n = 0; n < 9; n++) {
-      m_inv[n] /= det;
+    for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
+      if (tid < offset) {
+        data[tid] += data[tid + offset];
+      }
+      __syncthreads();
     }
-}
+    if (tid == 0)
+      *result = data[0];
+  }
 
-void matmul_3x3(double* dst, double* a, double* b, int m=3, int n=3)
-{
-  memset(dst, 0, sizeof(double));
-  for (int i=0; i<m; i++){
+  __global__ void gpu_multiply(const int size, double a, double* b, double* c)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      c[n] = b[n] * a;
+  }
 
-    for (int j=0; j<n; j++){
-      for (int k=0; k<3; k++){
-        dst[i+m*j] += a[i+k*j] * b[k+j];
+
+
+  double sum(GPU_Vector<double>& a)
+  {
+    double ret;
+    GPU_Vector<double> result(1);
+    gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
+    result.copy_to_host(&ret);
+    return ret;
+  }
+
+
+  void sum2d(GPU_Vector<double>& a, double* result, int len)
+  {
+    // double* ret;
+    int nl = a.size() / len;
+    GPU_Vector<double> temp(a.size());
+    GPU_Vector<double> d_result(len);
+    // printf("nl %d, size() %d\n", nl, a.size());
+    temp.copy_from_device(a.data());
+    // printf("sum2d start\n");
+
+    for (int i=0;i<len;i++){
+      gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
+    }
+    d_result.copy_to_host(result);
+  // printf("sum2d finish\n");
+  }
+
+  void gpu_matmul(double* mA, double* mB, double* mC,
+    int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
+    double alpha=1.0, double beta=0.0)
+  {
+    int lda = (transa != CUBLAS_OP_T)? M: K;
+    int ldb = (transb != CUBLAS_OP_T)? K: N;
+    cublasStatus_t stat;
+    // printf("lda: %d, ldb: %d\n",lda, ldb);
+    cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
+      M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
+    // printf("cublas error code: %d\n", stat);
+  }
+
+  void get_3x3_inverse(double* m, double* m_inv)
+  {
+    double det;
+      m_inv[0] = m[4] * m[8] - m[5] * m[7];
+      m_inv[1] = m[2] * m[7] - m[1] * m[8];
+      m_inv[2] = m[1] * m[5] - m[2] * m[4];
+      m_inv[3] = m[5] * m[6] - m[3] * m[8];
+      m_inv[4] = m[0] * m[8] - m[2] * m[6];
+      m_inv[5] = m[2] * m[3] - m[0] * m[5];
+      m_inv[6] = m[3] * m[7] - m[4] * m[6];
+      m_inv[7] = m[1] * m[6] - m[0] * m[7];
+      m_inv[8] = m[0] * m[4] - m[1] * m[3];
+      det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
+            m[1] * (m[5] * m[6] - m[3] * m[8]) +
+            m[2] * (m[3] * m[7] - m[4] * m[6]);
+      for (int n = 0; n < 9; n++) {
+        m_inv[n] /= det;
+      }
+  }
+
+  void matmul_3x3(double* dst, double* a, double* b, int m=3, int n=3)
+  {
+    memset(dst, 0, sizeof(double));
+    for (int i=0; i<m; i++){
+
+      for (int j=0; j<n; j++){
+        for (int k=0; k<3; k++){
+          dst[i+m*j] += a[i+k*j] * b[k+j];
+        }
       }
     }
   }
-}
 
-double det_3x3(double *a)
-{
-  double result;
-    result = abs(
-      a[0] * (a[4] * a[8] - a[5] * a[7]) +
-      a[1] * (a[5] * a[6] - a[3] * a[8]) +
-      a[2] * (a[3] * a[7] - a[4] * a[6]));
-  return result;
-}
-
-__global__ void gpu_norm_axis1(double* dst, double* a, const int nl, const int ncol)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  double sum = 0;
-  if (n < nl)
-    for (int i = 0; i < ncol; i++){
-      sum += a[n + i * nl] * a[n + i * nl];
-    }
-    dst[n] = sqrtf(sum);
-}
-
-
-GPU_Vector<double> norm_axis1(GPU_Vector<double>& a, const int ncol)
-{
-  int nl = a.size()/ncol;
-  GPU_Vector<double> temp(nl);
-  gpu_norm_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
-  return temp;
-}
-
-void change_box_to_triclinic(Box& box){
-  if (!box.triclinic){
-    box.triclinic = 1;
-    double h_tmp[18] = {0.0};
-    h_tmp[0] = box.cpu_h[0];
-    h_tmp[4] = box.cpu_h[1];
-    h_tmp[8] = box.cpu_h[2];
-    memcpy(box.cpu_h, h_tmp, 18*sizeof(double));
+  double det_3x3(double *a)
+  {
+    double result;
+      result = abs(
+        a[0] * (a[4] * a[8] - a[5] * a[7]) +
+        a[1] * (a[5] * a[6] - a[3] * a[8]) +
+        a[2] * (a[3] * a[7] - a[4] * a[6]));
+    return result;
   }
-  box.get_inverse();
-}
+
+  __global__ void gpu_norm_axis1(double* dst, double* a, const int nl, const int ncol)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    double sum = 0;
+    if (n < nl)
+      for (int i = 0; i < ncol; i++){
+        sum += a[n + i * nl] * a[n + i * nl];
+      }
+      dst[n] = sqrtf(sum);
+  }
+
+
+  GPU_Vector<double> norm_axis1(GPU_Vector<double>& a, const int ncol)
+  {
+    int nl = a.size()/ncol;
+    GPU_Vector<double> temp(nl);
+    gpu_norm_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
+    return temp;
+  }
+
+  void change_box_to_triclinic(Box& box){
+    if (!box.triclinic){
+      box.triclinic = 1;
+      double h_tmp[18] = {0.0};
+      h_tmp[0] = box.cpu_h[0];
+      h_tmp[4] = box.cpu_h[1];
+      h_tmp[8] = box.cpu_h[2];
+      memcpy(box.cpu_h, h_tmp, 18*sizeof(double));
+    }
+    box.get_inverse();
+  }
 
 } // namespace
 

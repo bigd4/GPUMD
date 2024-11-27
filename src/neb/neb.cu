@@ -4,296 +4,311 @@
 
 namespace
 {
-cublasHandle_t handle;
-cusolverDnHandle_t cusolverH;
+  cublasHandle_t handle;
+  cusolverDnHandle_t cusolverH;
 
-__global__ void gpu_multiply(double* result, double a, double* b, const int size)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    result[n] = b[n] * a;
-}
-
-__global__ void gpu_vector_add(double* result, double* a, double* b, const int size,
-                              double alpha=1.0, double beta=1.0, double c=0.0)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    result[n] = alpha * a[n] + beta * b[n] + c;
-}
-
-__global__ void gpu_vector_add_scalar(double* result, double* a, double alpha, const int size)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    result[n] = a[n] + alpha;
-}
-
-void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-              double alpha=1.0, double beta=1.0, double c=0.0)
-{
-  int size = a.size();
-  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>
-    (result.data(), a.data(), b.data(), size, alpha, beta, c);
-}
-
-// vec result = vec a + scalar alpha
-void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
-{
-  int size = a.size();
-  gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
-    (result.data(), a.data(), alpha, size);
-}
-
-__global__ void gpu_vector_substract(double* result, const int size, double* a, double* b)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    result[n] = a[n] - b[n];
-}
-
-// __global__ void gpu_vdot(
-//   double* result, const int nl,
-//   double* a1, double* a2, double* a3,
-//   double* b1, double* b2, double* b3, double alpha=1.0)
-// {
-//   int n = blockDim.x * blockIdx.x + threadIdx.x;
-//   if (n < nl) result[n] = alpha * (a1[n]*b1[n] + a2[n]*b2[n] + a3[n]*b3[n]);
-// }
-
-
-void vector_substract(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b, int size=0){
-  if (size==0) size = a.size();
-  gpu_vector_substract<<<(size*3 -1)/128 + 1,128>>>(result.data(), size, a.data(), b.data());
-}
-
-__global__ void gpu_pairwise_product(double* c, double* a, double* b, const int size, double alpha=1.0)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  if (n < size)
-    c[n] = alpha * a[n] * b[n];
-}
-
-void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
-{
-  int size = a.size();
-  gpu_pairwise_product<<<(size - 1) / 128 + 1, 128>>>(c.data(), a.data(), b.data(), size);
-}
-
-// __global__ void symmetrize_3x3(double* dst, double* src)
-// {
-//   int n = blockDim.x * blockIdx.x + threadIdx.x;
-//   if (n<9){
-//     if (n%4 == 0){
-//       dst[n] = src[n];
-//     }
-//     else if (n < 4){
-//       dst[n] = 
-//     }
-//   }
-// }
-// void n_nx3_multiply(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
-//                     int nl, double alpha=1.0)
-// {
-//   for (int i=0; i<3;i++) {
-//   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(
-//     result.data() + i*nl, a.data(), b.data() + i*nl, nl, alpha);
-//   }
-// }
-
-// void n_nx3_multiply(double* result, double* a, double* b,
-//                   int nl, double alpha=1.0)
-// {
-//   for (int i=0; i<3;i++) {
-//   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
-//   }
-// }
-void gpu_matmul(double* mA, double* mB, double* mC,
-  int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
-  double alpha=1.0, double beta=0.0)
-{
-  int lda = (transa != CUBLAS_OP_T)? M: K;
-  int ldb = (transb != CUBLAS_OP_T)? K: N;
-  cublasStatus_t stat;
-  // printf("lda: %d, ldb: %d\n",lda, ldb);
-  cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
-    M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
-  // printf("cublas error code: %d\n", stat);
-}
-
-void get_3x3_inverse(double* m, double* m_inv)
-{
-  double det;
-    m_inv[0] = m[4] * m[8] - m[5] * m[7];
-    m_inv[1] = m[2] * m[7] - m[1] * m[8];
-    m_inv[2] = m[1] * m[5] - m[2] * m[4];
-    m_inv[3] = m[5] * m[6] - m[3] * m[8];
-    m_inv[4] = m[0] * m[8] - m[2] * m[6];
-    m_inv[5] = m[2] * m[3] - m[0] * m[5];
-    m_inv[6] = m[3] * m[7] - m[4] * m[6];
-    m_inv[7] = m[1] * m[6] - m[0] * m[7];
-    m_inv[8] = m[0] * m[4] - m[1] * m[3];
-    det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
-          m[1] * (m[5] * m[6] - m[3] * m[8]) +
-          m[2] * (m[3] * m[7] - m[4] * m[6]);
-    for (int n = 0; n < 9; n++) {
-      m_inv[n] /= det;
-    }
-}
-
-
-void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
-{
-    // int m=3, n=3;
-    // 步骤2：申请空间
-    // double *A = nullptr;
-    // double *S = nullptr;
-    // double *U = nullptr;       // 左奇异矩阵
-    // double *VT = nullptr;      // 又奇异矩阵的复共轭转置
-    int lda=m;
-    const int ldu = m;                  // 根据公式，U为m行m列的方阵
-    const int ldvt = n;                 // 根据公式，VH为n行n列的仿真
-    int *devInfo = nullptr;             // 函数运行状态返回值
-    double *Work = nullptr;    // 工作空间指针
-    int lwork = 0;                      // 工作空间大小
-    double *rwork = nullptr;
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvt * n));
-    cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
-    CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
-
-    // 步骤3：SVD计算
-    signed char jobu = 'A';  // all m columns of U
-    signed char jobvt = 'A'; // all n columns of VT
-    cusolverDnDgesvd(
-        cusolverH, jobu, jobvt,
-        m, n, A, lda,
-        S, 
-        U, ldu, // ldu
-        VT, ldvt, // ldvt,
-        Work, lwork, rwork,
-        devInfo
-    );
-  CUDA_CHECK_KERNEL
-}
-
-__global__ void gpu_sum(double* a, const int size, double* result)
-{
-  int number_of_patches = (size - 1) / 1024 + 1;
-  int tid = threadIdx.x;
-  int n, patch;
-  __shared__ double data[1024];
-  data[tid] = 0.0;
-  for (patch = 0; patch < number_of_patches; ++patch) {
-    n = tid + patch * 1024;
+  __global__ void gpu_multiply(double* result, double a, double* b, const int size)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n < size)
-      data[tid] += a[n];
+      result[n] = b[n] * a;
   }
-  __syncthreads();
-  for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
-    if (tid < offset) {
-      data[tid] += data[tid + offset];
+
+  __global__ void gpu_vector_add(double* result, double* a, double* b, const int size,
+                                double alpha=1.0, double beta=1.0, double c=0.0)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      result[n] = alpha * a[n] + beta * b[n] + c;
+  }
+
+  __global__ void gpu_vector_add_scalar(double* result, double* a, double alpha, const int size)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      result[n] = a[n] + alpha;
+  }
+
+  void vector_add(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+                double alpha=1.0, double beta=1.0, double c=0.0)
+  {
+    int size = a.size();
+    gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>
+      (result.data(), a.data(), b.data(), size, alpha, beta, c);
+  }
+
+  // vec result = vec a + scalar alpha
+  void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+  {
+    int size = a.size();
+    gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
+      (result.data(), a.data(), alpha, size);
+  }
+
+  __global__ void gpu_vector_substract(double* result, const int size, double* a, double* b)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      result[n] = a[n] - b[n];
+  }
+
+  // __global__ void gpu_vdot(
+  //   double* result, const int nl,
+  //   double* a1, double* a2, double* a3,
+  //   double* b1, double* b2, double* b3, double alpha=1.0)
+  // {
+  //   int n = blockDim.x * blockIdx.x + threadIdx.x;
+  //   if (n < nl) result[n] = alpha * (a1[n]*b1[n] + a2[n]*b2[n] + a3[n]*b3[n]);
+  // }
+
+
+  void vector_substract(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b, int size=0){
+    if (size==0) size = a.size();
+    gpu_vector_substract<<<(size*3 -1)/128 + 1,128>>>(result.data(), size, a.data(), b.data());
+  }
+
+  __global__ void gpu_pairwise_product(double* c, double* a, double* b, const int size, double alpha=1.0)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      c[n] = alpha * a[n] * b[n];
+  }
+
+  void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
+  {
+    int size = a.size();
+    gpu_pairwise_product<<<(size - 1) / 128 + 1, 128>>>(c.data(), a.data(), b.data(), size);
+  }
+
+  // __global__ void symmetrize_3x3(double* dst, double* src)
+  // {
+  //   int n = blockDim.x * blockIdx.x + threadIdx.x;
+  //   if (n<9){
+  //     if (n%4 == 0){
+  //       dst[n] = src[n];
+  //     }
+  //     else if (n < 4){
+  //       dst[n] = 
+  //     }
+  //   }
+  // }
+  // void n_nx3_multiply(GPU_Vector<double>& result, GPU_Vector<double>& a, GPU_Vector<double>& b,
+  //                     int nl, double alpha=1.0)
+  // {
+  //   for (int i=0; i<3;i++) {
+  //   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(
+  //     result.data() + i*nl, a.data(), b.data() + i*nl, nl, alpha);
+  //   }
+  // }
+
+  // void n_nx3_multiply(double* result, double* a, double* b,
+  //                   int nl, double alpha=1.0)
+  // {
+  //   for (int i=0; i<3;i++) {
+  //   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
+  //   }
+  // }
+  void gpu_matmul(double* mA, double* mB, double* mC,
+    int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
+    double alpha=1.0, double beta=0.0)
+  {
+    int lda = (transa != CUBLAS_OP_T)? M: K;
+    int ldb = (transb != CUBLAS_OP_T)? K: N;
+    cublasStatus_t stat;
+    // printf("lda: %d, ldb: %d\n",lda, ldb);
+    cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
+      M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
+    // printf("cublas error code: %d\n", stat);
+  }
+
+  void get_3x3_inverse(double* m, double* m_inv)
+  {
+    double det;
+      m_inv[0] = m[4] * m[8] - m[5] * m[7];
+      m_inv[1] = m[2] * m[7] - m[1] * m[8];
+      m_inv[2] = m[1] * m[5] - m[2] * m[4];
+      m_inv[3] = m[5] * m[6] - m[3] * m[8];
+      m_inv[4] = m[0] * m[8] - m[2] * m[6];
+      m_inv[5] = m[2] * m[3] - m[0] * m[5];
+      m_inv[6] = m[3] * m[7] - m[4] * m[6];
+      m_inv[7] = m[1] * m[6] - m[0] * m[7];
+      m_inv[8] = m[0] * m[4] - m[1] * m[3];
+      det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
+            m[1] * (m[5] * m[6] - m[3] * m[8]) +
+            m[2] * (m[3] * m[7] - m[4] * m[6]);
+      for (int n = 0; n < 9; n++) {
+        m_inv[n] /= det;
+      }
+  }
+
+
+  void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
+  {
+      // int m=3, n=3;
+      // 步骤2：申请空间
+      // double *A = nullptr;
+      // double *S = nullptr;
+      // double *U = nullptr;       // 左奇异矩阵
+      // double *VT = nullptr;      // 又奇异矩阵的复共轭转置
+      int lda=m;
+      const int ldu = m;                  // 根据公式，U为m行m列的方阵
+      const int ldvt = n;                 // 根据公式，VH为n行n列的仿真
+      int *devInfo = nullptr;             // 函数运行状态返回值
+      double *Work = nullptr;    // 工作空间指针
+      int lwork = 0;                      // 工作空间大小
+      double *rwork = nullptr;
+      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
+      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
+      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvt * n));
+      cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
+      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
+      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+
+      // 步骤3：SVD计算
+      signed char jobu = 'A';  // all m columns of U
+      signed char jobvt = 'A'; // all n columns of VT
+      cusolverDnDgesvd(
+          cusolverH, jobu, jobvt,
+          m, n, A, lda,
+          S, 
+          U, ldu, // ldu
+          VT, ldvt, // ldvt,
+          Work, lwork, rwork,
+          devInfo
+      );
+    CUDA_CHECK_KERNEL
+  }
+
+  __global__ void gpu_sum(double* a, const int size, double* result)
+  {
+    int number_of_patches = (size - 1) / 1024 + 1;
+    int tid = threadIdx.x;
+    int n, patch;
+    __shared__ double data[1024];
+    data[tid] = 0.0;
+    for (patch = 0; patch < number_of_patches; ++patch) {
+      n = tid + patch * 1024;
+      if (n < size)
+        data[tid] += a[n];
     }
     __syncthreads();
-  }
-  if (tid == 0)
-    *result = data[0];
-}
-
-double sum(GPU_Vector<double>& a)
-{
-  double ret;
-  GPU_Vector<double> result(1);
-  gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
-  result.copy_to_host(&ret);
-  return ret;
-}
-
-double sum(double* a, int size)
-{
-  double ret;
-  GPU_Vector<double> result(1);
-  gpu_sum<<<1, 1024>>>(a, size, result.data());
-  result.copy_to_host(&ret);
-  return ret;
-}
-
-
-void sum2d(GPU_Vector<double>& a, double* result, int len, int nla=0)
-{
-  int nl = (nla==0) ? a.size() / len : nla;
-  GPU_Vector<double> temp(len * nla);
-  GPU_Vector<double> d_result(len);
-  temp.copy_from_device(a.data());
-  for (int i=0;i<len;i++){
-    gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
-  }
-  d_result.copy_to_host(result);
-}
-
-double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
-{
-  GPU_Vector<double> temp(a.size());
-  pairwise_product(a, b, temp);
-  return sum(temp);
-}
-
-void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>& b)
-{
-  int size = b.size();
-  gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
-}
-
-__global__ void gpu_sum_square_axis1(double* dst, double* a, const int nl, const int ncol)
-{
-  int n = blockDim.x * blockIdx.x + threadIdx.x;
-  double sum = 0;
-  if (n < nl){
-    for (int i = 0; i < ncol; i++){
-      sum += a[n + i * nl] * a[n + i * nl];
+    for (int offset = blockDim.x >> 1; offset > 0; offset >>= 1) {
+      if (tid < offset) {
+        data[tid] += data[tid + offset];
+      }
+      __syncthreads();
     }
-    dst[n] = sum;
+    if (tid == 0)
+      *result = data[0];
   }
-}
+
+  double sum(GPU_Vector<double>& a)
+  {
+    double ret;
+    GPU_Vector<double> result(1);
+    gpu_sum<<<1, 1024>>>(a.data(), a.size(), result.data());
+    result.copy_to_host(&ret);
+    return ret;
+  }
+
+  double sum(double* a, int size)
+  {
+    double ret;
+    GPU_Vector<double> result(1);
+    gpu_sum<<<1, 1024>>>(a, size, result.data());
+    result.copy_to_host(&ret);
+    return ret;
+  }
 
 
-GPU_Vector<double> sum_square_axis1(GPU_Vector<double>& a, const int ncol)
-{
-  int nl = a.size()/ncol;
-  GPU_Vector<double> temp(nl);
-  gpu_sum_square_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
-  return temp;
-}
+  void sum2d(GPU_Vector<double>& a, double* result, int len, int nla=0)
+  {
+    int nl = (nla==0) ? a.size() / len : nla;
+    GPU_Vector<double> temp(len * nla);
+    GPU_Vector<double> d_result(len);
+    temp.copy_from_device(a.data());
+    for (int i=0;i<len;i++){
+      gpu_sum<<<1, 1024>>>(&temp[i * nl], nl, &d_result[i]);
+    }
+    d_result.copy_to_host(result);
+  }
 
-double max_abs(int size, double* vec)
-{
-  int index;
-  double result;
-  cublasIdamax(handle, size, vec, 1, &index);
-  printf("max index: %d, ", index);
-  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
-  return abs(result);
-}
+  double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
+  {
+    GPU_Vector<double> temp(a.size());
+    pairwise_product(a, b, temp);
+    return sum(temp);
+  }
 
-double max_abs(int size, double* vec, int nsingle)
-{
-  int index;
-  double result;
-  cublasIdamax(handle, size, vec, 1, &index);
-  printf("i_fmax: %d", index);
-  if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
-  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
-  return abs(result);
-}
+  void scalar_multiply(GPU_Vector<double>& c, const double& a, GPU_Vector<double>& b)
+  {
+    int size = b.size();
+    gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(c.data(), a, b.data(), size);
+  }
 
-bool in_list(list<int>& mylist, int i){
-  list<int>::iterator it = std::find(mylist.begin(), mylist.end(), i);
-  if (it != mylist.end()) return true;
-  else return false;
-}
+  __global__ void gpu_sum_square_axis1(double* dst, double* a, const int nl, const int ncol)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    double sum = 0;
+    if (n < nl){
+      for (int i = 0; i < ncol; i++){
+        sum += a[n + i * nl] * a[n + i * nl];
+      }
+      dst[n] = sum;
+    }
+  }
 
+
+  GPU_Vector<double> sum_square_axis1(GPU_Vector<double>& a, const int ncol)
+  {
+    int nl = a.size()/ncol;
+    GPU_Vector<double> temp(nl);
+    gpu_sum_square_axis1<<<(nl - 1) / 128 + 1, 128>>>(temp.data(), a.data(), nl, ncol);
+    return temp;
+  }
+
+  double max_abs(int size, double* vec)
+  {
+    int index;
+    double result;
+    cublasIdamax(handle, size, vec, 1, &index);
+    printf("max index: %d, ", index);
+    cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+    return abs(result);
+  }
+
+  double max_abs(int size, double* vec, int nsingle)
+  {
+    int index;
+    double result;
+    cublasIdamax(handle, size, vec, 1, &index);
+    printf("i_fmax: %d", index);
+    if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+    cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+    return abs(result);
+  }
+
+  bool in_list(list<int>& mylist, int i){
+    list<int>::iterator it = std::find(mylist.begin(), mylist.end(), i);
+    if (it != mylist.end()) return true;
+    else return false;
+  }
+
+  void print_setting(const char* name, int value){
+    printf("%-20s = %d\n", name, value);
+  }
+  void print_setting(const char* name, bool value){
+    printf("%-20s = %s\n", name, value?"true":"false");
+  }
+  void print_setting(const char* name, double value){
+    printf("%-20s = %g\n", name, value);
+  }
+  void print_setting(const char* name, const char* value){
+    printf("%-20s = %s\n", name, value);
+  }
+  void print_setting(const char* name, string value){
+    printf("%-20s = %s\n", name, value.data());
+  }
 } // namespace
 
 
@@ -639,22 +654,6 @@ void NEB::initialize_images() {
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
   optimize_factor = pow(n_realatoms, 1.0/4);
   printf("optimize_factor=%f\n", optimize_factor);
-}
-
-void print_setting(const char* name, int value){
-  printf("%-20s = %d\n", name, value);
-}
-void print_setting(const char* name, bool value){
-  printf("%-20s = %s\n", name, value?"true":"false");
-}
-void print_setting(const char* name, double value){
-  printf("%-20s = %.5f\n", name, value);
-}
-void print_setting(const char* name, const char* value){
-  printf("%-20s = %s\n", name, value);
-}
-void print_setting(const char* name, string value){
-  printf("%-20s = %s\n", name, value.data());
 }
 
 void NEB::run_neb() {

@@ -195,10 +195,10 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   }
   }
   printf("--------target_opt settings----------\n");
-  printf("          rc = %f\n", rc);
-  printf("       k_end = %f\n", k_end);
+  printf("          rc = %g\n", rc);
+  printf("       k_end = %g\n", k_end);
   printf("         tau = %d\n", tau);
-  printf("   vert_part = %f\n", vert_part);
+  printf("   vert_part = %g\n", vert_part);
   printf("max_neighbor = %d\n", max_neighbor);
   printf("-------------------------------------\n");
 

@@ -161,12 +161,12 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
     }
   }
   printf("----------vcfire settings---------------\n");
-  printf("%+12s = %.4f\n", "max_move", max_move);
-  printf("%+12s = %.4f\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
-  printf("%+12s = %.4f\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
-  printf("%+12s = %.4f\n", "f_inc", f_inc);
-  printf("%+12s = %.4f\n", "alpha_start", alpha_start);
-  printf("%+12s = %.4f\n", "f_alphat", f_alpha);
+  printf("%+12s = %g\n", "max_move", max_move);
+  printf("%+12s = %g\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
+  printf("%+12s = %g\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
+  printf("%+12s = %g\n", "f_inc", f_inc);
+  printf("%+12s = %g\n", "alpha_start", alpha_start);
+  printf("%+12s = %g\n", "f_alphat", f_alpha);
   printf("%+12s = %d\n", "N_min", N_min);
 
   printf("----------------------------------------\n");
