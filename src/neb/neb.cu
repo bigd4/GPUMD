@@ -962,6 +962,7 @@ void NEB::check_dist() {
   for (int i = 1; i < images.size(); i++)
   {
     double cur_min_dist(min_dist), cur_max_dist(max_dist);
+    int cur_dist_ncount(dist_ncount);
     if (vi_check_coord != 0.0){
       bool small_box = false;
       if (small_box){ // TODO
@@ -981,8 +982,10 @@ void NEB::check_dist() {
       n_sp3 = thrust::count_if(d_ptr, d_ptr + n_realatoms, is_greater_equal(vi_check_coord));
       if (n_sp3 > vicc_num){
         // printf("n_sp3 = %d\n", n_sp3);
-        cur_min_dist *= 3;
-        cur_max_dist *= 3;
+        // cur_min_dist *= 3;
+        // cur_max_dist *= 3;
+        cur_dist_ncount *= 3;
+        cur_dist_ncount = (cur_dist_ncount < n_realatoms) ? cur_dist_ncount : n_realatoms;
       }
     };
 
