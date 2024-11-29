@@ -997,13 +997,13 @@ void NEB::check_dist() {
     GPU_Vector<double> r2_arr = sum_square_axis1(dpos, 3);
     thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
     thrust::sort(d_ptr, d_ptr + n_realatoms);
-    double r_sum_square = sum(r2_arr.data()+n_realatoms - dist_ncount, dist_ncount);
+    double r_sum_square = sum(r2_arr.data()+n_realatoms - cur_dist_ncount, cur_dist_ncount);
     // print_gpu(r2_arr.data() + n_realatoms - dist_ncount, dist_ncount, "largest n");
     if (variable_cell){
       double h_sum_square = sum(r2_arr.data() + n_realatoms, 3);
-      dist = sqrt(r_sum_square/dist_ncount + h_sum_square/3/n_realatoms);
+      dist = sqrt(r_sum_square/cur_dist_ncount + h_sum_square/3/n_realatoms);
     } else {
-      dist = sqrt(r_sum_square/dist_ncount);
+      dist = sqrt(r_sum_square/cur_dist_ncount);
     }
 
     if (dist > cur_max_dist){

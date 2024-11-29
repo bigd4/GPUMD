@@ -576,7 +576,7 @@ GPU_Vector<double>& VCWrapper::get_potential_per_atom()
 
 GPU_Vector<double>& VCWrapper::build_positions()
 {
-  printf("vcwrapper build_positions natoms: %d\n", natoms);
+  // printf("vcwrapper build_positions natoms: %d\n", natoms);
   d_h.copy_from_host(p_atoms -> box.cpu_h);
   // print_gpu(d_h, "d_h");
   compute_deform();
