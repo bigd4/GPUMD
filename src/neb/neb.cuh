@@ -128,7 +128,8 @@ private:
   list<int> imins;
   list<int> imaxes;
   Dump_Position dump_position;
-  vector<pair<int,Atoms*>> mid_list;
+  // vector<pair<int,Atoms*>> mid_list;
+  vector<int> imid_list; // the positions that each mid_image should be insert into
   vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;

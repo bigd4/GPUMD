@@ -633,6 +633,7 @@ void NEB::initialize_images() {
       while (true){
         Atoms* p_tmp = new Atoms(input, read_success);
         if (read_success) {
+          // mid_list.push_back(make_pair(-1, p_tmp));
           images.emplace_back(unique_ptr<Atoms>(p_tmp));
         } else break;
       }
@@ -649,10 +650,12 @@ void NEB::initialize_images() {
       while (true){
         VCWrapper* p_tmp = new VCWrapper(input, read_success, pressure, h_ref.data());
         if (read_success) {
-          images.push_back(unique_ptr<VCWrapper>(p_tmp)); 
+          // mid_list.push_back(make_pair(-1, p_tmp->get_p_atoms()));
+          images.push_back(unique_ptr<VCWrapper>(p_tmp));
         } else break;
       }
     }
+    imid_list.push_back(-1);
     printf("traj nimages: %d\n", int(images.size()));
     input.close();
   }
@@ -676,7 +679,8 @@ void NEB::initialize_images() {
         for (int i=0; i<mid_name_list.size(); i++){
           Atoms *p_tmp = new Atoms((mid_name_list[i]).data());
           images.push_back(unique_ptr<Atoms>(p_tmp));
-          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
+          imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
+          // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
         }
       }
       images.push_back(unique_ptr<Atoms>(p_fs));
@@ -686,7 +690,8 @@ void NEB::initialize_images() {
         for (int i=0; i<mid_name_list.size(); i++){
           Atoms *p_tmp = new VCWrapper((mid_name_list[i]).data(), pressure, h_ref.data());
           images.push_back(unique_ptr<Atoms>(p_tmp));
-          mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
+          imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
+          // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
         }
       }
       images.push_back(make_unique<VCWrapper>(*p_fs, pressure, h_ref.data()));
@@ -780,7 +785,7 @@ void NEB::run_neb() {
         // print_gpu(pos, "pos_1");
     }
   }
-  if (n_interpolate > 0 && traj_name.size() == 0){
+  if (n_interpolate > 0){
     interpolate();
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
@@ -1053,17 +1058,30 @@ void NEB::interpolate() {
   GPU_Vector<double> dpos(images[0]->get_positions().size()), cur_pos(images[0]->get_positions().size());
   vector<int> i_keyframe={0};
   vector<Atoms*> keyframe={images.front().get()};
-  int n_key=0;
-  for (auto it=mid_list.begin(); it!=mid_list.end();it++){
-    i_keyframe.push_back(it->first+n_key);
-    keyframe.push_back(it->second);
-    n_key++;
-    // images.insert(images.begin()+n_key, it->second);
+  int n_key=1;
+  bool equal_spacing = (imid_list.front() == -1);
+  int n_mid = images.size() - 2;
+  printf("nmid %d\n", n_mid);
+  if (equal_spacing){
+    for (int i=0; i< n_mid; i++){
+      i_keyframe.push_back((i+1)*n_interpolate/(n_mid+1) + n_key);
+      keyframe.push_back(images[n_key].get());
+      n_key++;
+    }
   }
-  i_keyframe.push_back(n_interpolate+n_key+1);
+  else {
+    for (auto& imid : imid_list){
+      i_keyframe.push_back(imid+n_key);
+      keyframe.push_back(images[n_key].get());
+      n_key++;
+      // images.insert(images.begin()+n_key, it->second);
+    }
+  }
+  i_keyframe.push_back(n_interpolate + n_key++);
+  printf("nkey = %d\n", n_key);
   keyframe.push_back(images.back().get());
   print_arr(i_keyframe.data(), i_keyframe.size(), "i_k");  
-  for (int k=0; k<n_key+1;k++){
+  for (int k=0; k<(n_key-1);k++){
     GPU_Vector<double>& ipos = keyframe[k]->get_positions();
     GPU_Vector<double>& fpos = keyframe[k+1]->get_positions();
     vector_add(dpos, fpos, ipos, 1.0, -1.0);
