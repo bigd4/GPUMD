@@ -18,9 +18,9 @@
 CC = nvcc
 CUDA_ARCH=-arch=sm_75
 ifdef OS # For Windows with the cl.exe compiler
-CFLAGS = -O3 $(CUDA_ARCH)
+CFLAGS = -O3 $(CUDA_ARCH) -DNO_THICKNESS_CHECK
 else # For linux
-CFLAGS = -std=c++14 -O0 $(CUDA_ARCH) -DNO_THICKNESS_CHECK -g -G 
+CFLAGS = -std=c++14 -O3 $(CUDA_ARCH) -DNO_THICKNESS_CHECK #-g -G 
 endif
 INC = -I./
 LDFLAGS = 
