@@ -123,7 +123,7 @@ public:
     GPU_Vector<double>& forces0,
     GPU_Vector<double>& virials0);
 
-  Atoms(Atom& atom, vector<Group>& group0);
+  // Atoms(Atom& atom, vector<Group>& group0);
 
   Atoms(const char* filename);
 

@@ -109,6 +109,19 @@ namespace
     d_result.copy_to_host(result);
   // printf("sum2d finish\n");
   }
+    __global__ void gpu_vector_add_scalar(double* result, double* a, double alpha, const int size)
+  {
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < size)
+      result[n] = a[n] + alpha;
+  }
+    // <vec> result = <vec> a + <scalar> alpha
+  void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+  {
+    int size = a.size();
+    gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
+      (result.data(), a.data(), alpha, size);
+  }
 
   void gpu_matmul(double* mA, double* mB, double* mC,
     int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
@@ -249,6 +262,7 @@ Atoms::Atoms(
   #endif
   natoms = type0.size();
   p_force = &force0;
+  change_box_to_triclinic(box0);
   box = box0;
   positions = positions0;
   type = type0;
@@ -273,16 +287,16 @@ Atoms::Atoms(
   cpu_atom_symbol0 = cpu_atom_symbol0;
 }
 
-Atoms::Atoms(Atom& atom, vector<Group>& group0)
-{
-  natoms = atom.number_of_atoms;
-  positions.copy_from_device(atom.position_per_atom.data());
-  type.copy_from_device(atom.type.data());
-  // group = group0;
-  potential_per_atom.copy_from_device(atom.potential_per_atom.data());
-  forces.copy_from_device(atom.force_per_atom.data());
-  virials.copy_from_device(atom.virial_per_atom.data());
-}
+// Atoms::Atoms(Atom& atom, vector<Group>& group0)
+// {
+//   natoms = atom.number_of_atoms;
+//   positions.copy_from_device(atom.position_per_atom.data());
+//   type.copy_from_device(atom.type.data());
+//   // group = group0;
+//   potential_per_atom.copy_from_device(atom.potential_per_atom.data());
+//   forces.copy_from_device(atom.force_per_atom.data());
+//   virials.copy_from_device(atom.virial_per_atom.data());
+// }
 
 Atoms::Atoms(const char* filename)
 {
@@ -744,10 +758,25 @@ void save_xyz_virials(
     // xx xy xz    0 3 4
     // yx yy yz    6 1 5
     // zx zy zz    7 8 2
+  GPU_Vector<double> virial_sum(9), virials_shifted(virial_per_atom.size());
+  vector<double> virial_avg(9);
   vector<double> cpu_virial_per_atom(virial_per_atom.size());
-  virial_per_atom.copy_to_host(cpu_virial_per_atom.data());
+  sum2d(virial_per_atom, virial_sum.data(), 9);
+  virial_sum.copy_to_host(virial_avg.data());
+  for (auto& virial_i:virial_avg){
+    virial_i /= num_atoms_total;
+  }
+  
+  for (int i=0;i<9;i++){
+    gpu_vector_add_scalar<<<(num_atoms_total-1)/128+1,128>>>(
+      virials_shifted.data() + i*num_atoms_total,
+      virial_per_atom.data() + i*num_atoms_total,
+      -virial_avg[i], num_atoms_total);
+  }
+  virials_shifted.copy_to_host(cpu_virial_per_atom.data());
+
   vector<double> virials_norm(num_atoms_total);
-  norm_axis1(virial_per_atom, 9).copy_to_host(virials_norm.data());
+  norm_axis1(virials_shifted, 9).copy_to_host(virials_norm.data());
 
 
   char precision_str_[] = "%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n";
