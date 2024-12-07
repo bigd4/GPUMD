@@ -445,7 +445,7 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n++;
   } else if (strcmp(param[n], "k") == 0){
     if (!is_valid_real(param[n+1], &k)) {
-      PRINT_INPUT_ERROR("k should be an real.");
+      PRINT_INPUT_ERROR("k should be a real.");
     }
     n++;
   } else if (strcmp(param[n], "auto_k") == 0){
@@ -458,7 +458,7 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "p") == 0){
     double press_scalar;
     if (!is_valid_real(param[n+1], &press_scalar)) {
-      PRINT_INPUT_ERROR("p should be an real.");
+      PRINT_INPUT_ERROR("p should be a real.");
     }
     pressure = {press_scalar};
     n++;
@@ -499,13 +499,18 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n++;
   } else if (strcmp(param[n], "vicc_num") == 0){
     if (!is_valid_real(param[n+1], &vicc_num)) {
-      PRINT_INPUT_ERROR("vicc_num should be an real.");
+      PRINT_INPUT_ERROR("vicc_num should be a real.");
     }
     if (vicc_num < 0) PRINT_INPUT_ERROR("vicc_num should >= 0");
     n++;
+  } else if (strcmp(param[n], "vi_cell_factor") == 0){
+    if (!is_valid_real(param[n+1], &vi_cell_factor)) {
+      PRINT_INPUT_ERROR("vi_cell_factor should be a real.");
+    }
+    n++;
   } else if (strcmp(param[n], "vicc_rc") == 0){
     if (!is_valid_real(param[n+1], &vicc_rc)) {
-      PRINT_INPUT_ERROR("vicc_rc should be an real.");
+      PRINT_INPUT_ERROR("vicc_rc should be a real.");
     }
     if (vicc_rc <= 0) PRINT_INPUT_ERROR("vicc_rc should > 0");
     n++;
@@ -709,6 +714,7 @@ void NEB::run_neb() {
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
   if (peek_interval == -1) peek_interval = (max_steps - 1) / 50 + 1;
+  if (vi_cell_factor == -1.0) vi_cell_factor = pow(n_realatoms, 1.0/6);
 
   printf("-----------------neb settings-----------------\n");
   print_setting("k", k);
@@ -725,6 +731,7 @@ void NEB::run_neb() {
     print_setting("vi_interval", vi_interval);
     print_setting("min_dist", min_dist);
     print_setting("max_dist", max_dist);
+    print_setting("vi_cell_factor", vi_cell_factor);
     print_setting("dist_ncount", dist_ncount);
     print_setting("vi_check_coord", vi_check_coord);
   }
@@ -999,23 +1006,29 @@ void NEB::check_dist() {
     vector_add(dpos, pos2, pos1, 1.0, -1.0);
 
     // only count the largest dist_ncount displacements
-    GPU_Vector<double> r2_arr = sum_square_axis1(dpos, 3);
+    // GPU_Vector<double> temp(nl);
+    GPU_Vector<double> r2_arr(n_realatoms), h2_arr(3);
+    gpu_sum_square_axis1<<<(n_realatoms - 1) / 128 + 1, 128>>>(r2_arr.data(), dpos.data(), n_realatoms, 3);
+    gpu_sum_square_axis1<<<1, 3>>>(h2_arr.data(), dpos.data() + 3*n_realatoms, 3, 3);
+    // print_gpu(r2_arr, "r2_arr");
+    // print_gpu(h2_arr, "h2_arr");
     thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
     thrust::sort(d_ptr, d_ptr + n_realatoms);
+    double h_sum_square = (variable_cell) ? sum(h2_arr.data(), 3) : 0;
     double r_sum_square = sum(r2_arr.data()+n_realatoms - cur_dist_ncount, cur_dist_ncount);
-    // print_gpu(r2_arr.data() + n_realatoms - dist_ncount, dist_ncount, "largest n");
-    if (variable_cell){
-      double h_sum_square = sum(r2_arr.data() + n_realatoms, 3);
-      dist = sqrt(r_sum_square/cur_dist_ncount + h_sum_square/3/n_realatoms);
-    } else {
-      dist = sqrt(r_sum_square/cur_dist_ncount);
-    }
+    double r_dist = sqrt(r_sum_square/cur_dist_ncount);
+    double h_dist = sqrt(h_sum_square/n_realatoms) * vi_cell_factor;
+    dist = r_dist + h_dist;
 
     if (dist > cur_max_dist){
-
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
-      images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
+      if (variable_cell){
+        printf("r_dist = %f, h_dist = %f\n", r_dist, h_dist);
+        images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
+      } else {
+        images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
+      }
       klist.insert(klist.begin() + i, klist[i-1]);
       printf("add an image: %d , nimages: %d\n", i, int(images.size()));
       i+=2; //skip 2 images
@@ -1097,7 +1110,7 @@ void NEB::interpolate() {
       } else {
         // Atoms* new_atoms = new Atoms(*images[0].get(), cur_pos.data());
         images.insert(images.begin()+i_keyframe[k]+i_cur,
-          make_unique<Atoms>(*images[0].get(), cur_pos.data()));
+          make_unique<Atoms>(images[0].get(), cur_pos.data()));
       }
     }
   }

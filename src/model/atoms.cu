@@ -221,7 +221,7 @@ Atoms::Atoms() {
   #endif
 }
 
-Atoms::Atoms(const Atoms& atoms0, double* new_position):Atoms(atoms0)
+Atoms::Atoms(const Atoms* p_atoms0, double* new_position):Atoms(*p_atoms0)
 {
   #ifdef DEBUG
   printf("Atoms copy + position constructor %p\n", this);

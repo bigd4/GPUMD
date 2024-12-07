@@ -106,6 +106,7 @@ private:
   double vicc_num = 0.0; // >0 & <1: percent, >=1: number
   double vicc_rc = 1.7; 
   int vi_interval = 20;
+  double vi_cell_factor = -1.0;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
   int dump_interval = -1;

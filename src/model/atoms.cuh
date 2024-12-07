@@ -94,7 +94,7 @@ public:
 
   Atoms();
 
-  Atoms(const Atoms& atoms0, double* new_position);
+  Atoms(const Atoms* p_atoms0, double* new_position);
 
   Atoms(const Atoms& atoms0);
 
