@@ -382,13 +382,21 @@ GPU_Vector<double> ImprovedTangentMethod::compute_tangent(Spring& spring1, Sprin
     double de_max = max(abs(de1), abs(de2));
     double de_min = min(abs(de1), abs(de2));
     tangent.fill(0.0);
+    // if (de2 + de1 > 0){
+    //   scale1 = de_min / spring1.nt;
+    //   scale2 = de_max / spring2.nt;
+    // }
+    // else{
+    //   scale1 = de_max / spring1.nt;
+    //   scale2 = de_min / spring2.nt;
+    // }
     if (de2 + de1 > 0){
-      scale1 = de_min / spring1.nt;
-      scale2 = de_max / spring2.nt;
+      scale1 = de_min;
+      scale2 = de_max;
     }
     else{
-      scale1 = de_max / spring1.nt;
-      scale2 = de_min / spring2.nt;
+      scale1 = de_max ;
+      scale2 = de_min;
     }
     cublasDaxpy(handle, size, &scale1, t1.data(), 1, tangent.data(), 1);
     cublasDaxpy(handle, size, &scale2, t2.data(), 1, tangent.data(), 1);
@@ -813,7 +821,7 @@ void NEB::run_neb() {
     initialize_compute();
     reset_minimizer(natoms, max_steps - step, force_tolerance);
     minimizer->compute(*this);
-    printf("neb total steps: %d\n", step);
+    // printf("neb total steps: %d\n", step);
     if (vi_count != 0) write_energies();
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
@@ -1024,13 +1032,13 @@ void NEB::check_dist() {
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
       // print_gpu(new_pos, "new_pos");
       if (variable_cell){
-        printf("r_dist = %f, h_dist = %f\n", r_dist, h_dist);
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
       klist.insert(klist.begin() + i, klist[i-1]);
-      printf("add an image: %d , nimages: %d\n", i, int(images.size()));
+      printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
+        i, int(images.size()), r_dist, h_dist);
       i+=2; //skip 2 images
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
