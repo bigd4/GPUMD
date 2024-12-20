@@ -1080,7 +1080,7 @@ void NEB::interpolate() {
   vector<int> i_keyframe={0};
   vector<Atoms*> keyframe={images.front().get()};
   int n_key=1;
-  bool equal_spacing = (imid_list.front() == -1);
+  bool equal_spacing = (imid_list.size() == 0 or imid_list.front() == -1);
   int n_mid = images.size() - 2;
   printf("nmid %d\n", n_mid);
   if (equal_spacing){
