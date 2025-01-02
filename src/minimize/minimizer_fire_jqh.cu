@@ -134,12 +134,20 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       }
       dt_max = tmp_dt_max / TIME_UNIT_CONVERSION;
       n++;
+    } else if (strcmp(param[n], "dt_min") == 0){
+      double tmp_dt_min;
+      if (!is_valid_real(param[n+1], &tmp_dt_min)) {
+        PRINT_INPUT_ERROR("dt_min should be a number.");
+      }
+      dt_min = tmp_dt_min / TIME_UNIT_CONVERSION;
+      n++;
     } else if (strcmp(param[n], "dt_0") == 0){
       double tmp_dt_0;
       if (!is_valid_real(param[n+1], &tmp_dt_0)) {
         PRINT_INPUT_ERROR("dt_0 should be a number.");
       }
       dt_0 = tmp_dt_0 / TIME_UNIT_CONVERSION;
+      dt = dt_0;
       n++;
     } else if (strcmp(param[n], "f_inc") == 0){
       if (!is_valid_real(param[n+1], &f_inc)) {
@@ -170,6 +178,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   printf("----------vcfire settings---------------\n");
   printf("%12s = %g\n", "max_move", max_move);
   printf("%12s = %g\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
+  printf("%12s = %g\n", "dt_min", dt_min * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "f_inc", f_inc);
   printf("%12s = %g\n", "alpha_start", alpha_start);
