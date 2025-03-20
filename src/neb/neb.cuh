@@ -17,7 +17,6 @@
 #include <cmath>
 #include <cusolverDn.h>
 #include <force/neighbor.cuh>
-using namespace std;
 
 struct Spring
 {
@@ -93,7 +92,7 @@ private:
   // compute setting
   double k = 0.1;
   bool auto_k = false;
-  vector<double> pressure = {0.0};
+  std::vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 0;
   bool need_relax = false;
@@ -112,26 +111,26 @@ private:
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;
-  string istate_name = "is.xyz";
-  string fstate_name = "fs.xyz";
-  string mid_name = "mid.xyz";
-  string traj_name = "";
-  vector<string> mid_name_list;
-  string tangent_method_name = "improved";
+  std::string istate_name = "is.xyz";
+  std::string fstate_name = "fs.xyz";
+  std::string mid_name = "mid.xyz";
+  std::string traj_name = "";
+  std::vector<std::string> mid_name_list;
+  std::string tangent_method_name = "improved";
 
 
   // private variables
   // cublasHandle_t handle;
-  vector<double> klist;
-  unique_ptr<Minimizer> minimizer;
-  vector<const char *> optimizer_opt;
+  std::vector<double> klist;
+  std::unique_ptr<Minimizer> minimizer;
+  std::vector<const char *> optimizer_opt;
   int imax;
-  list<int> imins;
-  list<int> imaxes;
+  std::list<int> imins;
+  std::list<int> imaxes;
   Dump_Position dump_position;
-  // vector<pair<int,Atoms*>> mid_list;
-  vector<int> imid_list; // the positions that each mid_image should be insert into
-  vector<double> h_ref{9};
+  // std::vector<pair<int,Atoms*>> mid_list;
+  std::vector<int> imid_list; // the positions that each mid_image should be insert into
+  std::vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
@@ -150,8 +149,8 @@ private:
   void check_dist();
 
 public:
-  vector<unique_ptr<Atoms>> images;
-  vector<double> image_energies;
+  std::vector<std::unique_ptr<Atoms>> images;
+  std::vector<double> image_energies;
   BaseTangentMethod* tangentmethod;
 
   NEB();

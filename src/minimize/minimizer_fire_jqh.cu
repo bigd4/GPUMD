@@ -20,6 +20,7 @@ Reference: PhysRevLett 97, 170201 (2006)
 ------------------------------------------------------------------------------*/
 
 #include "minimizer_fire_jqh.cuh"
+using namespace std;
 
 namespace
 {

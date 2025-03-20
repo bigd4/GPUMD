@@ -342,7 +342,7 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
   } else if (strcmp(param[0], "target_opt") == 0) {
-    std::unique_ptr<TargetOpt> p_target_opt = make_unique<TargetOpt>();
+    std::unique_ptr<TargetOpt> p_target_opt = std::make_unique<TargetOpt>();
     p_target_opt->parse_target_opt(param, num_param, force);
     force.potentials.push_back(std::move(p_target_opt));
   } else if (strcmp(param[0], "replicate") == 0) {

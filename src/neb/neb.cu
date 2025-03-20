@@ -2,6 +2,7 @@
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
+using namespace std;
 
 namespace
 {
@@ -855,9 +856,9 @@ void NEB::compute()
     image_energies[i] = images[i]->get_energy();
   }
 
-  if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
+  if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
   
-  if (step % peek_interval == 0){
+  if (step % peek_interval == 0 && step != 0){
     write_neb_traj("peek_traj.xyz", "w");
     write_energies();
   }

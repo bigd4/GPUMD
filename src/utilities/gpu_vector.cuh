@@ -48,7 +48,7 @@ public:
   }
 
   GPU_Vector(const GPU_Vector& vec0){
-    // printf("GPU_Vector copy constructor. This should better not be used. %p\n", this);
+    printf("GPU_Vector copy constructor. This should better not be used. %p\n", this);
     // allocated_ = vec0.allocated_;
     // size_ = vec0.size_;
     // memory_ = vec0.memory_;
@@ -64,7 +64,7 @@ public:
   };
 
   GPU_Vector& operator=(const GPU_Vector& vec0){
-    // printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
+    printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
     // allocated_ = vec0.allocated_;
     if (&vec0 == this) return *this;
     if (vec0.allocated_){
@@ -79,7 +79,7 @@ public:
   };
 
   GPU_Vector& operator=(GPU_Vector&& vec0){
-    // printf("GPU_Vector = move constructor. %p\n", this);
+    printf("GPU_Vector = move constructor. %p\n", this);
     if (allocated_) {
       CHECK(cudaFree(data_));
     }
@@ -95,6 +95,24 @@ public:
     vec0.size_ = 0;
     vec0.memory_ = 0;
     return *this;
+  };
+
+  GPU_Vector (GPU_Vector&& vec0) noexcept {
+    printf("GPU_Vector move constructor. %p\n", this);
+    if (allocated_) {
+      CHECK(cudaFree(data_));
+    }
+    allocated_ = vec0.allocated_;
+    size_ = vec0.size_;
+    memory_ = vec0.memory_;
+    memory_type_ = vec0.memory_type_;
+    if (vec0.allocated_){
+      data_ = vec0.data_;
+      vec0.data_ = NULL;
+    }
+    vec0.allocated_ = false;
+    vec0.size_ = 0;
+    vec0.memory_ = 0;
   };
 
   // only allocate memory

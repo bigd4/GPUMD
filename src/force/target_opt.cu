@@ -1,6 +1,7 @@
 #include "target_opt.cuh"
 #include "model/read_xyz.cuh"
 #include "model/atoms.cuh"
+using namespace std;
 
 
 static __global__ void get_dpos_target(
@@ -149,6 +150,23 @@ static __global__ void calc_spring_force(
   }
 }
 
+Group read_group_from_target(string target_name){
+  printf("--------------read target file %s-------------------\n", target_name.data());
+  int has_velocity;
+  int number_of_types;
+  vector<Group> tmp_group;
+  Atom tmp_atom;
+  Box tmp_box;
+  GPU_Vector<double> tmp_thermo;
+  initialize_position(target_name.data(), has_velocity, number_of_types, tmp_box, tmp_group, tmp_atom);
+  allocate_memory_gpu(tmp_group, tmp_atom, tmp_thermo);
+  if (tmp_group.size() == 0)
+    PRINT_INPUT_ERROR(("there is no group method in " + string(target_name)).data());
+  Group out_group = tmp_group[0];
+  // Group out_group = std::move(tmp_group[0]);
+  printf("out group: %d\n", out_group.cpu_size.front());
+  return out_group;  //tmp_group[0];//
+}
 
 
 TargetOpt::TargetOpt()
@@ -159,7 +177,8 @@ TargetOpt::TargetOpt()
 void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force)
 {
   p_force = &force;
-  std::string target_name = "target.xyz";
+  string target_name = "target.xyz";
+  vector<string> target_list;
 
   for (int n=1; n<num_param; n++){
     if (strcmp(param[n], "k_end") == 0) {
@@ -185,13 +204,20 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
     } else if (strcmp(param[n], "target") == 0) {
       target_name = param[n+1];
       n++;
-    } else if (strcmp(param[n], "max_neighbor") == 0) {
+    } else if (strcmp(param[n], "target_list") == 0){
+    for (int i=n+1; i<num_param; i++){
+      target_list.push_back(string(param[i]));
+      n++;
+      if (strcmp(param[n], "target_list_end") == 0) break;
+    }
+    n++;
+  } else if (strcmp(param[n], "max_neighbor") == 0) {
       if (!is_valid_int(param[n+1], &max_neighbor)) {
         PRINT_INPUT_ERROR("max_neighbor should be an integer.");
       }
       n++;
     } else {
-    PRINT_INPUT_ERROR(("no keyword match with: " + std::string(param[n])).data());
+    PRINT_INPUT_ERROR(("no keyword match with: " + string(param[n])).data());
   }
   }
   printf("--------target_opt settings----------\n");
@@ -205,16 +231,17 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   printf("--------------read target file %s-------------------\n", target_name.data());
   int has_velocity;
   int number_of_types;
-  std::vector<Group> tmp_group;
+  vector<Group> tmp_group;
   Atom tmp_atom;
   Box tmp_box;
   GPU_Vector<double> tmp_thermo;
   initialize_position(target_name.data(), has_velocity, number_of_types, tmp_box, tmp_group, tmp_atom);
   allocate_memory_gpu(tmp_group, tmp_atom, tmp_thermo);
   if (tmp_group.size() == 0)
-    PRINT_INPUT_ERROR(("there is no group method in " + std::string(target_name)).data());
+    PRINT_INPUT_ERROR(("there is no group method in " + string(target_name)).data());
   natoms = tmp_group[0].label.size();
   Group& group = tmp_group[0];
+
 
   if (group.number <= 1)
     PRINT_INPUT_ERROR("there is only one group.");
@@ -227,7 +254,67 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   GPU_Vector<int> cell_contents(natoms);
   // print_arr(tmp_box.cpu_h, 18, "box");
   NN_target.resize(natoms); // neighbor number
-  NL_target.resize(natoms * max_neighbor); // neighbor list  
+  NL_target.resize(natoms * max_neighbor); // neighbor list 
+  target_list.push_back(target_name);
+  for (auto target_name: target_list){
+    // targets.emplace_back(natoms, max_neighbor);
+    printf("debug point for\n");
+    targets.emplace_back();
+    targets[0].group = move(read_group_from_target(target_name));
+    printf("test group: %d\n", targets[0].group.cpu_size.front());
+    targets[0].NN_target.resize(natoms);
+    targets[0].NL_target.resize(natoms * max_neighbor);
+    for (int i=0; i<group.number-1; i++){
+      int n_pick = group.cpu_size[i+1];
+      i_pick_list.emplace_back(n_pick);
+      dpos_target_list.emplace_back(n_pick * max_neighbor * 3);
+      if (n_pick==0) continue;
+      auto& i_pick = i_pick_list.back();
+      auto& dpos_target = dpos_target_list.back();
+      i_pick.copy_from_device(group.contents.data() + group.cpu_size_sum[i+1], group.cpu_size[i+1]);
+      // dpos_target.resize(n_pick * max_neighbor * 3);
+      find_neighbor(
+        0,
+        natoms,
+        rc,
+        tmp_box,
+        tmp_atom.type,
+        tmp_atom.position_per_atom,
+        cell_count,
+        cell_count_sum,
+        cell_contents,
+        NN_target,
+        NL_target
+      );
+      // print_arr(tmp_box.cpu_h, 18, "box");
+      // print_gpu(tmp_atom.position_per_atom, "r0");
+      // print_gpu(NN_target, "NN0");
+      // print_gpu(i_pick, "i_pick");
+      // print_gpu(NL_target, "NL_target");
+      get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
+        natoms,
+        0,
+        natoms,
+        tmp_box,
+        NN_target.data(),
+        NL_target.data(),
+        i_pick.data(),
+        n_pick,
+        tmp_atom.position_per_atom.data(),
+        tmp_atom.position_per_atom.data() + natoms,
+        tmp_atom.position_per_atom.data() + 2 * natoms,
+        dpos_target.data(),
+        dpos_target.data() + n_pick * max_neighbor,
+        dpos_target.data() + n_pick * max_neighbor * 2
+      );
+      cudaDeviceSynchronize();
+      CUDA_CHECK_KERNEL;
+
+    }
+  }
+  printf("target %d\n", targets.size());
+  printf("target NL %d\n", targets[0].NL_target.size());
+
 
   for (int i=0; i<group.number-1; i++){
     int n_pick = group.cpu_size[i+1];
