@@ -12,16 +12,16 @@ struct Target
 {
   double k;
   Group group;
-  GPU_Vector<int> NN_target; // neighbor number
-  GPU_Vector<int> NL_target; // neighbor list
+  GPU_Vector<int> NN; // neighbor number
+  GPU_Vector<int> NL; // neighbor list
   std::vector<GPU_Vector<int>> i_pick_list;
   std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
 
   Target(){};
 
   Target(int natoms, int max_neighbor){
-    NN_target.resize(natoms); // neighbor number
-    NL_target.resize(natoms * max_neighbor); // neighbor list  
+    NN.resize(natoms); // neighbor number
+    NL.resize(natoms * max_neighbor); // neighbor list  
   }
 };
 
@@ -29,7 +29,6 @@ struct Target
 class TargetOpt: public Potential
 {
 public:
-  int test = 9;
 
   TargetOpt();
 
@@ -58,8 +57,8 @@ private:
   Force* p_force;
   double k;
   std::vector<Target> targets;
-  GPU_Vector<int> NN_target; // neighbor number
-  GPU_Vector<int> NL_target; // neighbor list
-  std::vector<GPU_Vector<int>> i_pick_list;
-  std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
+  // GPU_Vector<int> NN_target; // neighbor number
+  // GPU_Vector<int> NL_target; // neighbor list
+  // std::vector<GPU_Vector<int>> i_pick_list;
+  // std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
 };

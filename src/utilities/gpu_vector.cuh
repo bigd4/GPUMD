@@ -48,7 +48,7 @@ public:
   }
 
   GPU_Vector(const GPU_Vector& vec0){
-    printf("GPU_Vector copy constructor. This should better not be used. %p\n", this);
+    // printf("GPU_Vector copy constructor. This should better not be used. %p\n", this);
     // allocated_ = vec0.allocated_;
     // size_ = vec0.size_;
     // memory_ = vec0.memory_;
@@ -64,7 +64,7 @@ public:
   };
 
   GPU_Vector& operator=(const GPU_Vector& vec0){
-    printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
+    // printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
     // allocated_ = vec0.allocated_;
     if (&vec0 == this) return *this;
     if (vec0.allocated_){
