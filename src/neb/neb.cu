@@ -555,6 +555,13 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     has_mid = true;
   } else if (strcmp(param[n], "climb") == 0){
     climb = true;
+  } else if (strcmp(param[n], "find_min") == 0){
+    find_min = true;
+  } else if (strcmp(param[n], "etol") == 0){
+    if (!is_valid_real(param[n+1], &etol)) {
+      PRINT_INPUT_ERROR("etol should be a real.");
+    }
+    n++;
   } else if (strcmp(param[n], "need_relax") == 0){
     need_relax = true;
   } else {
@@ -735,6 +742,8 @@ void NEB::run_neb() {
     printf("\n");
   }
   print_setting("climb", climb);
+  print_setting("find_min", find_min);
+  if (climb) print_setting("etol", etol);
   print_setting("var_image_number", var_image_number);
   if (var_image_number) {
     print_setting("vi_interval", vi_interval);
@@ -743,6 +752,10 @@ void NEB::run_neb() {
     print_setting("vi_cell_factor", vi_cell_factor);
     print_setting("dist_ncount", dist_ncount);
     print_setting("vi_check_coord", vi_check_coord);
+    if (vi_check_coord) {
+      print_setting("vicc_num", vicc_num);
+      print_setting("vicc_rc", vicc_rc);
+    }
   }
   print_setting("has_mid", has_mid);
   if (has_mid) print_setting("n_interpolate", n_interpolate);
@@ -756,6 +769,7 @@ void NEB::run_neb() {
   printf("----------------------------------------------\n");
 
   if (vicc_num < 1) vicc_num *= n_realatoms;
+  if (etol < 0) etol *= -n_realatoms;
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
@@ -863,7 +877,7 @@ void NEB::compute()
     write_energies();
   }
 
-  find_min_max();
+  find_min_max(etol);
   // printf("klist: ");
   if (auto_k) {
     for (int i=0; i<nimages;i++){
@@ -898,6 +912,8 @@ void NEB::compute()
       double tmp_num = -2.0 * tangential_force;
       cublasDaxpy(handle, natoms_per_image*3, &tmp_num,
         tangent.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
+    } else if (find_min && in_list(imins, i)){
+      ;
     }
     else{
       tangentmethod->add_image_force(natoms_per_image*3,
@@ -1147,19 +1163,37 @@ void NEB::initialize_compute() {
 }
 
 
-void NEB::find_min_max()
+void NEB::find_min_max(double etol)
 {
+  list<int> iextrema;
   imaxes.clear();
   for (int i=1; i<nimages-1; i++){
     if (image_energies[i] > image_energies[i-1] &&
         image_energies[i] > image_energies[i+1]){
       imaxes.push_back(i);
+      iextrema.push_back(i);
     } else if (image_energies[i] < image_energies[i-1] &&
                image_energies[i] < image_energies[i+1]){
       imins.push_back(i);
+      iextrema.push_back(i);
     }
   }
-
+  for (auto it=iextrema.begin(); it!=iextrema.end(); it++){
+    auto next_it = it;
+    next_it++;
+    if (next_it != iextrema.end()){
+      if (abs(image_energies[*it] - image_energies[*next_it]) < etol){
+        if (image_energies[*it] > image_energies[*next_it]) {
+          imaxes.remove(*it);
+          imins.remove(*next_it);
+        } else {
+          imins.remove(*it);
+          imaxes.remove(*next_it);
+        }
+        it = next_it;
+      }
+    }
+  }
   imax = max_element(image_energies.begin(), image_energies.end()) - image_energies.begin();
 }
 

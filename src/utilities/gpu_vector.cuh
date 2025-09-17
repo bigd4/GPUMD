@@ -64,7 +64,9 @@ public:
   };
 
   GPU_Vector& operator=(const GPU_Vector& vec0){
-    // printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
+    #ifdef DEBUG
+    printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
+    #endif
     // allocated_ = vec0.allocated_;
     if (&vec0 == this) return *this;
     if (vec0.allocated_){
@@ -79,7 +81,9 @@ public:
   };
 
   GPU_Vector& operator=(GPU_Vector&& vec0){
+    #ifdef DEBUG
     printf("GPU_Vector = move constructor. %p\n", this);
+    #endif
     if (allocated_) {
       CHECK(cudaFree(data_));
     }
@@ -98,7 +102,9 @@ public:
   };
 
   GPU_Vector (GPU_Vector&& vec0) noexcept {
+    #ifdef DEBUG
     printf("GPU_Vector move constructor. %p\n", this);
+    #endif
     if (allocated_) {
       CHECK(cudaFree(data_));
     }

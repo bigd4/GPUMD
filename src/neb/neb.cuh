@@ -97,9 +97,12 @@ private:
   int n_interpolate = 0;
   bool need_relax = false;
   bool climb = false;
+  bool find_min = false;
+  double etol = 0.0;
   bool remove_translation = true;
   bool remove_rotation = true;
   bool variable_cell = true;
+
   bool var_image_number = true;
   int vi_check_coord = 0; //  0: no check
   double vicc_num = 0.0; // >0 & <1: percent, >=1: number
@@ -140,7 +143,7 @@ private:
   int nimages, natoms_per_image, n_realatoms;
   double optimize_factor;
 
-  void find_min_max();
+  void find_min_max(double etol=0.0);
 
   void initialize_images();
 
