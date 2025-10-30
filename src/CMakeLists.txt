@@ -1,16 +1,19 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(GAS LANGUAGES CXX CUDA)
+project(GPU-MetaD LANGUAGES CXX CUDA)
 
 ###################################################
 # Set the CUDA compiler path
+find_package(CUDA REQUIRED)
+find_package(CUFFT REQUIRED)
+
 set(CUDACXX /usr/local/cuda/bin/nvcc)
 set(CMAKE_CUDA_COMPILER ${CUDACXX})
 
-# Specify the Python environment
-set(PYTHON_INCLUDE /home/tensor/anaconda3/envs/py38/include/python3.8)
-set(PYTHON_LIB /home/tensor/anaconda3/envs/py38/lib)
-set(PYTHON_LIB_NAME python3.8)
+# # Specify the Python environment
+# set(PYTHON_INCLUDE /home/tensor/anaconda3/envs/py38/include/python3.8)
+# set(PYTHON_LIB /home/tensor/anaconda3/envs/py38/lib)
+# set(PYTHON_LIB_NAME python3.8)
 
 # Set the libtorch path
 list(APPEND CMAKE_PREFIX_PATH "/home/tensor/software/libtorch/share/cmake/Torch")
@@ -51,10 +54,27 @@ file(GLOB SOURCES_NEP
     "${CMAKE_SOURCE_DIR}/utilities/*.cu"
 )
 
+
+file(GLOB SOURCES_GPUSAMP
+    "${CMAKE_SOURCE_DIR}/main_sampling/*.cu"
+    "${CMAKE_SOURCE_DIR}/minimize/*.cu"
+    "${CMAKE_SOURCE_DIR}/phonon/*.cu"
+    "${CMAKE_SOURCE_DIR}/integrate/*.cu"
+    "${CMAKE_SOURCE_DIR}/mc/*.cu"
+    "${CMAKE_SOURCE_DIR}/force/*.cu"
+    "${CMAKE_SOURCE_DIR}/measure/*.cu"
+    "${CMAKE_SOURCE_DIR}/model/*.cu"
+    "${CMAKE_SOURCE_DIR}/utilities/*.cu"
+)
+
+
+
+
 # Gather header files
 file(GLOB HEADERS
     "${CMAKE_SOURCE_DIR}/utilities/*.cuh"
     "${CMAKE_SOURCE_DIR}/main_gpumd/*.cuh"
+    "${CMAKE_SOURCE_DIR}/main_sampling/*.cuh"
     "${CMAKE_SOURCE_DIR}/integrate/*.cuh"
     "${CMAKE_SOURCE_DIR}/mc/*.cuh"
     "${CMAKE_SOURCE_DIR}/minimize/*.cuh"
@@ -66,6 +86,10 @@ file(GLOB HEADERS
     #gas file
     # "${CMAKE_SOURCE_DIR}/measure/gasCV/*.cuh"
 )
+
+
+
+
 
 # Include directories
 include_directories(
@@ -81,6 +105,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/model
     ${CMAKE_SOURCE_DIR}/utilities
     ${CMAKE_SOURCE_DIR}/main_nep
+    ${CMAKE_SOURCE_DIR}/main_sampling
     #gas file
     # ${CMAKE_SOURCE_DIR}/measure/gasCV
 )
@@ -88,19 +113,33 @@ include_directories(
 # Create executables
 add_executable(gpumd ${SOURCES_GPUMD})
 add_executable(nep ${SOURCES_NEP})
+add_executable(gpu-sampling ${SOURCES_GPUSAMP})
+
 
 # Link libraries for gpumd
 target_link_libraries(gpumd
-    ${TORCH_LIBRARIES}
+    # ${TORCH_LIBRARIES}
+    CUDA::cufft
     ${LIBS}
-    -L${PYTHON_LIB}
-    -l${PYTHON_LIB_NAME}
-    -static-libgcc
-    -static-libstdc++
+    # -L${PYTHON_LIB}
+    # -l${PYTHON_LIB_NAME}
+    # -static-libgcc
+    # -static-libstdc++
 )
 
 # Link libraries for nep
 target_link_libraries(nep
+    # ${TORCH_LIBRARIES}
+    CUDA::cufft
+    ${LIBS}
+    # -L${PYTHON_LIB}
+    # -l${PYTHON_LIB_NAME}
+    # -static-libgcc
+    # -static-libstdc++
+)
+
+target_link_libraries(gpu-sampling
+    CUDA::cufft
     ${TORCH_LIBRARIES}
     ${LIBS}
     -L${PYTHON_LIB}
@@ -109,13 +148,15 @@ target_link_libraries(nep
     -static-libstdc++
 )
 
-# Ensure include directories are set correctly for both targets
-target_include_directories(gpumd PRIVATE ${PYTHON_INCLUDE} ${INC} ${TORCH_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR})
-target_include_directories(nep PRIVATE ${PYTHON_INCLUDE} ${INC} ${TORCH_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR})
 
+# Ensure include directories are set correctly for both targets
+target_include_directories(gpumd PRIVATE  ${INC}  ${CMAKE_SOURCE_DIR})
+target_include_directories(nep PRIVATE  ${INC}  ${CMAKE_SOURCE_DIR})
+target_include_directories(gpu-sampling PRIVATE ${PYTHON_INCLUDE} ${INC} ${TORCH_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR})
 # Set C++ standard
 set_property(TARGET gpumd PROPERTY CXX_STANDARD 17)
 set_property(TARGET nep PROPERTY CXX_STANDARD 17)
+set_property(TARGET gpu-sampling PROPERTY CXX_STANDARD 17)
 
 # Clean up
 add_custom_target(clean_all
