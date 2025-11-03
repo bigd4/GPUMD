@@ -357,6 +357,9 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
+  } else if (strcmp(param[0], "multi_pot_mode") == 0) {
+    force.set_multiple_potentials_mode(param[1]);
+    printf("Set multiple potentials mode to \"%s\".\n", param[1]);
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);
