@@ -5,7 +5,7 @@ project(GPU-MetaD LANGUAGES CXX CUDA)
 ###################################################
 # Set the CUDA compiler path
 find_package(CUDA REQUIRED)
-find_package(CUFFT REQUIRED)
+# find_package(CUFFT REQUIRED)
 
 set(CUDACXX /usr/local/cuda/bin/nvcc)
 set(CMAKE_CUDA_COMPILER ${CUDACXX})

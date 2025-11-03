@@ -72,6 +72,81 @@ Run simulation according to the inputs in the run.in file.
 #include <chrono>
 #include <cstring>
 
+namespace{
+  void gpu_sampling_dump_restart(
+  // const int number_of_steps,
+  // int step,
+  // const int fixed_group,
+  // const int move_group,
+  // const double global_time,
+  // const double temperature,
+  // Integrate& integrate,
+  Box& box,
+  std::vector<Group>& group,
+  // GPU_Vector<double>& thermo,
+  Atom& atom
+  // Force& force
+  )
+{
+  FILE* fid = my_fopen("restart.xyz", "w");
+
+  const int number_of_atoms = atom.number_of_atoms;
+
+  atom.position_per_atom.copy_to_host(atom.cpu_position_per_atom.data());
+  atom.velocity_per_atom.copy_to_host(atom.cpu_velocity_per_atom.data());
+
+  fprintf(fid, "%d\n", number_of_atoms);
+
+  fprintf(
+    fid, "pbc=\"%c %c %c\" ", box.pbc_x ? 'T' : 'F', box.pbc_y ? 'T' : 'F', box.pbc_z ? 'T' : 'F');
+
+  fprintf(
+    fid,
+    "Lattice=\"%g %g %g %g %g %g %g %g %g\" ",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8]);
+
+  if (group.size() == 0) {
+    fprintf(fid, "Properties=species:S:1:pos:R:3:mass:R:1:vel:R:3\n");
+  } else {
+    fprintf(fid, "Properties=species:S:1:pos:R:3:mass:R:1:vel:R:3:group:I:%d\n", int(group.size()));
+  }
+
+  for (int n = 0; n < number_of_atoms; n++) {
+    const double natural_to_A_per_fs = 1.0 / TIME_UNIT_CONVERSION;
+    fprintf(
+      fid,
+      "%s %g %g %g %g %g %g %g ",
+      atom.cpu_atom_symbol[n].c_str(),
+      atom.cpu_position_per_atom[n],
+      atom.cpu_position_per_atom[n + number_of_atoms],
+      atom.cpu_position_per_atom[n + 2 * number_of_atoms],
+      atom.cpu_mass[n],
+      atom.cpu_velocity_per_atom[n] * natural_to_A_per_fs,
+      atom.cpu_velocity_per_atom[n + number_of_atoms] * natural_to_A_per_fs,
+      atom.cpu_velocity_per_atom[n + 2 * number_of_atoms] * natural_to_A_per_fs);
+
+    for (int m = 0; m < group.size(); ++m) {
+      fprintf(fid, "%d ", group[m].cpu_label[n]);
+    }
+
+    fprintf(fid, "\n");
+  }
+
+  fflush(fid);
+  fclose(fid);
+}
+}
+
+
+
 static __global__ void gpu_find_largest_v2(
   int N, int number_of_rounds, double* g_vx, double* g_vy, double* g_vz, double* g_v2_max)
 {
@@ -320,15 +395,24 @@ void Run::perform_a_run()
       fflush(stdout);
     }
 
-#ifdef USE_GAS
+// #ifdef USE_GAS
     if(is_pathsampling){
       bool is_match = p_gasps->process(box,atom.position_per_atom);
       if(is_match){
-        printf("[GAS-PathSampling] Reached (Meta)stable phase, computation ended.\n");
+        printf("[PathSampling] Reached (Meta)stable phase, computation ended.\n");
         fflush(stdout);
+        gpu_sampling_dump_restart(box,group,atom);
         break;}
     }
-#endif
+    if(is_ffs){
+      bool is_end = p_gasps->process(box,atom.position_per_atom,p_gasps->config.target_stage);
+      if(is_end){
+        printf("[ForwardFluxSampling] Reached NEXT/INIT phase, computation ended.\n");
+        fflush(stdout);
+        gpu_sampling_dump_restart(box,group,atom);
+        break;}
+    }
+// #endif
   }
 
   print_line_1();
@@ -366,15 +450,19 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
-#ifdef USE_GAS
-  } else if (strcmp(param[0], "GASMD") == 0) {
+// #ifdef USE_GAS
+  } else if (strcmp(param[0], "GASMD") == 0 || strcmp(param[0],"MetaD") == 0) {
     std::unique_ptr<TorchMetad> p_gas_metad = TorchMetad::parse_GASMD(param,num_param,atom.number_of_atoms);
     force.potentials.emplace_back(std::move(p_gas_metad));
     force.set_multiple_potentials_mode("sum");
-  } else if (strcmp(param[0], "GASPathSampling") == 0) {
-    p_gasps = TorchPathSampling::parse_GASPS(param,num_param,atom.number_of_atoms);
+  } else if (strcmp(param[0], "PathSampling") == 0) {
+    p_gasps = TorchMonitor::parse_GASMon(param,num_param,atom.number_of_atoms);
     is_pathsampling=true;
-#endif
+  } else if (strcmp(param[0], "FFSampling") == 0) {
+    p_gasps = TorchMonitor::parse_GASMon(param,num_param,atom.number_of_atoms);
+    is_ffs=true;
+  
+// #endif
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);

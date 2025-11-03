@@ -1,4 +1,4 @@
-#ifdef USE_GAS
+// #ifdef USE_GAS
 #pragma once
 #include "force/potential.cuh"
 #include "utilities/common.cuh"
@@ -111,7 +111,6 @@ struct Config {
 struct TorchMetad : public Potential
 {
 public:
-
     TorchMetad(std::string model_path,std::string cfg_path,int n_atoms);
     TorchMetad(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms);
     TorchMetad(int n_atoms);
@@ -210,4 +209,4 @@ private:
     std::string gaussian_name = "GASGaussian.txt";
 };
 
-#endif
+// #endif

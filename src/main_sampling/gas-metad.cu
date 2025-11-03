@@ -1,4 +1,4 @@
-#ifdef USE_GAS
+// #ifdef USE_GAS
 #include "gas-metad.cuh"
 #include "model/read_xyz.cuh"
 
@@ -553,4 +553,4 @@ void TorchMetad::box_to_tri(Box& box){
         cpu_b_vector[8] = box.cpu_h[8];
       // }
 }
-#endif
+// #endif

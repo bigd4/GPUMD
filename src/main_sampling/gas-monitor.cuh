@@ -1,4 +1,4 @@
-#ifdef USE_GAS
+// #ifdef USE_GAS
 #pragma once
 // #include "potential.cuh"
 #include "utilities/common.cuh"
@@ -27,6 +27,7 @@ struct PSConfig {
     bool is_opt_=0;
     bool is_obs_=0;
     int debug_interval=0;
+    int target_stage = 1;
     
 
     // 打印结构体内容
@@ -92,6 +93,9 @@ struct PSConfig {
             config.max_neighbors = std::stoi(configMap.at("max_neighbors"));
             config.n_atoms = std::stoi(configMap.at("n_atoms"));
             config.debug_interval = std::stoi(configMap.at("debug_interval"));
+            if(configMap.find("MetaCell")!=configMap.end()){
+                config.target_stage = std::stoi(configMap.at("target_stage"));
+            }
 
             // flag
             config.is_opt_ = (configMap.find("MetaCell")!=configMap.end());
@@ -99,7 +103,7 @@ struct PSConfig {
 
 
         } catch (const std::exception& ex) {
-            throw std::runtime_error("Error parsing configuration: " + std::string(ex.what()));
+            throw std::runtime_error("[PSConfig] Error parsing configuration: " + std::string(ex.what()));
         }
 
 
@@ -108,13 +112,13 @@ struct PSConfig {
     }
 };
 
-struct TorchPathSampling
+struct TorchMonitor
 {
 public:
 
-    TorchPathSampling(std::string model_path,std::string cfg_path,int n_atoms);
-    TorchPathSampling(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms);
-    TorchPathSampling(int n_atoms);
+    TorchMonitor(std::string model_path,std::string cfg_path,int n_atoms);
+    TorchMonitor(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms);
+    TorchMonitor(int n_atoms);
     void compute_large_box(Box& box,const GPU_Vector<double>& position_per_atom);
     void get_neighbor_list(Box& box,const GPU_Vector<double>& position_per_atom);
 
@@ -129,33 +133,38 @@ public:
         Box& box,
         const GPU_Vector<double>& positions);
 
+    bool process(
+        Box& box,
+        const GPU_Vector<double>& positions,
+        int target_stage);
+
     torch::Dict<std::string, torch::Tensor> predict(const torch::Dict<std::string, torch::Tensor>& inputs);
     torch::Tensor _FromCudaMemory(double* d_array, int size);
     void box_to_tri(Box& box);
     void logCV_runtime(void);
     void logCV_runtime(std::string& path);
 
-    static std::unique_ptr<TorchPathSampling> parse_GASPS(const char** param, int num_param, const int number_of_atoms) {
+    static std::unique_ptr<TorchMonitor> parse_GASMon(const char** param, int num_param, const int number_of_atoms) {
        if(num_param==1)
        {
-        return std::make_unique<TorchPathSampling>(number_of_atoms);
+        return std::make_unique<TorchMonitor>(number_of_atoms);
        }
        else if (num_param==2)
        {
-        throw std::runtime_error("Error parsing GASPS: params shapes like \"GASPS model.pt cfg.yaml\", but found "+ std::string(param[0])+std::string(param[1]));
+        throw std::runtime_error("Error parsing GASMonitor: params shapes like \"GASPS model.pt cfg.yaml\", but found "+ std::string(param[0])+std::string(param[1]));
        }
        else if (num_param==3)
        {
         std::string model_path = param[1];
         std::string cfg_path = param[2];
-        return std::make_unique<TorchPathSampling>(model_path,cfg_path,number_of_atoms);
+        return std::make_unique<TorchMonitor>(model_path,cfg_path,number_of_atoms);
        }
     //    else if (num_param==4)
     //    {
     //     std::string model_path = param[1];
     //     std::string cfg_path = param[2];
     //     std::string gaussian_path =param[3];
-    //     return std::make_unique<TorchPathSampling>(model_path,cfg_path,gaussian_path,number_of_atoms);
+    //     return std::make_unique<TorchMonitor>(model_path,cfg_path,gaussian_path,number_of_atoms);
     //    }
        else{
         throw std::runtime_error("Error parsing GASPS: params shapes like \"GASPS model.pt cfg.yaml\"");
@@ -164,6 +173,7 @@ public:
     }
 
     PSConfig config;
+    int target_stage=0;
 
 private:
 
@@ -195,9 +205,8 @@ private:
     // torch-model
     torch::jit::script::Module model; // TorchScript 模型
     // torch::Tensor mean_bias_force;
-
     // name
     // std::string gaussian_name = "GASGaussian.txt";
 };
 
-#endif
+// #endif

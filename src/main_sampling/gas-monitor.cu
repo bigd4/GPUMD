@@ -1,5 +1,5 @@
-#ifdef USE_GAS
-#include "gas-ps.cuh"
+// #ifdef USE_GAS
+#include "gas-monitor.cuh"
 #include "model/read_xyz.cuh"
 
 namespace{
@@ -180,7 +180,7 @@ static __global__ void find_neighbor_list_large_box_gas(
 // }
 
 
-void TorchPathSampling::compute_large_box(
+void TorchMonitor::compute_large_box(
   Box& box,
   const GPU_Vector<double>& position_per_atom)
 {
@@ -224,14 +224,14 @@ void TorchPathSampling::compute_large_box(
     torch::cuda::synchronize();
 }
 
-void TorchPathSampling::get_neighbor_list(Box& box,const GPU_Vector<double>& position_per_atom){
+void TorchMonitor::get_neighbor_list(Box& box,const GPU_Vector<double>& position_per_atom){
   this->NN_radial.fill(-1);
   this->NL_radial.fill(-1);
   this->compute_large_box(box,position_per_atom);
 }
-TorchPathSampling::TorchPathSampling(int n_atoms):TorchPathSampling("GASCVModel.pt","GAScfg.yaml",n_atoms){}
+TorchMonitor::TorchMonitor(int n_atoms):TorchMonitor("GASCVModel.pt","GAScfg.yaml",n_atoms){}
 
-TorchPathSampling::TorchPathSampling(std::string model_path,std::string cfg_path,int n_atoms){
+TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,int n_atoms){
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
@@ -264,12 +264,12 @@ TorchPathSampling::TorchPathSampling(std::string model_path,std::string cfg_path
     torch_bias = torch::empty({},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
 
     cpu_b_vector = std::vector<double>(9); // Box
-
+    target_stage = config.target_stage;
     torch::cuda::synchronize();
 
 }
 
-TorchPathSampling::TorchPathSampling(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms){
+TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms){
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
@@ -309,7 +309,7 @@ TorchPathSampling::TorchPathSampling(std::string model_path,std::string cfg_path
 }
 
 
-torch::Dict<std::string, torch::Tensor> TorchPathSampling::predict(
+torch::Dict<std::string, torch::Tensor> TorchMonitor::predict(
     const torch::Dict<std::string, torch::Tensor>& inputs) {
     // try {
         // 将输入传递给模型
@@ -334,9 +334,10 @@ torch::Dict<std::string, torch::Tensor> TorchPathSampling::predict(
     // }
 }
 
-bool TorchPathSampling::process(
+bool TorchMonitor::process(
     Box& box,
-    const GPU_Vector<double>& positions){
+    const GPU_Vector<double>& positions,
+    int target_stage){
     int dynamic_vector_size = positions.size();
     int n_atoms = dynamic_vector_size/3;    
     this->box_to_tri(box);
@@ -370,14 +371,69 @@ bool TorchPathSampling::process(
     if(torch_bias.item<int>() == 0){return false;}else{this->logCV_runtime();return true;}
     }
 
+bool TorchMonitor::process(
+    Box& box,
+    const GPU_Vector<double>& positions){
+    int dynamic_vector_size = positions.size();
+    int n_atoms = dynamic_vector_size/3;    
+    this->box_to_tri(box);
+    this->get_neighbor_list(box,positions);
+    torch::cuda::synchronize();
+
+    torch::Tensor torch_pos = _FromCudaMemory((double*)positions.data(),dynamic_vector_size).detach().clone().reshape({3,-1}).transpose(0,1);
+    torch::Tensor torch_cell = torch::from_blob(cpu_b_vector.data(), {9}, torch::dtype(torch::kFloat64)).to(torch::kCUDA).reshape({3,3});
+
+    torch_NL = torch::from_blob(NL_radial.data(), {n_atoms*config.max_neighbors}, torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA)).reshape(-1);
+    torch::cuda::synchronize();
+    torch::Tensor side_array = NL2Indices(torch_NL,n_atoms);
+
+
+    torch::Dict<std::string, torch::Tensor> inputs;
+    inputs.insert("positions", torch_pos);
+    inputs.insert("cell", torch_cell);
+    inputs.insert("side_array",side_array);;
+    torch::cuda::synchronize();
+    //计算和取出输出
+    auto output_dict = this->predict(inputs);
+    torch::cuda::synchronize();
+    torch_now_cvs = output_dict.at("commitor");
+    torch_bias = output_dict.at("status");
+    torch::cuda::synchronize();
+    if(now_step%config.cv_log_interval==0){
+      this->logCV_runtime();
+    }
+    now_step++;
+    if(target_stage==1){
+      if(torch_bias.item<int>() ==0){
+        return false;
+      }
+      else{
+        this->logCV_runtime();
+        return true;
+      }
+    }
+    else{
+      if(torch_bias.item<int>() >=target_stage){
+        this->logCV_runtime();
+        return true;
+      }
+      else if(torch_bias.item<int>() ==0){
+        this->logCV_runtime();
+        return true;
+      }
+    }
+    
+    }
+
+
 // 将cuda指针用torch视图读取的代码
-torch::Tensor TorchPathSampling::_FromCudaMemory(double* d_array, int size) {
+torch::Tensor TorchMonitor::_FromCudaMemory(double* d_array, int size) {
     auto options = torch::TensorOptions().dtype(torch::kFloat64).device(torch::kCUDA);
     return torch::from_blob(d_array, {size}, options);
 }
 
 
-void TorchPathSampling::logCV_runtime(void){
+void TorchMonitor::logCV_runtime(void){
     auto log_cv_tensor = torch_now_cvs;
     torch::Tensor cv_cpu_tensor = log_cv_tensor.to(torch::kCPU);
     torch::Tensor bias_cpu_tensor = this->torch_bias.to(torch::kCPU);
@@ -405,7 +461,7 @@ void TorchPathSampling::logCV_runtime(void){
     // 关闭文件
     file.close();
 }
-void TorchPathSampling::logCV_runtime(std::string& path){
+void TorchMonitor::logCV_runtime(std::string& path){
     auto log_cv_tensor = torch_now_cvs;
     torch::Tensor cv_cpu_tensor = log_cv_tensor.to(torch::kCPU);
     torch::Tensor bias_cpu_tensor = this->torch_bias.to(torch::kCPU);
@@ -436,7 +492,7 @@ void TorchPathSampling::logCV_runtime(std::string& path){
 
 
 
-void TorchPathSampling::box_to_tri(Box& box){
+void TorchMonitor::box_to_tri(Box& box){
       //   if (box.triclinic == 0) {
       //   cpu_b_vector[0] = box.cpu_h[0];
       //   cpu_b_vector[1] = 0.0;
@@ -459,4 +515,4 @@ void TorchPathSampling::box_to_tri(Box& box){
         cpu_b_vector[8] = box.cpu_h[8];
       // }
 }
-#endif
+// #endif

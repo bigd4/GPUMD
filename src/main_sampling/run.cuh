@@ -36,10 +36,10 @@ class Measure;
 #include <vector>
 #include <iostream>
 
-#ifdef USE_GAS
+// #ifdef USE_GAS
 #include "gas-metad.cuh"
-#include "gas-ps.cuh"
-#endif
+#include "gas-monitor.cuh"
+// #endif
 
 class Run
 {
@@ -80,8 +80,9 @@ private:
   Add_Force add_force;
   Add_Random_Force add_random_force;
   Add_Efield add_efield;
-  #ifdef USE_GAS
-  std::unique_ptr<TorchPathSampling> p_gasps;
+  // #ifdef USE_GAS
+  std::unique_ptr<TorchMonitor> p_gasps;
   bool is_pathsampling = false;
-  #endif
+  bool is_ffs = false;
+  // #endif
 };
