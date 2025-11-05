@@ -101,6 +101,11 @@ Extrapolation::Extrapolation(const char** params, int num_params)
         PRINT_INPUT_ERROR("Wrong input for dump_interval.\n");
       }
       i += 2;
+    } else if (strcmp(params[i], "max_extra_num") == 0) {
+      if (!is_valid_int(params[i + 1], &max_extra_num)) {
+        PRINT_INPUT_ERROR("Wrong input for max_extra_num.\n");
+      }
+      i += 2;
     } else {
       PRINT_INPUT_ERROR("Wrong input parameter!");
     }
@@ -120,6 +125,8 @@ void Extrapolation::preprocess(
   this->box = &box;
   int N = patom->number_of_atoms;
   int number_of_types = patom->cpu_type_size.size();
+
+  extra_num = 0;
 
   atoms_of_type.resize(number_of_types);
   for (int i = 0; i < N; ++i) {
@@ -157,6 +164,7 @@ void Extrapolation::preprocess(
   gpublasCreate(&handle);
   printf("gamma_low:      %f\n", gamma_low);
   printf("gamma_high:     %f\n", gamma_high);
+  printf("max_extra_num:  %f\n", max_extra_num);
   printf("check_interval: %d\n", check_interval);
   printf("dump_interval:  %d\n", dump_interval);
   printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
@@ -251,6 +259,11 @@ void Extrapolation::process(
         dump();
       }
     }
+    if (extra_num >= max_extra_num) {
+      printf("Current step: %d, extra_num = %f\n", step, extra_num);
+      PRINT_RUNTIME_ERROR(
+        "The extrapolation environment exceeds the upperlimit. Terminating the simulation.");
+    }
   }
 }
 
@@ -330,5 +343,8 @@ void Extrapolation::dump()
       fprintf(f, " %.8f", patom->cpu_position_per_atom[n + num_atoms_total * d]);
     }
     fprintf(f, " %8f\n", gamma[n]);
+    if (gamma[n] >= gamma_low) {
+      extra_num += 1;
+    }
   }
 }
