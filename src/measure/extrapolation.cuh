@@ -89,7 +89,7 @@ public:
   int check_interval = 1;
   int dump_interval = 1;
   int max_extra_num = 1000;
-  int extra_num;
+  int extra_num = 0;
   int last_dump = 0;
   double gamma_low = 0;
   double gamma_high = 1e100;
