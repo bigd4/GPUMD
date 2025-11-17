@@ -156,6 +156,7 @@ void Extrapolation::preprocess(
   force.potentials[0]->need_B_projection = true;
 
   f = my_fopen("extrapolation_dump.xyz", "a");
+  fb = my_fopen("B_projection.dump", "a");
 
   // 读取asi矩阵
   blas_A.resize(number_of_types, Memory_Type::managed);
@@ -180,6 +181,7 @@ void Extrapolation::postprocess(
 {
   printf("Closing extrapolation dump file...\n");
   fclose(f);
+  fclose(fb);
   gpublasDestroy(handle);
 };
 
@@ -345,6 +347,12 @@ void Extrapolation::dump()
     fprintf(f, " %8f\n", gamma[n]);
     if (gamma[n] >= gamma_low) {
       extra_num += 1;
+      fprintf(fb, "%d %d", n_dump, n);
+      for (int d = 0; d < B_size_per_atom; d++) {
+        fprintf(fb, " %.8f", B[n * B_size_per_atom + d]);
+      }
+      fprintf(fb, "\n");
     }
   }
+  n_dump += 1;
 }
