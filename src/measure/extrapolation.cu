@@ -164,7 +164,7 @@ void Extrapolation::preprocess(
   gpublasCreate(&handle);
   printf("gamma_low:      %f\n", gamma_low);
   printf("gamma_high:     %f\n", gamma_high);
-  printf("max_extra_num:  %f\n", max_extra_num);
+  printf("max_extra_num:  %d\n", max_extra_num);
   printf("check_interval: %d\n", check_interval);
   printf("dump_interval:  %d\n", dump_interval);
   printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
@@ -260,7 +260,7 @@ void Extrapolation::process(
       }
     }
     if (extra_num >= max_extra_num) {
-      printf("Current step: %d, extra_num = %f\n", step, extra_num);
+      printf("Current step: %d, extra_num = %d\n", step, extra_num);
       PRINT_RUNTIME_ERROR(
         "The extrapolation environment exceeds the upperlimit. Terminating the simulation.");
     }
