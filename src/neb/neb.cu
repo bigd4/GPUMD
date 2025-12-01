@@ -279,13 +279,15 @@ namespace
     return abs(result);
   }
 
-  double max_abs(int size, double* vec, int nsingle)
+  double max_abs(int size, double* vec, int nsingle, bool printflag=false)
   {
     int index;
     double result;
     cublasIdamax(handle, size, vec, 1, &index);
-    printf("i_fmax: %d", index);
-    if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+    if (printflag){
+      printf("i_fmax: %d", index);
+      if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+    }
     cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
     return abs(result);
   }
@@ -517,6 +519,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
       PRINT_INPUT_ERROR("vi_cell_factor should be a real.");
     }
     n++;
+  } else if (strcmp(param[n], "vi_force_tol") == 0){
+    if (!is_valid_real(param[n+1], &vi_force_tol)) {
+      PRINT_INPUT_ERROR("vi_force_tol should be a real.");
+    }
+    n++;
   } else if (strcmp(param[n], "vicc_rc") == 0){
     if (!is_valid_real(param[n+1], &vicc_rc)) {
       PRINT_INPUT_ERROR("vicc_rc should be a real.");
@@ -538,6 +545,12 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     if (!is_valid_int(param[n+1], &vi_interval)) {
       PRINT_INPUT_ERROR("vi_interval should be an int.");
     }
+    n++;
+  } else if (strcmp(param[n], "print_interval") == 0){
+    if (!is_valid_int(param[n+1], &print_interval)) {
+      PRINT_INPUT_ERROR("print_interval should be an int.");
+    }
+    if (print_interval <= 0) PRINT_INPUT_ERROR("print_interval should > 0.");
     n++;
   } else if (strcmp(param[n], "dump_interval") == 0){
     if (!is_valid_int(param[n+1], &dump_interval)) {
@@ -614,7 +627,8 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
     printf("New minimization, maximally %d steps.\n", max_steps);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps, force_tolerance));
-    // dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(optimizer_opt.data(), optimizer_opt.size(), 0);
+    dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(
+      optimizer_opt.data(), optimizer_opt.size(), 0, true?step==0:false);
     break;
   default:
     PRINT_INPUT_ERROR("Invalid minimizer.");
@@ -685,11 +699,11 @@ void NEB::initialize_images() {
     Atoms *p_is = new Atoms(istate_name.data());
     Atoms *p_fs = new Atoms(fstate_name.data());
     h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
-    GPU_Vector<double> tmp_h = 9, tmp_h2(9);
-    tmp_h.copy_from_host(h_ref.data());
-    tmp_h2.copy_from_host(p_fs->box.cpu_h);
-    print_gpu(tmp_h, "tmp_h");
-    print_gpu(tmp_h2, "tmp_h2");
+    // GPU_Vector<double> tmp_h = 9, tmp_h2(9);
+    // tmp_h.copy_from_host(h_ref.data());
+    // tmp_h2.copy_from_host(p_fs->box.cpu_h);
+    // print_gpu(tmp_h, "tmp_h");
+    // print_gpu(tmp_h2, "tmp_h2");
     // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
     // print_gpu(tmp_h2, "tmp_h2");
     if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
@@ -778,10 +792,11 @@ void NEB::run_neb() {
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
-    printf("-----------relax---------\n");
-    reset_minimizer(natoms_per_image, 10000, 0.001);
+    printf("--------------relax-------------\n");
+    double relax_tol=min(0.001, force_tolerance);
+    reset_minimizer(natoms_per_image, 10000, relax_tol);
     minimizer->compute(*images.front());
-    reset_minimizer(natoms_per_image, 10000, 0.001);
+    reset_minimizer(natoms_per_image, 10000, relax_tol);
     minimizer->compute(*images.back());
     printf("-----------relax finish---------\n");
     FILE* fid=fopen("relaxed_is_fs.xyz", "w");
@@ -817,6 +832,10 @@ void NEB::run_neb() {
   }
   if (n_interpolate > 0){
     interpolate();
+  }
+  if (images.size() <= 2){
+    printf("There should be at least one intermediate image.\n");
+    exit(1);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   #ifdef DEBUG
@@ -977,11 +996,18 @@ void NEB::compute()
 
 void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  printf("step: %d, ", step);
-  double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
+  double fmax;
   auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
-  printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
-  printf("fmax=%f\n",fmax);
+  cudaDeviceSynchronize();
+  potential_per_atom[0] = *it_max_energy - first_energy;
+  if (step % print_interval == 0){
+    printf("step: %d, ", step);
+    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, true);
+    printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
+    printf("fmax=%f\n",fmax);
+  } else {
+    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
+  }
   fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
       (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
@@ -1077,7 +1103,7 @@ void NEB::check_dist() {
 }
 
 void NEB::write_neb_traj(const char* filename, const char* mode){
-  printf("============write %s==============\n", filename);
+  printf("==================write %s==================\n", filename);
   FILE* fid=fopen(filename, mode);
   vector<double> cpu_positions(natoms_per_image*3);
   // vector<int> cpu_type((*images[0]->get_p_atoms()).type.size());
@@ -1167,6 +1193,7 @@ void NEB::find_min_max(double etol)
 {
   list<int> iextrema;
   imaxes.clear();
+  imins.clear();
   for (int i=1; i<nimages-1; i++){
     if (image_energies[i] > image_energies[i-1] &&
         image_energies[i] > image_energies[i+1]){
@@ -1230,7 +1257,11 @@ void NEB::write_energies() {
   printf("        image_energies:");
   for (int i=0;i<image_energies.size();i++){
     if (i%10==0) printf("\n");
-    printf("%.3f ", image_energies[i] - first_energy);
+    double cur_energy = image_energies[i] - first_energy;
+    
+    if (in_list(imaxes, i)) printf("<%.3f>", cur_energy);
+    else if (in_list(imins, i)) printf("(%.3f)", cur_energy);
+    else printf(" %.3f ", cur_energy);
     fprintf(fid, "%.5f\n", image_energies[i] - first_energy);
   }
   double max_energy = *max_element(image_energies.begin(), image_energies.end());

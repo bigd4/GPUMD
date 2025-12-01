@@ -109,8 +109,10 @@ private:
   double vicc_rc = 1.7; 
   int vi_interval = 20;
   double vi_cell_factor = -1.0;
+  double vi_force_tol = 1;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
+  int print_interval = 1;
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;
