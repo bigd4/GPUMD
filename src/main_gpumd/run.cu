@@ -72,6 +72,8 @@ Run simulation according to the inputs in the run.in file.
 #include "velocity.cuh"
 #include <chrono>
 #include <cstring>
+#include "force/morse.cuh"
+#include "force/lj_2d.cuh"
 
 static __global__ void gpu_find_largest_v2(
   int N, int number_of_rounds, double* g_vx, double* g_vy, double* g_vz, double* g_v2_max)
@@ -360,6 +362,14 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
   } else if (strcmp(param[0], "multi_pot_mode") == 0) {
     force.set_multiple_potentials_mode(param[1]);
     printf("Set multiple potentials mode to \"%s\".\n", param[1]);
+  } else if (strcmp(param[0], "morse") == 0) {
+    std::unique_ptr<Morse> p_new_force = std::make_unique<Morse>();
+    p_new_force->parse_morse(param, num_param, force);
+    force.potentials.push_back(std::move(p_new_force));
+  } else if (strcmp(param[0], "lj_2d") == 0) {
+    std::unique_ptr<LJ_2d> p_new_force = std::make_unique<LJ_2d>();
+    p_new_force->parse_lj_2d(param, num_param, force);
+    force.potentials.push_back(std::move(p_new_force));
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);
