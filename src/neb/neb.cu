@@ -385,22 +385,22 @@ GPU_Vector<double> ImprovedTangentMethod::compute_tangent(Spring& spring1, Sprin
     double de_max = max(abs(de1), abs(de2));
     double de_min = min(abs(de1), abs(de2));
     tangent.fill(0.0);
-    // if (de2 + de1 > 0){
-    //   scale1 = de_min / spring1.nt;
-    //   scale2 = de_max / spring2.nt;
-    // }
-    // else{
-    //   scale1 = de_max / spring1.nt;
-    //   scale2 = de_min / spring2.nt;
-    // }
     if (de2 + de1 > 0){
-      scale1 = de_min;
-      scale2 = de_max;
+      scale1 = de_min / spring1.nt;
+      scale2 = de_max / spring2.nt;
     }
     else{
-      scale1 = de_max ;
-      scale2 = de_min;
+      scale1 = de_max / spring1.nt;
+      scale2 = de_min / spring2.nt;
     }
+    // if (de2 + de1 > 0){
+    //   scale1 = de_min;
+    //   scale2 = de_max;
+    // }
+    // else{
+    //   scale1 = de_max ;
+    //   scale2 = de_min;
+    // }
     cublasDaxpy(handle, size, &scale1, t1.data(), 1, tangent.data(), 1);
     cublasDaxpy(handle, size, &scale2, t2.data(), 1, tangent.data(), 1);
   }
@@ -421,6 +421,78 @@ void ImprovedTangentMethod::add_image_force(
 {
   double scalar = -tangential_force + (spring2.nt*spring2.k - spring1.nt*spring1.k);
   cublasDaxpy_v2(handle, size, &scalar, tangent, 1, imgforce, 1);
+}
+
+void ModifiedImprovedTangentMethod::ensure_workspace(int size) {
+  if (workspace_size == size) return;
+
+  perp_force.resize(size);
+  unit_perp_force.resize(size);
+  ori_spring_force.resize(size);
+  par_spring_force.resize(size);
+  perp_spring_force.resize(size);
+  dneb_force.resize(size);
+
+  workspace_size = size;
+}
+
+void ModifiedImprovedTangentMethod::add_image_force(
+  int size,
+  double& tangential_force,
+  double* tangent,
+  Spring& spring1,
+  Spring& spring2,
+  double* imgforce)
+{
+  ensure_workspace(size);
+  
+  GPU_Vector<double>& t1 = spring1.t;
+  GPU_Vector<double>& t2 = spring2.t;
+
+  // ori_spring_force = k2 * t2 - k1 * t1
+  double minus_k1 = -spring1.k;
+  ori_spring_force.fill(0.0);
+  cublasDaxpy(handle, size, &minus_k1, t1.data(), 1, ori_spring_force.data(), 1);
+  cublasDaxpy(handle, size, &spring2.k, t2.data(), 1, ori_spring_force.data(), 1);
+
+  // perp_force = imgforce - tangential_force * tangent
+  perp_force.copy_from_device(imgforce);
+  double minus_tf = -tangential_force;
+  cublasDaxpy(handle, size, &minus_tf, tangent, 1, perp_force.data(), 1);
+
+  // unit_perp_force = F_perp / |F_perp|
+  double norm_pf;
+  cublasDnrm2(handle, size, perp_force.data(), 1, &norm_pf);
+  double inverse_norm_pf = 1.0 / (norm_pf + 1e-10);
+  unit_perp_force.fill(0.0);
+  cublasDaxpy(handle, size, &inverse_norm_pf, perp_force.data(), 1, unit_perp_force.data(), 1);
+
+  // perp_spring_force = ori_spring_force - (ori_spring_force . tangent) * tangent
+  perp_spring_force.copy_from_device(ori_spring_force.data());
+  double dot_ot;
+  cublasDdot(handle, size, ori_spring_force.data(), 1, tangent, 1, &dot_ot);
+  par_spring_force.fill(0.0);
+  cublasDaxpy(handle, size, &dot_ot, tangent, 1, par_spring_force.data(), 1);
+  double minus_one = -1;
+  cublasDaxpy(handle, size, &minus_one, par_spring_force.data(), 1, perp_spring_force.data(), 1);
+
+  // F_dneb = perp_spring_force - (perp_spring_force . unit_perp_force) * unit_perp_force
+  double dot_pu;
+  cublasDdot(handle, size, perp_spring_force.data(), 1, unit_perp_force.data(), 1, &dot_pu);
+  dneb_force.copy_from_device(perp_spring_force.data());
+  double minus_dot_pu = -dot_pu;
+  cublasDaxpy(handle, size, &minus_dot_pu, unit_perp_force.data(), 1, dneb_force.data(), 1);
+
+  // F_swdneb = 2/pi * atan(|F_perp|^2 / |F_perp_spring|^2) * F_dneb
+  double norm_psf;
+  cublasDnrm2(handle, size, perp_spring_force.data(), 1, &norm_psf);
+  double w = (2.0 / M_PI) * atan((norm_pf * norm_pf) / (norm_psf * norm_psf + 1e-20));
+  cublasDaxpy(handle, size, &w, dneb_force.data(), 1, imgforce, 1);  //add F_swdneb
+
+  double scalar = -tangential_force;
+  cublasDaxpy(handle, size, &scalar, tangent, 1, imgforce, 1); //remove tangential force
+  double one = 1;
+  cublasDaxpy(handle, size, &one, par_spring_force.data(), 1, imgforce, 1); //add parallel spring force
 }
 
 NEB::NEB(){
@@ -639,6 +711,8 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
 BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
   if (tangent_method_name == string("improved")){
     return new ImprovedTangentMethod(k);
+  } else if (tangent_method_name == string("modified")){
+    return new ModifiedImprovedTangentMethod(k);
   } else if (tangent_method_name == string("normal")){
     return new NormalTangentMethod(k);
   } else {

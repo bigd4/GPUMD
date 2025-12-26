@@ -70,11 +70,9 @@ public:
 class ImprovedTangentMethod: public BaseTangentMethod
 {
 public:
-  ImprovedTangentMethod(){};
-
   ImprovedTangentMethod(double k0):BaseTangentMethod(k0) {};
-  
-  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
+
+  GPU_Vector<double> compute_tangent (Spring& spring1, Spring& spring2) override;
 
   void add_image_force(
     int size,
@@ -82,7 +80,33 @@ public:
     double* tangent,
     Spring& spring1,
     Spring& spring2,
-    double* imgforce);
+    double* imgforce) override;
+};
+
+class ModifiedImprovedTangentMethod: public ImprovedTangentMethod
+{
+public:  
+  // ---- workspace vectors ----
+  GPU_Vector<double> perp_force;
+  GPU_Vector<double> unit_perp_force;
+  GPU_Vector<double> ori_spring_force;
+  GPU_Vector<double> par_spring_force;
+  GPU_Vector<double> perp_spring_force;
+  GPU_Vector<double> dneb_force;
+  int workspace_size = 0;
+
+  ModifiedImprovedTangentMethod(double k0):ImprovedTangentMethod(k0) {};
+
+  void ensure_workspace(int size);
+
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) override;
 };
 
 
@@ -160,7 +184,7 @@ public:
 
   NEB();
 
-  double get_energy();
+  double get_energy() override;
 
   void parse_options(const char** param, int num_param, int& n);
 
@@ -171,7 +195,7 @@ public:
 
   void reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance);
 
-  void compute();
+  void compute() override;
 
   GPU_Vector<double>& build_positions();
 
