@@ -87,7 +87,7 @@ void LJ_2d::compute(
   GPU_Vector<double>& virial_per_atom)
 {
   natoms = type.size();
-  double lz = box.thickness_z;
+  double lz = box.cpu_h[8];
 
   calc_LJ_2d_force<<<(natoms-1)/128+1, 128>>>(
     natoms,
