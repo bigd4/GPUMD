@@ -156,7 +156,6 @@ void Extrapolation::preprocess(
   force.potentials[0]->need_B_projection = true;
 
   f = my_fopen("extrapolation_dump.xyz", "a");
-  fb = my_fopen("B_projection.dump", "a");
 
   // 读取asi矩阵
   blas_A.resize(number_of_types, Memory_Type::managed);
@@ -181,7 +180,6 @@ void Extrapolation::postprocess(
 {
   printf("Closing extrapolation dump file...\n");
   fclose(f);
-  fclose(fb);
   gpublasDestroy(handle);
 };
 
@@ -315,7 +313,21 @@ void Extrapolation::dump()
   fprintf(f, "%d\n", num_atoms_total);
 
   // line 2
-  fprintf(f, "max_gamma=%.8f", max_gamma);
+  fprintf(f, "max_gamma=%.8f ", max_gamma);
+
+  // B_projection_info
+  std::vector<float> cpu_B_projection(B_size_per_atom);
+  fprintf(f, "B_size=%d B_projection=\"", B_size_per_atom);
+  for (int n = 0; n < num_atoms_total; n++) {
+    if (gamma[n] >= gamma_low) {
+      fprintf(f, "%d ", n);
+      B.copy_to_host(cpu_B_projection.data(), B_size_per_atom, n * B_size_per_atom);
+      for (int d = 0; d < B_size_per_atom; d++) {
+        fprintf(f, "%.8f ", cpu_B_projection[d]);
+      }
+    }
+  }
+  fprintf(f, "\"");
 
   // PBC
   fprintf(
@@ -347,11 +359,6 @@ void Extrapolation::dump()
     fprintf(f, " %8f\n", gamma[n]);
     if (gamma[n] >= gamma_low) {
       extra_num += 1;
-      fprintf(fb, "%d %d", n_dump, n);
-      for (int d = 0; d < B_size_per_atom; d++) {
-        fprintf(fb, " %.8f", B[n * B_size_per_atom + d]);
-      }
-      fprintf(fb, "\n");
     }
   }
   n_dump += 1;
