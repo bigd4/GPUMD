@@ -636,6 +636,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     if (peek_interval <= 0) PRINT_INPUT_ERROR("peek_interval should > 0.");
     n++;
+  } else if (strcmp(param[n], "count_force_calc") == 0){
+    count_force_calc = true;
   } else if (strcmp(param[n], "has_mid") == 0){
     has_mid = true;
   } else if (strcmp(param[n], "climb") == 0){
@@ -962,6 +964,7 @@ void NEB::compute()
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
+  n_force_calc += nimages - 2;
 
   if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
   
@@ -1079,6 +1082,7 @@ void NEB::check_dist() {
     fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, true);
     printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
     printf("fmax=%f\n",fmax);
+    if (count_force_calc) printf("AIN info: %d\t%d\t%f\n", step, n_force_calc, fmax);
   } else {
     fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
   }

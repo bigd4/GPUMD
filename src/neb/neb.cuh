@@ -164,6 +164,8 @@ private:
   double last_energy = 0.0;
   int vi_count = 0;
   int step = 0;
+  bool count_force_calc = false;
+  int n_force_calc = 0;
   double force_tolerance;
   int minimizer_type;
   int nimages, natoms_per_image, n_realatoms;
