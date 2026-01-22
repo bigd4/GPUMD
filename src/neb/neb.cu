@@ -961,6 +961,8 @@ void NEB::compute()
     images[i]->get_forces().copy_to_device(
       &forces[(i-1) * natoms_per_image*3],
       natoms_per_image*3);
+    gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
+          optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
