@@ -362,6 +362,9 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
   } else if (strcmp(param[0], "multi_pot_mode") == 0) {
     force.set_multiple_potentials_mode(param[1]);
     printf("Set multiple potentials mode to \"%s\".\n", param[1]);
+  } else if (strcmp(param[0], "clean_pot") == 0) {
+    printf("===========clean potentials=============\n");
+    force.potentials.clear();
   } else if (strcmp(param[0], "morse") == 0) {
     std::unique_ptr<Morse> p_new_force = std::make_unique<Morse>();
     p_new_force->parse_morse(param, num_param, force);
