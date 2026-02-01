@@ -1084,7 +1084,7 @@ void NEB::check_dist() {
     fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, true);
     printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
     printf("fmax=%f\n",fmax);
-    if (count_force_calc) printf("AIN info: %d\t%d\t%f\n", step, n_force_calc, fmax);
+    if (count_force_calc) printf("AIN info: %d\t%d\t%d\t%f\n", step, nimages, n_force_calc, fmax);
   } else {
     fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
   }
