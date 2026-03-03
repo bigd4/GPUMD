@@ -182,7 +182,7 @@ private:
 public:
   std::vector<std::unique_ptr<Atoms>> images;
   std::vector<double> image_energies;
-  BaseTangentMethod* tangentmethod;
+  std::unique_ptr<BaseTangentMethod> tangentmethod;
 
   NEB();
 

@@ -4,6 +4,13 @@
 #include <thrust/device_vector.h>
 using namespace std;
 
+void print_mem(const char* tag) {
+    size_t free, total;
+    cudaMemGetInfo(&free, &total);
+    printf("%s: used = %.2f MB\n", tag,
+           (total - free) / 1024.0 / 1024.0);
+}
+
 namespace
 {
   cublasHandle_t handle;
@@ -500,6 +507,11 @@ NEB::NEB(){
   cusolverDnCreate(&cusolverH);
 }
 
+NEB::~NEB() {
+    cublasDestroy(handle);
+    cusolverDnDestroy(cusolverH);
+}
+
 void NEB::parse_options(const char** param, int num_param, int& n){
   if (strcmp(param[n], "is_name") == 0){
     istate_name.assign(param[n+1]);
@@ -710,13 +722,13 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
   }
 }
 
-BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
+std::unique_ptr<BaseTangentMethod> get_tangent_method(string tangent_method_name, double k){
   if (tangent_method_name == string("improved")){
-    return new ImprovedTangentMethod(k);
+    return make_unique<ImprovedTangentMethod>(k);
   } else if (tangent_method_name == string("modified")){
-    return new ModifiedImprovedTangentMethod(k);
+    return make_unique<ModifiedImprovedTangentMethod>(k);
   } else if (tangent_method_name == string("normal")){
-    return new NormalTangentMethod(k);
+    return make_unique<NormalTangentMethod>(k);
   } else {
      printf("No tangent method match with: %s\n", tangent_method_name.data());
      printf("Valid Options: improved, normal\n");
