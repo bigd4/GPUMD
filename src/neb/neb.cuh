@@ -128,6 +128,8 @@ private:
   bool variable_cell = true;
 
   bool var_image_number = true;
+  bool vi_k = false;
+  double vi_k_efficient = 1.8;
   int vi_check_coord = 0; //  0: no check
   double vicc_num = 0.0; // >0 & <1: percent, >=1: number
   double vicc_rc = 1.7; 

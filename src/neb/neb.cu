@@ -587,6 +587,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n++;
   } else if (strcmp(param[n], "no_vi") == 0){
     var_image_number = false;
+  } else if (strcmp(param[n], "vi_k") == 0){
+    vi_k = true;
   } else if (strcmp(param[n], "vi_check_coord") == 0){
     if (!is_valid_int(param[n+1], &vi_check_coord)) {
       PRINT_INPUT_ERROR("vi_check_coord should be an int.");
@@ -935,7 +937,7 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
   
-  klist.resize(images.size(), k);
+  klist.resize(images.size() - 1, k);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -990,8 +992,13 @@ void NEB::compute()
   find_min_max(etol);
   // printf("klist: ");
   if (auto_k) {
-    for (int i=0; i<nimages;i++){
-      double k_target = k / (1 - 0.8*pow(0.9, pow(i-imax,2)));
+    for (int i=0; i<nimages-1;i++){
+      int dist2imaxes=nimages;
+      for (auto x:imaxes) {
+        if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
+        if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
+      }
+      double k_target = k / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
       if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
       else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
       else klist[i] -= 0.1*(k_target - k);
@@ -1006,11 +1013,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{(klist[0]+klist[1])/2, image_energies[1] - image_energies[0], t1};
+  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{(klist[i]+klist[i+1])/2, image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -1165,20 +1172,31 @@ void NEB::check_dist() {
 
     if (dist > cur_max_dist){
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
+      double ori_k = klist[i-1];
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
-      klist.insert(klist.begin() + i, klist[i-1]);
+      klist.insert(klist.begin() + i, ori_k);
+      if (vi_k) {
+        double new_k = ori_k / vi_k_efficient;
+        klist[i-1] = new_k;
+        klist[i] = new_k;
+      }
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
         i_ori, int(images.size()), r_dist, h_dist);
       i+=2; //skip 2 images
       i_ori++;
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
+      double ori_k = klist[i-1];
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
+      if (vi_k) {
+        double new_k = ori_k * vi_k_efficient;
+        klist[i-1] = new_k;
+      }
       printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
       // i doesn't change, skip 2 images
       i_ori++;
