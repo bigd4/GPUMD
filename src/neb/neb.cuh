@@ -186,6 +186,8 @@ public:
 
   NEB();
 
+  ~NEB();
+
   double get_energy() override;
 
   void parse_options(const char** param, int num_param, int& n);

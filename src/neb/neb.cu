@@ -1114,10 +1114,12 @@ void NEB::check_dist() {
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
   // printf("image_dist: ");
+  int i_ori = 0;
   for (int i = 1; i < images.size(); i++)
   {
     double cur_min_dist(min_dist), cur_max_dist(max_dist);
     int cur_dist_ncount(dist_ncount);
+    i_ori++;
     if (vi_check_coord != 0.0){
       bool small_box = false;
       if (small_box){ // TODO
@@ -1153,8 +1155,6 @@ void NEB::check_dist() {
     GPU_Vector<double> r2_arr(n_realatoms), h2_arr(3);
     gpu_sum_square_axis1<<<(n_realatoms - 1) / 128 + 1, 128>>>(r2_arr.data(), dpos.data(), n_realatoms, 3);
     gpu_sum_square_axis1<<<1, 3>>>(h2_arr.data(), dpos.data() + 3*n_realatoms, 3, 3);
-    // print_gpu(r2_arr, "r2_arr");
-    // print_gpu(h2_arr, "h2_arr");
     thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
     thrust::sort(d_ptr, d_ptr + n_realatoms);
     double h_sum_square = (variable_cell) ? sum(h2_arr.data(), 3) : 0;
@@ -1165,7 +1165,6 @@ void NEB::check_dist() {
 
     if (dist > cur_max_dist){
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
-      // print_gpu(new_pos, "new_pos");
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
@@ -1173,15 +1172,16 @@ void NEB::check_dist() {
       }
       klist.insert(klist.begin() + i, klist[i-1]);
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
-        i, int(images.size()), r_dist, h_dist);
+        i_ori, int(images.size()), r_dist, h_dist);
       i+=2; //skip 2 images
+      i_ori++;
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
-      // delete(images[i]);
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
-      printf("remove an image: %d , nimages: %d\n", i, int(images.size()));
-      // i--; // skip 2 images
+      printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
+      // i doesn't change, skip 2 images
+      i_ori++;
       vi_count = 0;
     }
   }
