@@ -158,6 +158,7 @@ private:
   int imax;
   std::list<int> imins;
   std::list<int> imaxes;
+  double fmax;
   Dump_Position dump_position;
   // std::vector<pair<int,Atoms*>> mid_list;
   std::vector<int> imid_list; // the positions that each mid_image should be insert into
@@ -180,6 +181,8 @@ private:
   void initialize_compute();
 
   void check_dist();
+
+  void print_info();
 
 public:
   std::vector<std::unique_ptr<Atoms>> images;

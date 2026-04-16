@@ -153,39 +153,154 @@ namespace
 
   void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
   {
-      // int m=3, n=3;
-      // 步骤2：申请空间
-      // double *A = nullptr;
-      // double *S = nullptr;
-      // double *U = nullptr;       // 左奇异矩阵
-      // double *VT = nullptr;      // 又奇异矩阵的复共轭转置
-      int lda=m;
-      const int ldu = m;                  // 根据公式，U为m行m列的方阵
-      const int ldvt = n;                 // 根据公式，VH为n行n列的仿真
-      int *devInfo = nullptr;             // 函数运行状态返回值
-      double *Work = nullptr;    // 工作空间指针
-      int lwork = 0;                      // 工作空间大小
-      double *rwork = nullptr;
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvt * n));
-      cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+      if (A == nullptr || S == nullptr || U == nullptr || VT == nullptr) {
+        PRINT_INPUT_ERROR("get_svd: A/S/U/VT must be preallocated and non-null.");
+      }
+      if (m <= 0 || n <= 0) {
+        PRINT_INPUT_ERROR("get_svd: m and n must be positive.");
+      }
 
-      // 步骤3：SVD计算
-      signed char jobu = 'A';  // all m columns of U
-      signed char jobvt = 'A'; // all n columns of VT
-      cusolverDnDgesvd(
-          cusolverH, jobu, jobvt,
-          m, n, A, lda,
-          S, 
-          U, ldu, // ldu
-          VT, ldvt, // ldvt,
-          Work, lwork, rwork,
-          devInfo
-      );
-    CUDA_CHECK_KERNEL
+      const int lda = m;
+      const int ldu = m;  // jobu='A': U is m x m
+      const int ldvt = n; // jobvt='A': VT is n x n
+      int* devInfo = nullptr;
+      double* Work = nullptr;
+      int lwork = 0;
+
+      auto cleanup = [&]() {
+        if (Work != nullptr) {
+          CHECK(cudaFree(Work));
+        }
+        if (devInfo != nullptr) {
+          CHECK(cudaFree(devInfo));
+        }
+      };
+
+      cusolverStatus_t status = cusolverDnDgesvd_bufferSize(cusolverH, m, n, &lwork);
+      if (status != CUSOLVER_STATUS_SUCCESS) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: cusolverDnDgesvd_bufferSize failed, status=%d\n", int(status));
+        exit(1);
+      }
+
+      CHECK(cudaMalloc(reinterpret_cast<void**>(&Work), sizeof(double) * lwork));
+      CHECK(cudaMalloc(reinterpret_cast<void**>(&devInfo), sizeof(int)));
+
+      signed char jobu = 'A';
+      signed char jobvt = 'A';
+      status = cusolverDnDgesvd(
+          cusolverH,
+          jobu,
+          jobvt,
+          m,
+          n,
+          A,
+          lda,
+          S,
+          U,
+          ldu,
+          VT,
+          ldvt,
+          Work,
+          lwork,
+          nullptr,
+          devInfo);
+      if (status != CUSOLVER_STATUS_SUCCESS) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: cusolverDnDgesvd failed, status=%d\n", int(status));
+        exit(1);
+      }
+
+      int h_info = 0;
+      CHECK(cudaMemcpy(&h_info, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+      if (h_info < 0) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: get_svd got illegal argument at position %d\n", -h_info);
+        exit(1);
+      }
+      if (h_info > 0) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: get_svd did not converge, info=%d\n", h_info);
+        exit(1);
+      }
+
+      cleanup();
+      CUDA_CHECK_KERNEL
+  }
+
+  // Cholesky factorization by SVD:
+  // 1) use SVD to validate positive-semidefinite-ness;
+  // 2) build the strict lower-triangular Cholesky factor L by standard recursion.
+  // Input A and output L are both n x n column-major matrices on device/managed memory.
+  void get_cholesky(double* A, double* L, int n)
+  {
+    if (A == nullptr || L == nullptr) {
+      PRINT_INPUT_ERROR("get_cholesky: A and L must be preallocated and non-null.");
+    }
+    if (n <= 0) {
+      PRINT_INPUT_ERROR("get_cholesky: n must be positive.");
+    }
+
+    double* A_work = nullptr;
+    double* S = nullptr;
+    double* U = nullptr;
+    double* VT = nullptr;
+
+    auto cleanup = [&]() {
+      if (A_work != nullptr) {
+        CHECK(cudaFree(A_work));
+      }
+      if (S != nullptr) {
+        CHECK(cudaFree(S));
+      }
+      if (U != nullptr) {
+        CHECK(cudaFree(U));
+      }
+      if (VT != nullptr) {
+        CHECK(cudaFree(VT));
+      }
+    };
+
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&A_work), sizeof(double) * n * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&S), sizeof(double) * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&U), sizeof(double) * n * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&VT), sizeof(double) * n * n));
+    CHECK(cudaMemcpy(A_work, A, sizeof(double) * n * n, cudaMemcpyDefault));
+
+    get_svd(A_work, S, U, VT, n, n);
+
+    std::vector<double> h_s(n, 0.0);
+    CHECK(cudaMemcpy(h_s.data(), S, sizeof(double) * n, cudaMemcpyDeviceToHost));
+    for (int i = 0; i < n; ++i) {
+      if (h_s[i] < -1e-12) {
+        cleanup();
+        PRINT_INPUT_ERROR("get_cholesky: matrix is not positive semidefinite.");
+      }
+    }
+
+    std::vector<double> h_a(n * n, 0.0), h_l(n * n, 0.0);
+    CHECK(cudaMemcpy(h_a.data(), A, sizeof(double) * n * n, cudaMemcpyDefault));
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        double sum = h_a[i + j * n];
+        for (int k = 0; k < j; ++k) {
+          sum -= h_l[i + k * n] * h_l[j + k * n];
+        }
+        if (i == j) {
+          if (sum <= 1e-14) {
+            cleanup();
+            PRINT_INPUT_ERROR("get_cholesky: matrix is not symmetric positive definite.");
+          }
+          h_l[i + j * n] = sqrt(sum);
+        } else {
+          h_l[i + j * n] = sum / h_l[j + j * n];
+        }
+      }
+    }
+    CHECK(cudaMemcpy(L, h_l.data(), sizeof(double) * n * n, cudaMemcpyDefault));
+    CUDA_CHECK_KERNEL;
+
+    cleanup();
   }
 
   __global__ void gpu_sum(double* a, const int size, double* result)
@@ -870,6 +985,7 @@ void NEB::run_neb() {
   print_setting("max_steps", max_steps);
   print_setting("dump_interval", dump_interval);
   print_setting("peek_interval", peek_interval);
+  print_setting("print_interval", print_interval);
   printf("----------------------------------------------\n");
 
   if (vicc_num < 1) vicc_num *= n_realatoms;
@@ -1077,6 +1193,7 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
+  print_info();
   if (var_image_number) check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
@@ -1092,9 +1209,7 @@ void NEB::compute()
   // print_gpu(positions, "neb pos");
 }
 
-void NEB::check_dist() {
-  // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  double fmax;
+void NEB::print_info(){
   auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
   cudaDeviceSynchronize();
   potential_per_atom[0] = *it_max_energy - first_energy;
@@ -1107,6 +1222,10 @@ void NEB::check_dist() {
   } else {
     fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
   }
+}
+
+void NEB::check_dist() {
+  // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
   fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
       (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
@@ -1301,34 +1420,47 @@ void NEB::initialize_compute() {
 
 void NEB::find_min_max(double etol)
 {
-  list<int> iextrema;
-  imaxes.clear();
-  imins.clear();
-  for (int i=1; i<nimages-1; i++){
-    if (image_energies[i] > image_energies[i-1] &&
-        image_energies[i] > image_energies[i+1]){
-      imaxes.push_back(i);
-      iextrema.push_back(i);
-    } else if (image_energies[i] < image_energies[i-1] &&
-               image_energies[i] < image_energies[i+1]){
-      imins.push_back(i);
-      iextrema.push_back(i);
+  vector<int> extrema;
+  extrema.reserve(nimages);
+  for (int i = 1; i < nimages - 1; i++) {
+    if (image_energies[i] > image_energies[i - 1] &&
+        image_energies[i] > image_energies[i + 1]) {
+      extrema.push_back(i);
+    } else if (image_energies[i] < image_energies[i - 1] &&
+               image_energies[i] < image_energies[i + 1]) {
+      extrema.push_back(i);
     }
   }
-  for (auto it=iextrema.begin(); it!=iextrema.end(); it++){
-    auto next_it = it;
-    next_it++;
-    if (next_it != iextrema.end()){
-      if (abs(image_energies[*it] - image_energies[*next_it]) < etol){
-        if (image_energies[*it] > image_energies[*next_it]) {
-          imaxes.remove(*it);
-          imins.remove(*next_it);
-        } else {
-          imins.remove(*it);
-          imaxes.remove(*next_it);
+
+  // Iteratively remove the closest adjacent extrema pair if their energy gap < etol.
+  // Example: extrema energies [100, 96, 97, 92], etol=5 -> remove [96, 97], keep 100.
+  if (etol > 0.0) {
+    while (extrema.size() >= 2) {
+      size_t best_pair = extrema.size();
+      double best_diff = etol;
+      for (size_t i = 0; i + 1 < extrema.size(); ++i) {
+        double diff = abs(image_energies[extrema[i]] - image_energies[extrema[i + 1]]);
+        if (diff < best_diff) {
+          best_diff = diff;
+          best_pair = i;
         }
-        it = next_it;
       }
+      if (best_pair == extrema.size()) {
+        break;
+      }
+      extrema.erase(extrema.begin() + best_pair, extrema.begin() + best_pair + 2);
+    }
+  }
+
+  imaxes.clear();
+  imins.clear();
+  for (const auto idx : extrema) {
+    if (image_energies[idx] > image_energies[idx - 1] &&
+        image_energies[idx] > image_energies[idx + 1]) {
+      imaxes.push_back(idx);
+    } else if (image_energies[idx] < image_energies[idx - 1] &&
+               image_energies[idx] < image_energies[idx + 1]) {
+      imins.push_back(idx);
     }
   }
   imax = max_element(image_energies.begin(), image_energies.end()) - image_energies.begin();
