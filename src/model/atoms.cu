@@ -1,5 +1,6 @@
 #include "atoms.cuh"
 #include <unistd.h> // For UNIX/Linux systems
+using namespace std;
 
 
 

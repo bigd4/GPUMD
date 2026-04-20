@@ -1,6 +1,7 @@
 #include "target_opt.cuh"
 #include "model/read_xyz.cuh"
 #include "model/atoms.cuh"
+using namespace std;
 
 
 static __global__ void get_dpos_target(
@@ -149,6 +150,20 @@ static __global__ void calc_spring_force(
   }
 }
 
+void read_group_from_target(string target_name, Group& group, Atom& atom, Box& box){
+  printf("--------------read target file %s-------------------\n", target_name.data());
+  int has_velocity;
+  int number_of_types;
+  vector<Group> groups;
+  GPU_Vector<double> tmp_thermo;
+  initialize_position(target_name.data(), has_velocity, number_of_types, box, groups, atom);
+  allocate_memory_gpu(groups, atom, tmp_thermo);
+  if (groups.size() == 0)
+    PRINT_INPUT_ERROR(("there is no group method in " + string(target_name)).data());
+  group = groups[0];
+  // Group out_group = std::move(groups[0]);
+  printf("out group: %d\n", group.cpu_size.front());
+}
 
 
 TargetOpt::TargetOpt()
@@ -159,7 +174,8 @@ TargetOpt::TargetOpt()
 void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force)
 {
   p_force = &force;
-  std::string target_name = "target.xyz";
+  string target_name = "target.xyz";
+  vector<string> target_list;
 
   for (int n=1; n<num_param; n++){
     if (strcmp(param[n], "k_end") == 0) {
@@ -185,13 +201,20 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
     } else if (strcmp(param[n], "target") == 0) {
       target_name = param[n+1];
       n++;
-    } else if (strcmp(param[n], "max_neighbor") == 0) {
+    } else if (strcmp(param[n], "target_list") == 0){
+    for (int i=n+1; i<num_param; i++){
+      target_list.push_back(string(param[i]));
+      n++;
+      if (strcmp(param[n], "target_list_end") == 0) break;
+    }
+    n++;
+  } else if (strcmp(param[n], "max_neighbor") == 0) {
       if (!is_valid_int(param[n+1], &max_neighbor)) {
         PRINT_INPUT_ERROR("max_neighbor should be an integer.");
       }
       n++;
     } else {
-    PRINT_INPUT_ERROR(("no keyword match with: " + std::string(param[n])).data());
+    PRINT_INPUT_ERROR(("no keyword match with: " + string(param[n])).data());
   }
   }
   printf("--------target_opt settings----------\n");
@@ -202,79 +225,147 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   printf("max_neighbor = %d\n", max_neighbor);
   printf("-------------------------------------\n");
 
-  printf("--------------read target file %s-------------------\n", target_name.data());
-  int has_velocity;
-  int number_of_types;
-  std::vector<Group> tmp_group;
-  Atom tmp_atom;
-  Box tmp_box;
-  GPU_Vector<double> tmp_thermo;
-  initialize_position(target_name.data(), has_velocity, number_of_types, tmp_box, tmp_group, tmp_atom);
-  allocate_memory_gpu(tmp_group, tmp_atom, tmp_thermo);
-  if (tmp_group.size() == 0)
-    PRINT_INPUT_ERROR(("there is no group method in " + std::string(target_name)).data());
-  natoms = tmp_group[0].label.size();
-  Group& group = tmp_group[0];
+  // printf("--------------read target file %s-------------------\n", target_name.data());
+  // int has_velocity;
+  // int number_of_types;
+  // vector<Group> tmp_group;
+  // GPU_Vector<double> tmp_thermo;
+  // Atom tmp_atom;
+  // Box tmp_box;
+  // initialize_position(target_name.data(), has_velocity, number_of_types, tmp_box, tmp_group, tmp_atom);
+  // allocate_memory_gpu(tmp_group, tmp_atom, tmp_thermo);
+  // if (tmp_group.size() == 0)
+  //   PRINT_INPUT_ERROR(("there is no group method in " + string(target_name)).data());
+  // natoms = tmp_group[0].label.size();
+  // Group& group = tmp_group[0];
 
-  if (group.number <= 1)
-    PRINT_INPUT_ERROR("there is only one group.");
+
+  // if (group.number <= 1)
+  //   PRINT_INPUT_ERROR("there is only one group.");
   // if (group.cpu_size[1] == 0)
   //   PRINT_INPUT_ERROR("there is no atoms in group 1.");
+  
 
 
-  GPU_Vector<int> cell_count(natoms);
-  GPU_Vector<int> cell_count_sum(natoms);
-  GPU_Vector<int> cell_contents(natoms);
   // print_arr(tmp_box.cpu_h, 18, "box");
-  NN_target.resize(natoms); // neighbor number
-  NL_target.resize(natoms * max_neighbor); // neighbor list  
+  // NN_target.resize(natoms); // neighbor number
+  // NL_target.resize(natoms * max_neighbor); // neighbor list 
+  if (target_list.size() == 0) target_list.push_back(target_name);
+  for (auto target_name: target_list){
+    // targets.emplace_back(natoms, max_neighbor);
+    printf("debug point target_list loop\n");
+    targets.emplace_back();
+    Target& cur_target = targets.back();
+    Atom tmp_atom;
+    Box tmp_box;
+    read_group_from_target(target_name, cur_target.group, tmp_atom, tmp_box);
+    natoms = cur_target.group.label.size();
+    GPU_Vector<int> cell_count(natoms);
+    GPU_Vector<int> cell_count_sum(natoms);
+    GPU_Vector<int> cell_contents(natoms);
+    printf("natoms: %d\n", natoms);
+    printf("test group: %d\n", cur_target.group.cpu_size.front());
+    cur_target.NN.resize(natoms);
+    cur_target.NL.resize(natoms * max_neighbor);
+    for (int i=0; i<cur_target.group.number-1; i++){
+      int n_pick = cur_target.group.cpu_size[i+1];
+      cur_target.i_pick_list.emplace_back(n_pick);
+      cur_target.dpos_target_list.emplace_back(n_pick * max_neighbor * 3);
+      if (n_pick==0) continue;
+      auto& i_pick = cur_target.i_pick_list.back();
+      auto& dpos_target = cur_target.dpos_target_list.back();
+      i_pick.copy_from_device(cur_target.group.contents.data() + cur_target.group.cpu_size_sum[i+1],
+        cur_target.group.cpu_size[i+1]);
+      // dpos_target.resize(n_pick * max_neighbor * 3);
+      find_neighbor(
+        0,
+        natoms,
+        rc,
+        tmp_box,
+        tmp_atom.type,
+        tmp_atom.position_per_atom,
+        cell_count,
+        cell_count_sum,
+        cell_contents,
+        cur_target.NN,
+        cur_target.NL
+      );
+      // print_arr(tmp_box.cpu_h, 18, "box");
+      // print_gpu(tmp_atom.position_per_atom, "r0");
+      // print_gpu(NN_target, "NN0");
+      // print_gpu(i_pick, "i_pick");
+      // print_gpu(NL_target, "NL_target");
+      get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
+        natoms,
+        0,
+        natoms,
+        tmp_box,
+        cur_target.NN.data(),
+        cur_target.NL.data(),
+        i_pick.data(),
+        n_pick,
+        tmp_atom.position_per_atom.data(),
+        tmp_atom.position_per_atom.data() + natoms,
+        tmp_atom.position_per_atom.data() + 2 * natoms,
+        dpos_target.data(),
+        dpos_target.data() + n_pick * max_neighbor,
+        dpos_target.data() + n_pick * max_neighbor * 2
+      );
+      cudaDeviceSynchronize();
+      CUDA_CHECK_KERNEL;
 
-  for (int i=0; i<group.number-1; i++){
-    int n_pick = group.cpu_size[i+1];
-    i_pick_list.emplace_back(n_pick);
-    dpos_target_list.emplace_back(n_pick * max_neighbor * 3);
-    if (n_pick==0) continue;
-    auto& i_pick = i_pick_list.back();
-    auto& dpos_target = dpos_target_list.back();
-    i_pick.copy_from_device(group.contents.data() + group.cpu_size_sum[i+1], group.cpu_size[i+1]);
-    // dpos_target.resize(n_pick * max_neighbor * 3);
-    find_neighbor(
-      0,
-      natoms,
-      rc,
-      tmp_box,
-      tmp_atom.type,
-      tmp_atom.position_per_atom,
-      cell_count,
-      cell_count_sum,
-      cell_contents,
-      NN_target,
-      NL_target
-    );
-    // print_arr(tmp_box.cpu_h, 18, "box");
-    // print_gpu(tmp_atom.position_per_atom, "r0");
-    // print_gpu(NN_target, "NN0");
-    // print_gpu(i_pick, "i_pick");
-    // print_gpu(NL_target, "NL_target");
-    get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
-      natoms,
-      0,
-      natoms,
-      tmp_box,
-      NN_target.data(),
-      NL_target.data(),
-      i_pick.data(),
-      n_pick,
-      tmp_atom.position_per_atom.data(),
-      tmp_atom.position_per_atom.data() + natoms,
-      tmp_atom.position_per_atom.data() + 2 * natoms,
-      dpos_target.data(),
-      dpos_target.data() + n_pick * max_neighbor,
-      dpos_target.data() + n_pick * max_neighbor * 2
-    );
-    cudaDeviceSynchronize();
-    CUDA_CHECK_KERNEL;
+    }
+    printf("targets size: %d\n", targets.size());
+    printf("target NL: %d\n", cur_target.NL.size());
   }
+
+
+  // for (int i=0; i<group.number-1; i++){
+  //   int n_pick = group.cpu_size[i+1];
+  //   i_pick_list.emplace_back(n_pick);
+  //   dpos_target_list.emplace_back(n_pick * max_neighbor * 3);
+  //   if (n_pick==0) continue;
+  //   auto& i_pick = i_pick_list.back();
+  //   auto& dpos_target = dpos_target_list.back();
+  //   i_pick.copy_from_device(group.contents.data() + group.cpu_size_sum[i+1], group.cpu_size[i+1]);
+  //   // dpos_target.resize(n_pick * max_neighbor * 3);
+  //   find_neighbor(
+  //     0,
+  //     natoms,
+  //     rc,
+  //     tmp_box,
+  //     tmp_atom.type,
+  //     tmp_atom.position_per_atom,
+  //     cell_count,
+  //     cell_count_sum,
+  //     cell_contents,
+  //     NN_target,
+  //     NL_target
+  //   );
+  //   // print_arr(tmp_box.cpu_h, 18, "box");
+  //   // print_gpu(tmp_atom.position_per_atom, "r0");
+  //   // print_gpu(NN_target, "NN0");
+  //   // print_gpu(i_pick, "i_pick");
+  //   // print_gpu(NL_target, "NL_target");
+  //   get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
+  //     natoms,
+  //     0,
+  //     natoms,
+  //     tmp_box,
+  //     NN_target.data(),
+  //     NL_target.data(),
+  //     i_pick.data(),
+  //     n_pick,
+  //     tmp_atom.position_per_atom.data(),
+  //     tmp_atom.position_per_atom.data() + natoms,
+  //     tmp_atom.position_per_atom.data() + 2 * natoms,
+  //     dpos_target.data(),
+  //     dpos_target.data() + n_pick * max_neighbor,
+  //     dpos_target.data() + n_pick * max_neighbor * 2
+  //   );
+  //   cudaDeviceSynchronize();
+  //   CUDA_CHECK_KERNEL;
+  // }
 
   force.set_multiple_potentials_mode("sum");
 
@@ -295,64 +386,45 @@ void TargetOpt::compute(
   if (type.size() != natoms)
     PRINT_INPUT_ERROR("natoms in model.xyz and target does not match");
 
-
-
-  GPU_Vector<int> cell_count(natoms);
-  GPU_Vector<int> cell_count_sum(natoms);
-  GPU_Vector<int> cell_contents(natoms);
-  GPU_Vector<int> NN(natoms); // neighbor number
-  GPU_Vector<int> NL(natoms * max_neighbor); // neighbor list
-
-
   step++;
 
   double k = step < tau ? k_end * step / tau : k_end;
   // printf("k = %f\n", k);
   
-  if (is_small_box){
+  for (auto& target:targets){
+    
+    if (is_small_box){
 
-  }
-  else {
-    // find_neighbor(
-    //   N1,
-    //   N2,
-    //   rc,
-    //   box,
-    //   type,
-    //   position_per_atom,
-    //   cell_count,
-    //   cell_count_sum,
-    //   cell_contents,
-    //   NN,
-    //   NL
-    // );
-    for (int i=0; i<i_pick_list.size(); i++){
-      auto& i_pick = i_pick_list[i];
-      auto& dpos_target = dpos_target_list[i];
-      int n_pick = i_pick.size();
-      if (n_pick==0) continue;
-      calc_spring_force<<<(n_pick-1)/128+1, 128>>>(
-        natoms,
-        N1,
-        N2,
-        box,
-        NN_target.data(),
-        NL_target.data(),
-        i_pick.data(),
-        n_pick,
-        k / pow(2.0, i),
-        vert_part,
-        position_per_atom.data(),
-        position_per_atom.data() + natoms,
-        position_per_atom.data() + natoms * 2,
-        dpos_target.data(),
-        dpos_target.data() + n_pick * max_neighbor,
-        dpos_target.data() + n_pick * max_neighbor * 2,
-        force_per_atom.data(),
-        force_per_atom.data() + natoms,
-        force_per_atom.data() + natoms * 2,
-        virial_per_atom.data()
-      );
+    }
+    else {
+      for (int i=0; i<target.i_pick_list.size(); i++){
+        auto& i_pick = target.i_pick_list[i];
+        auto& dpos_target = target.dpos_target_list[i];
+        int n_pick = i_pick.size();
+        if (n_pick==0) continue;
+        calc_spring_force<<<(n_pick-1)/128+1, 128>>>(
+          natoms,
+          N1,
+          N2,
+          box,
+          target.NN.data(),
+          target.NL.data(),
+          i_pick.data(),
+          n_pick,
+          k / pow(2.0, i),
+          vert_part,
+          position_per_atom.data(),
+          position_per_atom.data() + natoms,
+          position_per_atom.data() + natoms * 2,
+          dpos_target.data(),
+          dpos_target.data() + n_pick * max_neighbor,
+          dpos_target.data() + n_pick * max_neighbor * 2,
+          force_per_atom.data(),
+          force_per_atom.data() + natoms,
+          force_per_atom.data() + natoms * 2,
+          virial_per_atom.data()
+        );
+      }
     }
   }
 }

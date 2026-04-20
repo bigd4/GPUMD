@@ -39,14 +39,14 @@ void Minimize::parse_minimize(
   GPU_Vector<double>& potential_per_atom,
   GPU_Vector<double>& force_per_atom,
   GPU_Vector<double>& virial_per_atom,
-  const std::vector<string>& cpu_atom_symbol)
+  const std::vector<std::string>& cpu_atom_symbol)
 {
 
   int minimizer_type = 0;
   int number_of_steps = 0;
   bool vc = false;
   int n = 4;
-  vector<double> pressure = {0.0};
+  std::vector<double> pressure = {0.0};
   double force_tolerance = 0.0;
   std::unique_ptr<Minimizer> minimizer;
   const int number_of_atoms = type.size();
@@ -117,7 +117,7 @@ void Minimize::parse_minimize(
       }
       n += 4;
     } else if (strcmp(param[n], "p6") == 0){
-      vector<double> press_in(6);
+      std::vector<double> press_in(6);
       pressure.resize(9);
       for (int i=0; i<6; i++){
         if (!is_valid_real(param[n+1+i], &press_in[i])) {
@@ -166,7 +166,7 @@ void Minimize::parse_minimize(
 
       if (vc){
         printf("variable cell is enabled.\n");
-        vector<double> press={pressure};
+        std::vector<double> press={pressure};
         Atoms atoms(force, box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
         minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms+3, number_of_steps, force_tolerance));
         dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, n);

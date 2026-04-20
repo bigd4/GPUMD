@@ -8,11 +8,27 @@
 #include "model/atom.cuh"
 #include "utilities/read_file.cuh"
 
+struct Target
+{
+  double k;
+  Group group;
+  GPU_Vector<int> NN; // neighbor number
+  GPU_Vector<int> NL; // neighbor list
+  std::vector<GPU_Vector<int>> i_pick_list;
+  std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
+
+  Target(){};
+
+  Target(int natoms, int max_neighbor){
+    NN.resize(natoms); // neighbor number
+    NL.resize(natoms * max_neighbor); // neighbor list  
+  }
+};
+
 
 class TargetOpt: public Potential
 {
 public:
-  int test = 9;
 
   TargetOpt();
 
@@ -40,8 +56,9 @@ private:
   int i_group;
   Force* p_force;
   double k;
-  GPU_Vector<int> NN_target; // neighbor number
-  GPU_Vector<int> NL_target; // neighbor list
-  std::vector<GPU_Vector<int>> i_pick_list;
-  std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
+  std::vector<Target> targets;
+  // GPU_Vector<int> NN_target; // neighbor number
+  // GPU_Vector<int> NL_target; // neighbor list
+  // std::vector<GPU_Vector<int>> i_pick_list;
+  // std::vector<GPU_Vector<double>> dpos_target_list; // dpos corresponding to NL_target
 };

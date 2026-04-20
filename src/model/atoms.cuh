@@ -26,7 +26,6 @@
 #include <cublas_v2.h>
 #include <cmath>
 // #include <cuda_runtime.h>
-using namespace std;
 
 extern cublasHandle_t cublashandle;
 
@@ -83,10 +82,10 @@ friend class VCWrapper;
 
 public:
   Box box;
-  // vector<int> cpu_type;
-  vector<string> cpu_atom_symbol; // symbol strings
-  vector<Group> group;
-  // vector<double> cpu_positions;
+  // std::vector<int> cpu_type;
+  std::vector<std::string> cpu_atom_symbol; // symbol strings
+  std::vector<Group> group;
+  // std::vector<double> cpu_positions;
   GPU_Vector<int> type; // size: (natoms), type(int) of each atom
   // GPU_Vector<double> masses;
   // double *h; // 18 elements, first 9 are cell, last 9 are the inverse of cell.
@@ -107,7 +106,7 @@ public:
     Box& box0,
     GPU_Vector<double>& positions0,
     GPU_Vector<int>& type0,
-    vector<Group>& group0,
+    std::vector<Group>& group0,
     GPU_Vector<double>& potential_per_atom0,
     GPU_Vector<double>& forces0,
     GPU_Vector<double>& virials0);
@@ -116,24 +115,24 @@ public:
     Force& force0,
     Box& box0,
     GPU_Vector<double>& positions0,
-    vector<string> cpu_atom_symbol0,
+    std::vector<std::string> cpu_atom_symbol0,
     GPU_Vector<int>& type0,
-    vector<Group>& group0,
+    std::vector<Group>& group0,
     GPU_Vector<double>& potential_per_atom0,
     GPU_Vector<double>& forces0,
     GPU_Vector<double>& virials0);
 
-  // Atoms(Atom& atom, vector<Group>& group0);
+  // Atoms(Atom& atom, std::vector<Group>& group0);
 
   Atoms(const char* filename);
 
-  Atoms(ifstream& input, bool& success);
+  Atoms(std::ifstream& input, bool& success);
 
   ~Atoms();
 
   void initialize(Atom& atom);
 
-  // int number_of_type(string& symbol);
+  // int number_of_type(std::string& symbol);
 
   void compute();
 
@@ -162,24 +161,24 @@ class VCWrapper: public Atoms
 private:
   double* virial; // size: 9, managed memory
 
-  void build_VCWrapper(vector<double> p, double* h_ref0);
+  void build_VCWrapper(std::vector<double> p, double* h_ref0);
 
 public:
   double cell_factor = 1.0;
   double optimize_factor = 1.0;
-  vector<double> pressure = vector<double>(9,0.0);
+  std::vector<double> pressure = std::vector<double>(9,0.0);
   double* h_ref; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
-  unique_ptr<Atoms> p_atoms;
+  std::unique_ptr<Atoms> p_atoms;
   double* deform; // size: 18, managed memory. first 9 are deform, last 9 are the inverse.
   GPU_Vector<double> d_h; // size: 18, device memory
 
 
-  VCWrapper(Atoms& atoms, vector<double> p, double* h_ref0);
-  VCWrapper(Atoms& atoms, vector<double> p);
+  VCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0);
+  VCWrapper(Atoms& atoms, std::vector<double> p);
 
-  VCWrapper(const char* filename, vector<double> p, double* h_ref0);
-  VCWrapper(ifstream& input, bool& success, vector<double> p, double* h_ref0);
-  VCWrapper(ifstream& input, bool& success, vector<double> p);
+  VCWrapper(const char* filename, std::vector<double> p, double* h_ref0);
+  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double* h_ref0);
+  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p);
 
   VCWrapper(const VCWrapper& atoms0, double* new_position);
   VCWrapper(Atoms* p_atoms0, double* new_position);

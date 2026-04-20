@@ -17,7 +17,6 @@
 #include <cmath>
 #include <cusolverDn.h>
 #include <force/neighbor.cuh>
-using namespace std;
 
 struct Spring
 {
@@ -71,11 +70,9 @@ public:
 class ImprovedTangentMethod: public BaseTangentMethod
 {
 public:
-  ImprovedTangentMethod(){};
-
   ImprovedTangentMethod(double k0):BaseTangentMethod(k0) {};
-  
-  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
+
+  GPU_Vector<double> compute_tangent (Spring& spring1, Spring& spring2) override;
 
   void add_image_force(
     int size,
@@ -83,7 +80,33 @@ public:
     double* tangent,
     Spring& spring1,
     Spring& spring2,
-    double* imgforce);
+    double* imgforce) override;
+};
+
+class ModifiedImprovedTangentMethod: public ImprovedTangentMethod
+{
+public:  
+  // ---- workspace vectors ----
+  GPU_Vector<double> perp_force;
+  GPU_Vector<double> unit_perp_force;
+  GPU_Vector<double> ori_spring_force;
+  GPU_Vector<double> par_spring_force;
+  GPU_Vector<double> perp_spring_force;
+  GPU_Vector<double> dneb_force;
+  int workspace_size = 0;
+
+  ModifiedImprovedTangentMethod(double k0):ImprovedTangentMethod(k0) {};
+
+  void ensure_workspace(int size);
+
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) override;
 };
 
 
@@ -93,55 +116,65 @@ private:
   // compute setting
   double k = 0.1;
   bool auto_k = false;
-  vector<double> pressure = {0.0};
+  std::vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 0;
   bool need_relax = false;
   bool climb = false;
+  bool find_min = false;
+  double etol = 0.0;
   bool remove_translation = true;
   bool remove_rotation = true;
   bool variable_cell = true;
+
   bool var_image_number = true;
+  bool vi_k = false;
+  double vi_k_efficient = 1.8;
   int vi_check_coord = 0; //  0: no check
   double vicc_num = 0.0; // >0 & <1: percent, >=1: number
   double vicc_rc = 1.7; 
   int vi_interval = 20;
   double vi_cell_factor = -1.0;
+  double vi_force_tol = 1;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
+  int print_interval = 1;
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;
-  string istate_name = "is.xyz";
-  string fstate_name = "fs.xyz";
-  string mid_name = "mid.xyz";
-  string traj_name = "";
-  vector<string> mid_name_list;
-  string tangent_method_name = "improved";
+  std::string istate_name = "is.xyz";
+  std::string fstate_name = "fs.xyz";
+  std::string mid_name = "mid.xyz";
+  std::string traj_name = "";
+  std::vector<std::string> mid_name_list;
+  std::string tangent_method_name = "improved";
 
 
   // private variables
   // cublasHandle_t handle;
-  vector<double> klist;
-  unique_ptr<Minimizer> minimizer;
-  vector<const char *> optimizer_opt;
+  std::vector<double> klist;
+  std::unique_ptr<Minimizer> minimizer;
+  std::vector<const char *> optimizer_opt;
   int imax;
-  list<int> imins;
-  list<int> imaxes;
+  std::list<int> imins;
+  std::list<int> imaxes;
+  double fmax;
   Dump_Position dump_position;
-  // vector<pair<int,Atoms*>> mid_list;
-  vector<int> imid_list; // the positions that each mid_image should be insert into
-  vector<double> h_ref{9};
+  // std::vector<pair<int,Atoms*>> mid_list;
+  std::vector<int> imid_list; // the positions that each mid_image should be insert into
+  std::vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
   int vi_count = 0;
   int step = 0;
+  bool count_force_calc = false;
+  int n_force_calc = 0;
   double force_tolerance;
   int minimizer_type;
   int nimages, natoms_per_image, n_realatoms;
   double optimize_factor;
 
-  void find_min_max();
+  void find_min_max(double etol=0.0);
 
   void initialize_images();
 
@@ -149,14 +182,18 @@ private:
 
   void check_dist();
 
+  void print_info();
+
 public:
-  vector<unique_ptr<Atoms>> images;
-  vector<double> image_energies;
-  BaseTangentMethod* tangentmethod;
+  std::vector<std::unique_ptr<Atoms>> images;
+  std::vector<double> image_energies;
+  std::unique_ptr<BaseTangentMethod> tangentmethod;
 
   NEB();
 
-  double get_energy();
+  ~NEB();
+
+  double get_energy() override;
 
   void parse_options(const char** param, int num_param, int& n);
 
@@ -167,7 +204,7 @@ public:
 
   void reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance);
 
-  void compute();
+  void compute() override;
 
   GPU_Vector<double>& build_positions();
 

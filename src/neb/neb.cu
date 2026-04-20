@@ -2,6 +2,14 @@
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
+using namespace std;
+
+void print_mem(const char* tag) {
+    size_t free, total;
+    cudaMemGetInfo(&free, &total);
+    printf("%s: used = %.2f MB\n", tag,
+           (total - free) / 1024.0 / 1024.0);
+}
 
 namespace
 {
@@ -145,39 +153,154 @@ namespace
 
   void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
   {
-      // int m=3, n=3;
-      // 步骤2：申请空间
-      // double *A = nullptr;
-      // double *S = nullptr;
-      // double *U = nullptr;       // 左奇异矩阵
-      // double *VT = nullptr;      // 又奇异矩阵的复共轭转置
-      int lda=m;
-      const int ldu = m;                  // 根据公式，U为m行m列的方阵
-      const int ldvt = n;                 // 根据公式，VH为n行n列的仿真
-      int *devInfo = nullptr;             // 函数运行状态返回值
-      double *Work = nullptr;    // 工作空间指针
-      int lwork = 0;                      // 工作空间大小
-      double *rwork = nullptr;
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&S), sizeof(double) * n));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&U), sizeof(double) * ldu * n));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&VT), sizeof(double) * ldvt * n));
-      cusolverDnZgesvd_bufferSize(cusolverH, m, n, &lwork);
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&Work), sizeof(double) * lwork));
-      CHECK(cudaMallocManaged(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+      if (A == nullptr || S == nullptr || U == nullptr || VT == nullptr) {
+        PRINT_INPUT_ERROR("get_svd: A/S/U/VT must be preallocated and non-null.");
+      }
+      if (m <= 0 || n <= 0) {
+        PRINT_INPUT_ERROR("get_svd: m and n must be positive.");
+      }
 
-      // 步骤3：SVD计算
-      signed char jobu = 'A';  // all m columns of U
-      signed char jobvt = 'A'; // all n columns of VT
-      cusolverDnDgesvd(
-          cusolverH, jobu, jobvt,
-          m, n, A, lda,
-          S, 
-          U, ldu, // ldu
-          VT, ldvt, // ldvt,
-          Work, lwork, rwork,
-          devInfo
-      );
-    CUDA_CHECK_KERNEL
+      const int lda = m;
+      const int ldu = m;  // jobu='A': U is m x m
+      const int ldvt = n; // jobvt='A': VT is n x n
+      int* devInfo = nullptr;
+      double* Work = nullptr;
+      int lwork = 0;
+
+      auto cleanup = [&]() {
+        if (Work != nullptr) {
+          CHECK(cudaFree(Work));
+        }
+        if (devInfo != nullptr) {
+          CHECK(cudaFree(devInfo));
+        }
+      };
+
+      cusolverStatus_t status = cusolverDnDgesvd_bufferSize(cusolverH, m, n, &lwork);
+      if (status != CUSOLVER_STATUS_SUCCESS) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: cusolverDnDgesvd_bufferSize failed, status=%d\n", int(status));
+        exit(1);
+      }
+
+      CHECK(cudaMalloc(reinterpret_cast<void**>(&Work), sizeof(double) * lwork));
+      CHECK(cudaMalloc(reinterpret_cast<void**>(&devInfo), sizeof(int)));
+
+      signed char jobu = 'A';
+      signed char jobvt = 'A';
+      status = cusolverDnDgesvd(
+          cusolverH,
+          jobu,
+          jobvt,
+          m,
+          n,
+          A,
+          lda,
+          S,
+          U,
+          ldu,
+          VT,
+          ldvt,
+          Work,
+          lwork,
+          nullptr,
+          devInfo);
+      if (status != CUSOLVER_STATUS_SUCCESS) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: cusolverDnDgesvd failed, status=%d\n", int(status));
+        exit(1);
+      }
+
+      int h_info = 0;
+      CHECK(cudaMemcpy(&h_info, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+      if (h_info < 0) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: get_svd got illegal argument at position %d\n", -h_info);
+        exit(1);
+      }
+      if (h_info > 0) {
+        cleanup();
+        fprintf(stderr, "cuSOLVER Error: get_svd did not converge, info=%d\n", h_info);
+        exit(1);
+      }
+
+      cleanup();
+      CUDA_CHECK_KERNEL
+  }
+
+  // Cholesky factorization by SVD:
+  // 1) use SVD to validate positive-semidefinite-ness;
+  // 2) build the strict lower-triangular Cholesky factor L by standard recursion.
+  // Input A and output L are both n x n column-major matrices on device/managed memory.
+  void get_cholesky(double* A, double* L, int n)
+  {
+    if (A == nullptr || L == nullptr) {
+      PRINT_INPUT_ERROR("get_cholesky: A and L must be preallocated and non-null.");
+    }
+    if (n <= 0) {
+      PRINT_INPUT_ERROR("get_cholesky: n must be positive.");
+    }
+
+    double* A_work = nullptr;
+    double* S = nullptr;
+    double* U = nullptr;
+    double* VT = nullptr;
+
+    auto cleanup = [&]() {
+      if (A_work != nullptr) {
+        CHECK(cudaFree(A_work));
+      }
+      if (S != nullptr) {
+        CHECK(cudaFree(S));
+      }
+      if (U != nullptr) {
+        CHECK(cudaFree(U));
+      }
+      if (VT != nullptr) {
+        CHECK(cudaFree(VT));
+      }
+    };
+
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&A_work), sizeof(double) * n * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&S), sizeof(double) * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&U), sizeof(double) * n * n));
+    CHECK(cudaMalloc(reinterpret_cast<void**>(&VT), sizeof(double) * n * n));
+    CHECK(cudaMemcpy(A_work, A, sizeof(double) * n * n, cudaMemcpyDefault));
+
+    get_svd(A_work, S, U, VT, n, n);
+
+    std::vector<double> h_s(n, 0.0);
+    CHECK(cudaMemcpy(h_s.data(), S, sizeof(double) * n, cudaMemcpyDeviceToHost));
+    for (int i = 0; i < n; ++i) {
+      if (h_s[i] < -1e-12) {
+        cleanup();
+        PRINT_INPUT_ERROR("get_cholesky: matrix is not positive semidefinite.");
+      }
+    }
+
+    std::vector<double> h_a(n * n, 0.0), h_l(n * n, 0.0);
+    CHECK(cudaMemcpy(h_a.data(), A, sizeof(double) * n * n, cudaMemcpyDefault));
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        double sum = h_a[i + j * n];
+        for (int k = 0; k < j; ++k) {
+          sum -= h_l[i + k * n] * h_l[j + k * n];
+        }
+        if (i == j) {
+          if (sum <= 1e-14) {
+            cleanup();
+            PRINT_INPUT_ERROR("get_cholesky: matrix is not symmetric positive definite.");
+          }
+          h_l[i + j * n] = sqrt(sum);
+        } else {
+          h_l[i + j * n] = sum / h_l[j + j * n];
+        }
+      }
+    }
+    CHECK(cudaMemcpy(L, h_l.data(), sizeof(double) * n * n, cudaMemcpyDefault));
+    CUDA_CHECK_KERNEL;
+
+    cleanup();
   }
 
   __global__ void gpu_sum(double* a, const int size, double* result)
@@ -278,13 +401,15 @@ namespace
     return abs(result);
   }
 
-  double max_abs(int size, double* vec, int nsingle)
+  double max_abs(int size, double* vec, int nsingle, bool printflag=false)
   {
     int index;
     double result;
     cublasIdamax(handle, size, vec, 1, &index);
-    printf("i_fmax: %d", index);
-    if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+    if (printflag){
+      printf("i_fmax: %d", index);
+      if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+    }
     cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
     return abs(result);
   }
@@ -382,22 +507,22 @@ GPU_Vector<double> ImprovedTangentMethod::compute_tangent(Spring& spring1, Sprin
     double de_max = max(abs(de1), abs(de2));
     double de_min = min(abs(de1), abs(de2));
     tangent.fill(0.0);
-    // if (de2 + de1 > 0){
-    //   scale1 = de_min / spring1.nt;
-    //   scale2 = de_max / spring2.nt;
-    // }
-    // else{
-    //   scale1 = de_max / spring1.nt;
-    //   scale2 = de_min / spring2.nt;
-    // }
     if (de2 + de1 > 0){
-      scale1 = de_min;
-      scale2 = de_max;
+      scale1 = de_min / spring1.nt;
+      scale2 = de_max / spring2.nt;
     }
     else{
-      scale1 = de_max ;
-      scale2 = de_min;
+      scale1 = de_max / spring1.nt;
+      scale2 = de_min / spring2.nt;
     }
+    // if (de2 + de1 > 0){
+    //   scale1 = de_min;
+    //   scale2 = de_max;
+    // }
+    // else{
+    //   scale1 = de_max ;
+    //   scale2 = de_min;
+    // }
     cublasDaxpy(handle, size, &scale1, t1.data(), 1, tangent.data(), 1);
     cublasDaxpy(handle, size, &scale2, t2.data(), 1, tangent.data(), 1);
   }
@@ -420,9 +545,86 @@ void ImprovedTangentMethod::add_image_force(
   cublasDaxpy_v2(handle, size, &scalar, tangent, 1, imgforce, 1);
 }
 
+void ModifiedImprovedTangentMethod::ensure_workspace(int size) {
+  if (workspace_size == size) return;
+
+  perp_force.resize(size);
+  unit_perp_force.resize(size);
+  ori_spring_force.resize(size);
+  par_spring_force.resize(size);
+  perp_spring_force.resize(size);
+  dneb_force.resize(size);
+
+  workspace_size = size;
+}
+
+void ModifiedImprovedTangentMethod::add_image_force(
+  int size,
+  double& tangential_force,
+  double* tangent,
+  Spring& spring1,
+  Spring& spring2,
+  double* imgforce)
+{
+  ensure_workspace(size);
+  
+  GPU_Vector<double>& t1 = spring1.t;
+  GPU_Vector<double>& t2 = spring2.t;
+
+  // ori_spring_force = k2 * t2 - k1 * t1
+  double minus_k1 = -spring1.k;
+  ori_spring_force.fill(0.0);
+  cublasDaxpy(handle, size, &minus_k1, t1.data(), 1, ori_spring_force.data(), 1);
+  cublasDaxpy(handle, size, &spring2.k, t2.data(), 1, ori_spring_force.data(), 1);
+
+  // perp_force = imgforce - tangential_force * tangent
+  perp_force.copy_from_device(imgforce);
+  double minus_tf = -tangential_force;
+  cublasDaxpy(handle, size, &minus_tf, tangent, 1, perp_force.data(), 1);
+
+  // unit_perp_force = F_perp / |F_perp|
+  double norm_pf;
+  cublasDnrm2(handle, size, perp_force.data(), 1, &norm_pf);
+  double inverse_norm_pf = 1.0 / (norm_pf + 1e-10);
+  unit_perp_force.fill(0.0);
+  cublasDaxpy(handle, size, &inverse_norm_pf, perp_force.data(), 1, unit_perp_force.data(), 1);
+
+  // perp_spring_force = ori_spring_force - (ori_spring_force . tangent) * tangent
+  perp_spring_force.copy_from_device(ori_spring_force.data());
+  double dot_ot;
+  cublasDdot(handle, size, ori_spring_force.data(), 1, tangent, 1, &dot_ot);
+  par_spring_force.fill(0.0);
+  cublasDaxpy(handle, size, &dot_ot, tangent, 1, par_spring_force.data(), 1);
+  double minus_one = -1;
+  cublasDaxpy(handle, size, &minus_one, par_spring_force.data(), 1, perp_spring_force.data(), 1);
+
+  // F_dneb = perp_spring_force - (perp_spring_force . unit_perp_force) * unit_perp_force
+  double dot_pu;
+  cublasDdot(handle, size, perp_spring_force.data(), 1, unit_perp_force.data(), 1, &dot_pu);
+  dneb_force.copy_from_device(perp_spring_force.data());
+  double minus_dot_pu = -dot_pu;
+  cublasDaxpy(handle, size, &minus_dot_pu, unit_perp_force.data(), 1, dneb_force.data(), 1);
+
+  // F_swdneb = 2/pi * atan(|F_perp|^2 / |F_perp_spring|^2) * F_dneb
+  double norm_psf;
+  cublasDnrm2(handle, size, perp_spring_force.data(), 1, &norm_psf);
+  double w = (2.0 / M_PI) * atan((norm_pf * norm_pf) / (norm_psf * norm_psf + 1e-20));
+  cublasDaxpy(handle, size, &w, dneb_force.data(), 1, imgforce, 1);  //add F_swdneb
+
+  double scalar = -tangential_force;
+  cublasDaxpy(handle, size, &scalar, tangent, 1, imgforce, 1); //remove tangential force
+  double one = 1;
+  cublasDaxpy(handle, size, &one, par_spring_force.data(), 1, imgforce, 1); //add parallel spring force
+}
+
 NEB::NEB(){
   cublasCreate(&handle);
   cusolverDnCreate(&cusolverH);
+}
+
+NEB::~NEB() {
+    cublasDestroy(handle);
+    cusolverDnDestroy(cusolverH);
 }
 
 void NEB::parse_options(const char** param, int num_param, int& n){
@@ -500,6 +702,8 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     n++;
   } else if (strcmp(param[n], "no_vi") == 0){
     var_image_number = false;
+  } else if (strcmp(param[n], "vi_k") == 0){
+    vi_k = true;
   } else if (strcmp(param[n], "vi_check_coord") == 0){
     if (!is_valid_int(param[n+1], &vi_check_coord)) {
       PRINT_INPUT_ERROR("vi_check_coord should be an int.");
@@ -514,6 +718,11 @@ void NEB::parse_options(const char** param, int num_param, int& n){
   } else if (strcmp(param[n], "vi_cell_factor") == 0){
     if (!is_valid_real(param[n+1], &vi_cell_factor)) {
       PRINT_INPUT_ERROR("vi_cell_factor should be a real.");
+    }
+    n++;
+  } else if (strcmp(param[n], "vi_force_tol") == 0){
+    if (!is_valid_real(param[n+1], &vi_force_tol)) {
+      PRINT_INPUT_ERROR("vi_force_tol should be a real.");
     }
     n++;
   } else if (strcmp(param[n], "vicc_rc") == 0){
@@ -538,6 +747,12 @@ void NEB::parse_options(const char** param, int num_param, int& n){
       PRINT_INPUT_ERROR("vi_interval should be an int.");
     }
     n++;
+  } else if (strcmp(param[n], "print_interval") == 0){
+    if (!is_valid_int(param[n+1], &print_interval)) {
+      PRINT_INPUT_ERROR("print_interval should be an int.");
+    }
+    if (print_interval <= 0) PRINT_INPUT_ERROR("print_interval should > 0.");
+    n++;
   } else if (strcmp(param[n], "dump_interval") == 0){
     if (!is_valid_int(param[n+1], &dump_interval)) {
       PRINT_INPUT_ERROR("dump_interval should be an int.");
@@ -550,10 +765,19 @@ void NEB::parse_options(const char** param, int num_param, int& n){
     }
     if (peek_interval <= 0) PRINT_INPUT_ERROR("peek_interval should > 0.");
     n++;
+  } else if (strcmp(param[n], "count_force_calc") == 0){
+    count_force_calc = true;
   } else if (strcmp(param[n], "has_mid") == 0){
     has_mid = true;
   } else if (strcmp(param[n], "climb") == 0){
     climb = true;
+  } else if (strcmp(param[n], "find_min") == 0){
+    find_min = true;
+  } else if (strcmp(param[n], "etol") == 0){
+    if (!is_valid_real(param[n+1], &etol)) {
+      PRINT_INPUT_ERROR("etol should be a real.");
+    }
+    n++;
   } else if (strcmp(param[n], "need_relax") == 0){
     need_relax = true;
   } else {
@@ -606,7 +830,8 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
     printf("New minimization, maximally %d steps.\n", max_steps);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps, force_tolerance));
-    // dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(optimizer_opt.data(), optimizer_opt.size(), 0);
+    dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(
+      optimizer_opt.data(), optimizer_opt.size(), 0, true?step==0:false);
     break;
   default:
     PRINT_INPUT_ERROR("Invalid minimizer.");
@@ -614,11 +839,13 @@ void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_toler
   }
 }
 
-BaseTangentMethod* get_tangent_method(string tangent_method_name, double k){
+std::unique_ptr<BaseTangentMethod> get_tangent_method(string tangent_method_name, double k){
   if (tangent_method_name == string("improved")){
-    return new ImprovedTangentMethod(k);
+    return make_unique<ImprovedTangentMethod>(k);
+  } else if (tangent_method_name == string("modified")){
+    return make_unique<ModifiedImprovedTangentMethod>(k);
   } else if (tangent_method_name == string("normal")){
-    return new NormalTangentMethod(k);
+    return make_unique<NormalTangentMethod>(k);
   } else {
      printf("No tangent method match with: %s\n", tangent_method_name.data());
      printf("Valid Options: improved, normal\n");
@@ -677,11 +904,11 @@ void NEB::initialize_images() {
     Atoms *p_is = new Atoms(istate_name.data());
     Atoms *p_fs = new Atoms(fstate_name.data());
     h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
-    GPU_Vector<double> tmp_h = 9, tmp_h2(9);
-    tmp_h.copy_from_host(h_ref.data());
-    tmp_h2.copy_from_host(p_fs->box.cpu_h);
-    print_gpu(tmp_h, "tmp_h");
-    print_gpu(tmp_h2, "tmp_h2");
+    // GPU_Vector<double> tmp_h = 9, tmp_h2(9);
+    // tmp_h.copy_from_host(h_ref.data());
+    // tmp_h2.copy_from_host(p_fs->box.cpu_h);
+    // print_gpu(tmp_h, "tmp_h");
+    // print_gpu(tmp_h2, "tmp_h2");
     // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
     // print_gpu(tmp_h2, "tmp_h2");
     if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
@@ -734,6 +961,8 @@ void NEB::run_neb() {
     printf("\n");
   }
   print_setting("climb", climb);
+  print_setting("find_min", find_min);
+  if (climb) print_setting("etol", etol);
   print_setting("var_image_number", var_image_number);
   if (var_image_number) {
     print_setting("vi_interval", vi_interval);
@@ -742,6 +971,10 @@ void NEB::run_neb() {
     print_setting("vi_cell_factor", vi_cell_factor);
     print_setting("dist_ncount", dist_ncount);
     print_setting("vi_check_coord", vi_check_coord);
+    if (vi_check_coord) {
+      print_setting("vicc_num", vicc_num);
+      print_setting("vicc_rc", vicc_rc);
+    }
   }
   print_setting("has_mid", has_mid);
   if (has_mid) print_setting("n_interpolate", n_interpolate);
@@ -752,9 +985,11 @@ void NEB::run_neb() {
   print_setting("max_steps", max_steps);
   print_setting("dump_interval", dump_interval);
   print_setting("peek_interval", peek_interval);
+  print_setting("print_interval", print_interval);
   printf("----------------------------------------------\n");
 
   if (vicc_num < 1) vicc_num *= n_realatoms;
+  if (etol < 0) etol *= -n_realatoms;
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
   if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
@@ -763,10 +998,11 @@ void NEB::run_neb() {
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
-    printf("-----------relax---------\n");
-    reset_minimizer(natoms_per_image, 10000, 0.001);
+    printf("--------------relax-------------\n");
+    double relax_tol=min(0.001, force_tolerance);
+    reset_minimizer(natoms_per_image, 10000, relax_tol);
     minimizer->compute(*images.front());
-    reset_minimizer(natoms_per_image, 10000, 0.001);
+    reset_minimizer(natoms_per_image, 10000, relax_tol);
     minimizer->compute(*images.back());
     printf("-----------relax finish---------\n");
     FILE* fid=fopen("relaxed_is_fs.xyz", "w");
@@ -803,6 +1039,10 @@ void NEB::run_neb() {
   if (n_interpolate > 0){
     interpolate();
   }
+  if (images.size() <= 2){
+    printf("There should be at least one intermediate image.\n");
+    exit(1);
+  }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   #ifdef DEBUG
   printf("run_neb() images[0] natoms %d\n", images[0]->get_natoms());
@@ -813,7 +1053,7 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
   
-  klist.resize(images.size(), k);
+  klist.resize(images.size() - 1, k);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -851,22 +1091,30 @@ void NEB::compute()
     images[i]->get_forces().copy_to_device(
       &forces[(i-1) * natoms_per_image*3],
       natoms_per_image*3);
+    gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
+          optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
+  n_force_calc += nimages - 2;
 
-  if (step % dump_interval == 0) write_neb_traj("dump_traj.xyz", "a");
+  if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
   
-  if (step % peek_interval == 0){
+  if (step % peek_interval == 0 && step != 0){
     write_neb_traj("peek_traj.xyz", "w");
     write_energies();
   }
 
-  find_min_max();
+  find_min_max(etol);
   // printf("klist: ");
   if (auto_k) {
-    for (int i=0; i<nimages;i++){
-      double k_target = k / (1 - 0.8*pow(0.9, pow(i-imax,2)));
+    for (int i=0; i<nimages-1;i++){
+      int dist2imaxes=nimages;
+      for (auto x:imaxes) {
+        if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
+        if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
+      }
+      double k_target = k / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
       if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
       else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
       else klist[i] -= 0.1*(k_target - k);
@@ -881,11 +1129,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{(klist[0]+klist[1])/2, image_energies[1] - image_energies[0], t1};
+  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{(klist[i]+klist[i+1])/2, image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -897,6 +1145,8 @@ void NEB::compute()
       double tmp_num = -2.0 * tangential_force;
       cublasDaxpy(handle, natoms_per_image*3, &tmp_num,
         tangent.data(), 1, &forces[(i-1)*natoms_per_image*3], 1);
+    } else if (find_min && in_list(imins, i)){
+      ;
     }
     else{
       tangentmethod->add_image_force(natoms_per_image*3,
@@ -943,6 +1193,7 @@ void NEB::compute()
     spring1 = move(spring2);
   CUDA_CHECK_KERNEL;
   }
+  print_info();
   if (var_image_number) check_dist();
   if (variable_cell){
     for (int i=1; i < nimages - 1; i++){
@@ -958,13 +1209,23 @@ void NEB::compute()
   // print_gpu(positions, "neb pos");
 }
 
+void NEB::print_info(){
+  auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
+  cudaDeviceSynchronize();
+  potential_per_atom[0] = *it_max_energy - first_energy;
+  if (step % print_interval == 0){
+    printf("step: %d, ", step);
+    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, true);
+    printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
+    printf("fmax=%f\n",fmax);
+    if (count_force_calc) printf("AIN info: %d\t%d\t%d\t%f\n", step, nimages, n_force_calc, fmax);
+  } else {
+    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
+  }
+}
+
 void NEB::check_dist() {
   // printf("check_dist, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  printf("step: %d, ", step);
-  double fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3);
-  auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
-  printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
-  printf("fmax=%f\n",fmax);
   fflush(stdout);
   if (vi_count < vi_interval || (vi_count < vi_interval *2 && fmax > 2) ||
       (vi_count < vi_interval *5 && fmax > 3) || fmax > 5){
@@ -979,10 +1240,12 @@ void NEB::check_dist() {
   // for (auto it = images.begin()+1; it != images.end()-1; it++)
   // printf("dist:");
   // printf("image_dist: ");
+  int i_ori = 0;
   for (int i = 1; i < images.size(); i++)
   {
     double cur_min_dist(min_dist), cur_max_dist(max_dist);
     int cur_dist_ncount(dist_ncount);
+    i_ori++;
     if (vi_check_coord != 0.0){
       bool small_box = false;
       if (small_box){ // TODO
@@ -1018,8 +1281,6 @@ void NEB::check_dist() {
     GPU_Vector<double> r2_arr(n_realatoms), h2_arr(3);
     gpu_sum_square_axis1<<<(n_realatoms - 1) / 128 + 1, 128>>>(r2_arr.data(), dpos.data(), n_realatoms, 3);
     gpu_sum_square_axis1<<<1, 3>>>(h2_arr.data(), dpos.data() + 3*n_realatoms, 3, 3);
-    // print_gpu(r2_arr, "r2_arr");
-    // print_gpu(h2_arr, "h2_arr");
     thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
     thrust::sort(d_ptr, d_ptr + n_realatoms);
     double h_sum_square = (variable_cell) ? sum(h2_arr.data(), 3) : 0;
@@ -1030,23 +1291,34 @@ void NEB::check_dist() {
 
     if (dist > cur_max_dist){
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
-      // print_gpu(new_pos, "new_pos");
+      double ori_k = klist[i-1];
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
-      klist.insert(klist.begin() + i, klist[i-1]);
+      klist.insert(klist.begin() + i, ori_k);
+      if (vi_k) {
+        double new_k = ori_k / vi_k_efficient;
+        klist[i-1] = new_k;
+        klist[i] = new_k;
+      }
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
-        i, int(images.size()), r_dist, h_dist);
+        i_ori, int(images.size()), r_dist, h_dist);
       i+=2; //skip 2 images
+      i_ori++;
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
-      // delete(images[i]);
+      double ori_k = klist[i-1];
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
-      printf("remove an image: %d , nimages: %d\n", i, int(images.size()));
-      // i--; // skip 2 images
+      if (vi_k) {
+        double new_k = ori_k * vi_k_efficient;
+        klist[i-1] = new_k;
+      }
+      printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
+      // i doesn't change, skip 2 images
+      i_ori++;
       vi_count = 0;
     }
   }
@@ -1060,7 +1332,7 @@ void NEB::check_dist() {
 }
 
 void NEB::write_neb_traj(const char* filename, const char* mode){
-  printf("============write %s==============\n", filename);
+  printf("==================write %s==================\n", filename);
   FILE* fid=fopen(filename, mode);
   vector<double> cpu_positions(natoms_per_image*3);
   // vector<int> cpu_type((*images[0]->get_p_atoms()).type.size());
@@ -1146,19 +1418,51 @@ void NEB::initialize_compute() {
 }
 
 
-void NEB::find_min_max()
+void NEB::find_min_max(double etol)
 {
-  imaxes.clear();
-  for (int i=1; i<nimages-1; i++){
-    if (image_energies[i] > image_energies[i-1] &&
-        image_energies[i] > image_energies[i+1]){
-      imaxes.push_back(i);
-    } else if (image_energies[i] < image_energies[i-1] &&
-               image_energies[i] < image_energies[i+1]){
-      imins.push_back(i);
+  vector<int> extrema;
+  extrema.reserve(nimages);
+  for (int i = 1; i < nimages - 1; i++) {
+    if (image_energies[i] > image_energies[i - 1] &&
+        image_energies[i] > image_energies[i + 1]) {
+      extrema.push_back(i);
+    } else if (image_energies[i] < image_energies[i - 1] &&
+               image_energies[i] < image_energies[i + 1]) {
+      extrema.push_back(i);
     }
   }
 
+  // Iteratively remove the closest adjacent extrema pair if their energy gap < etol.
+  // Example: extrema energies [100, 96, 97, 92], etol=5 -> remove [96, 97], keep 100.
+  if (etol > 0.0) {
+    while (extrema.size() >= 2) {
+      size_t best_pair = extrema.size();
+      double best_diff = etol;
+      for (size_t i = 0; i + 1 < extrema.size(); ++i) {
+        double diff = abs(image_energies[extrema[i]] - image_energies[extrema[i + 1]]);
+        if (diff < best_diff) {
+          best_diff = diff;
+          best_pair = i;
+        }
+      }
+      if (best_pair == extrema.size()) {
+        break;
+      }
+      extrema.erase(extrema.begin() + best_pair, extrema.begin() + best_pair + 2);
+    }
+  }
+
+  imaxes.clear();
+  imins.clear();
+  for (const auto idx : extrema) {
+    if (image_energies[idx] > image_energies[idx - 1] &&
+        image_energies[idx] > image_energies[idx + 1]) {
+      imaxes.push_back(idx);
+    } else if (image_energies[idx] < image_energies[idx - 1] &&
+               image_energies[idx] < image_energies[idx + 1]) {
+      imins.push_back(idx);
+    }
+  }
   imax = max_element(image_energies.begin(), image_energies.end()) - image_energies.begin();
 }
 
@@ -1195,7 +1499,11 @@ void NEB::write_energies() {
   printf("        image_energies:");
   for (int i=0;i<image_energies.size();i++){
     if (i%10==0) printf("\n");
-    printf("%.3f ", image_energies[i] - first_energy);
+    double cur_energy = image_energies[i] - first_energy;
+    
+    if (in_list(imaxes, i)) printf("<%.3f>", cur_energy);
+    else if (in_list(imins, i)) printf("(%.3f)", cur_energy);
+    else printf(" %.3f ", cur_energy);
     fprintf(fid, "%.5f\n", image_energies[i] - first_energy);
   }
   double max_energy = *max_element(image_energies.begin(), image_energies.end());

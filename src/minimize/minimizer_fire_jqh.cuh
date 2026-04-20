@@ -36,6 +36,7 @@ private:
   int N_neg = 0;
   double P;
   double max_move = 0.2;
+  bool printflag = true;
 
 public:
   Minimizer_FIRE_JQH(
@@ -43,7 +44,9 @@ public:
     const int number_of_steps,
     const double force_tolerance);
 
-  void parse_FIRE(const char** param, int num_param, int nstart);
+  void parse_FIRE(const char** param, int num_param, int nstart, bool printflag=true);
+
+  void print_para();
 
   void compute(
     Force& force,

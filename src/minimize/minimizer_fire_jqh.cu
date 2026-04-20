@@ -20,6 +20,7 @@ Reference: PhysRevLett 97, 170201 (2006)
 ------------------------------------------------------------------------------*/
 
 #include "minimizer_fire_jqh.cuh"
+using namespace std;
 
 namespace
 {
@@ -119,8 +120,9 @@ Minimizer_FIRE_JQH::Minimizer_FIRE_JQH(
   cublasCreate(&handle);
 }
 
-void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstart)
+void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstart, bool printflag0)
 {
+  printflag = printflag0;
   for (int n=nstart; n<num_param; n++){
     if (strcmp(param[n], "max_move") == 0){
       if (!is_valid_real(param[n+1], &max_move)) {
@@ -175,6 +177,12 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
     PRINT_INPUT_ERROR(text.data());
     }
   }
+  if (printflag){
+    print_para();
+  }
+}
+
+void Minimizer_FIRE_JQH::print_para(){
   printf("----------vcfire settings---------------\n");
   printf("%12s = %g\n", "max_move", max_move);
   printf("%12s = %g\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
@@ -184,9 +192,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   printf("%12s = %g\n", "alpha_start", alpha_start);
   printf("%12s = %g\n", "f_alphat", f_alpha);
   printf("%12s = %d\n", "N_min", N_min);
-
   printf("----------------------------------------\n");
-
 }
 
 void Minimizer_FIRE_JQH::compute(
@@ -268,7 +274,7 @@ void Minimizer_FIRE_JQH::compute(
 
 void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
 {
-  printf("---------------minimizer jqh---------------\n");
+  if (printflag) printf("---------------minimizer jqh---------------\n");
   double next_dt;
   const int size = number_of_atoms_ * 3;
   // printf("size %d, natoms %d\n", size, atoms.natoms);
@@ -288,9 +294,9 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
   GPU_Vector<double>& potential_per_atom = atoms.get_potential_per_atom();
   GPU_Vector<double>& force_per_atom = atoms.get_forces();
   
-  printf("minimizer size of positions %d\n", int(position_per_atom.size()));
+  if (printflag) printf("minimizer size of positions %d\n", int(position_per_atom.size()));
 
-  printf("\nEnergy minimization started.\n");
+  if (printflag) printf("\nEnergy minimization started.\n");
   // double h_temp1[6];
 
   for (int step = 0; step < number_of_steps_; ++step) {
@@ -305,7 +311,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     calculate_total_potential(potential_per_atom);
 
     if (step % base == 0 || force_max < force_tolerance_) {
-      printf(
+      if (printflag) printf(
         "    step %d: total_energy = %.10f eV, f_max = %.10f eV/A.\n",
         step,
         atoms.get_energy(),
@@ -359,5 +365,5 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     // print_gpu(position_per_atom, "minimizer pos");
   }
 
-  printf("Energy minimization finished.\n");
+  if (printflag) printf("Energy minimization finished.\n");
 }
