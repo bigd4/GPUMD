@@ -845,11 +845,6 @@ void Force::compute(
           box, type, position_per_atom, potential_per_atom, force_per_atom, virial_per_atom);
       }
     }
-<<<<<<< HEAD
-    
-
-=======
->>>>>>> GPUMD-wjj/neb_dev
     if (multiple_potentials_mode_.compare("average") == 0){
       // Compute average and copy properties back into original vectors.
       gpu_average_properties<<<(number_of_atoms - 1) / 128 + 1, 128>>>(
@@ -858,16 +853,9 @@ void Force::compute(
         force_per_atom.data(),
         virial_per_atom.data(),
         (double)potentials.size());
-<<<<<<< HEAD
-        GPU_CHECK_KERNEL
-    }
-  }
-   else {
-=======
       GPU_CHECK_KERNEL
     }
   } else {
->>>>>>> GPUMD-wjj/neb_dev
     PRINT_INPUT_ERROR("Invalid mode for multiple potentials.\n");
   }
 

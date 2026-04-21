@@ -37,16 +37,7 @@ class Measure;
 #include "velocity.cuh"
 #include "neb/neb.cuh"
 #include <vector>
-<<<<<<< HEAD
-#include <iostream>
-
-// #ifdef USE_GAS
-// #include "force/gas-metad.cuh"
-// #include "force/gas-ps.cuh"
-// #endif
-=======
 #include <deque>
->>>>>>> GPUMD-wjj/neb_dev
 
 class Run
 {
