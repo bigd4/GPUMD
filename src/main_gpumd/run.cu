@@ -362,22 +362,10 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
-<<<<<<< HEAD
-// #ifdef USE_GAS
-//   } else if (strcmp(param[0], "GASMD") == 0) {
-//     std::unique_ptr<TorchMetad> p_gas_metad = TorchMetad::parse_GASMD(param,num_param,atom.number_of_atoms);
-//     force.potentials.emplace_back(std::move(p_gas_metad));
-//     force.set_multiple_potentials_mode("sum");
-//   } else if (strcmp(param[0], "GASPathSampling") == 0) {
-//     p_gasps = TorchPathSampling::parse_GASPS(param,num_param,atom.number_of_atoms);
-//     is_pathsampling=true;
-// #endif
-=======
   } else if (strcmp(param[0], "target_opt") == 0) {
     std::unique_ptr<TargetOpt> p_target_opt = std::make_unique<TargetOpt>();
     p_target_opt->parse_target_opt(param, num_param, force);
     force.potentials.push_back(std::move(p_target_opt));
->>>>>>> GPUMD-wjj/neb_dev
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);

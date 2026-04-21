@@ -88,6 +88,7 @@ file(GLOB HEADERS
     "${CMAKE_SOURCE_DIR}/model/*.cuh"
     "${CMAKE_SOURCE_DIR}/phonon/*.cuh"
     "${CMAKE_SOURCE_DIR}/main_nep/*.cuh"
+    "${CMAKE_SOURCE_DIR}/neb/*.cuh"
     #gas file
     # "${CMAKE_SOURCE_DIR}/measure/gasCV/*.cuh"
 )
@@ -111,6 +112,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/utilities
     ${CMAKE_SOURCE_DIR}/main_nep
     ${CMAKE_SOURCE_DIR}/main_sampling
+    ${CMAKE_SOURCE_DIR}/neb
     #gas file
     # ${CMAKE_SOURCE_DIR}/measure/gasCV
 )
