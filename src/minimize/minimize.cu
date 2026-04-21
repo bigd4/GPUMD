@@ -18,8 +18,10 @@ The driver class for minimizers.
 ------------------------------------------------------------------------------*/
 
 #include "force/force.cuh"
+#include "model/atom.cuh"
 #include "minimize.cuh"
 #include "minimizer_fire.cuh"
+#include "minimizer_fire_jqh.cuh"
 #include "minimizer_fire_box_change.cuh"
 #include "minimizer_sd.cuh"
 #include "utilities/error.cuh"
@@ -27,27 +29,28 @@ The driver class for minimizers.
 #include "utilities/read_file.cuh"
 #include <cstring>
 #include <memory>
+#include "measure/dump_position.cuh"
 
 void Minimize::parse_minimize(
   const char** param,
   int num_param,
+  int fixed_group,
+  int fixed_grouping_method,
   Force& force,
   Box& box,
-  GPU_Vector<double>& position_per_atom,
-  GPU_Vector<int>& type,
-  std::vector<Group>& group,
-  GPU_Vector<double>& potential_per_atom,
-  GPU_Vector<double>& force_per_atom,
-  GPU_Vector<double>& virial_per_atom)
+  Atom& atom,
+  std::vector<Group>& group)
 {
 
   int minimizer_type = 0;
   int number_of_steps = 0;
+  bool vc = false;
+  int n = 4;
+  std::vector<double> pressure = {0.0};
   double force_tolerance = 0.0;
   int box_change = 0;
   int hydrostatic_strain = 0;
   std::unique_ptr<Minimizer> minimizer;
-  const int number_of_atoms = type.size();
 
   if (strcmp(param[1], "sd") == 0) {
     minimizer_type = 0;
@@ -105,6 +108,55 @@ void Minimize::parse_minimize(
         PRINT_INPUT_ERROR("Hydrostatic_strain should be 1 or 0.");
       }
     }
+  } else if (strcmp(param[1], "vcfire") == 0) {
+    vc = true;
+    minimizer_type = 1;
+
+    if (num_param < 4) {
+      PRINT_INPUT_ERROR("minimize vcfire should have at least 2 parameters: force_tol, nsteps.");
+    }
+
+    if (!is_valid_real(param[2], &force_tolerance)) {
+      PRINT_INPUT_ERROR("Force tolerance should be a number.");
+    }
+
+    if (!is_valid_int(param[3], &number_of_steps)) {
+      PRINT_INPUT_ERROR("Number of steps should be an integer.");
+    }
+    if (number_of_steps <= 0) {
+      PRINT_INPUT_ERROR("Number of steps should > 0.");
+    }
+    if (strcmp(param[n], "p") == 0){
+      if (!is_valid_real(param[n+1], &pressure[0])) {
+        PRINT_INPUT_ERROR("p should be an real.");
+      }
+      n += 2;
+    } else if (strcmp(param[n], "p3") == 0){
+      pressure.resize(3);
+      for (int i=0; i<3; i++){
+        if (!is_valid_real(param[n+1+i], &pressure[i])) {
+          PRINT_INPUT_ERROR("p3 should be 3 reals.");
+        }
+      }
+      n += 4;
+    } else if (strcmp(param[n], "p6") == 0){
+      std::vector<double> press_in(6);
+      pressure.resize(9);
+      for (int i=0; i<6; i++){
+        if (!is_valid_real(param[n+1+i], &press_in[i])) {
+          PRINT_INPUT_ERROR("p6 should be 6 reals.");
+        }
+      }
+      pressure[0] = press_in[0];
+      pressure[4] = press_in[1];
+      pressure[8] = press_in[2];
+      pressure[5] = pressure[7] = press_in[3];
+      pressure[2] = pressure[6] = press_in[4];
+      pressure[1] = pressure[3] = press_in[5];
+      n += 7;
+    } else {
+      PRINT_INPUT_ERROR("Invalid input for vcfire.");
+    }
   } else {
     PRINT_INPUT_ERROR("Invalid minimizer.");
   }
@@ -117,17 +169,14 @@ void Minimize::parse_minimize(
       printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
       printf("    for maximally %d steps.\n", number_of_steps);
 
-      minimizer.reset(new Minimizer_SD(number_of_atoms, number_of_steps, force_tolerance));
+      minimizer.reset(
+        new Minimizer_SD(fixed_group,
+                         fixed_grouping_method,
+                         atom.number_of_atoms,
+                         number_of_steps,
+                         force_tolerance));
 
-      minimizer->compute(
-        force,
-        box,
-        position_per_atom,
-        type,
-        group,
-        potential_per_atom,
-        force_per_atom,
-        virial_per_atom);
+      minimizer->compute(force, box, atom, atom.position_per_atom, group);
 
       break;
     case 1:
@@ -137,41 +186,70 @@ void Minimize::parse_minimize(
       printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
       printf("    for maximally %d steps.\n", number_of_steps);
 
-      minimizer.reset(new Minimizer_FIRE(number_of_atoms, number_of_steps, force_tolerance));
+      if (vc){
+        printf("variable cell is enabled.\n");
+        std::vector<double> press={pressure};
+        Atoms atoms(
+          force,
+          box,
+          atom.position_per_atom,
+          atom.type,
+          group,
+          atom.potential_per_atom,
+          atom.force_per_atom,
+          atom.virial_per_atom
+        );
+        minimizer.reset(new Minimizer_FIRE_JQH(atom.number_of_atoms+3,
+                                               number_of_steps,
+                                               force_tolerance));
+        dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, n);
+        VCWrapper& vcatoms = *new VCWrapper(atoms, press);
+        vcatoms.optimize_factor = pow(atoms.get_natoms(), 1.0/4);
+        printf("cell_factor = %f, optimize_factor = %f\n", vcatoms.cell_factor, vcatoms.optimize_factor);
+        vcatoms.build_positions();
+        // vcatoms.compute();
+        // printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());
+        minimizer->compute(vcatoms);
+        printf("    final enthalpy = %f eV\n", vcatoms.get_energy());
+        box = atoms.box;
+        if (atom.cpu_atom_symbol.size() > 0){
+          FILE *fid = my_fopen("relaxed.xyz", "w");
+          save_one_frame(fid,
+                         box,
+                         atoms.get_energy(),
+                         vcatoms.get_energy(),
+                         atom.cpu_atom_symbol,
+                         atom.position_per_atom);
+          fclose(fid);
+        }
+      } else{
+        minimizer.reset(new Minimizer_FIRE(atom.number_of_atoms, number_of_steps, force_tolerance));
+  
+        minimizer->compute(force, box, atom, atom.position_per_atom, group);
+  
+        break;
+      case 2:
+        printf("\nStart to do an energy minimization.\n");
+        printf("    using the fast inertial relaxation engine (FIRE) method.\n");
+        printf("    with variable box.\n");
+        if (hydrostatic_strain == 1) {
+          printf("    with hydrostatic pressure.\n");
+        }
+        printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
+        printf("    for maximally %d steps.\n", number_of_steps);
+  
+        minimizer.reset(new Minimizer_FIRE_Box_Change(
+          atom.number_of_atoms, number_of_steps, force_tolerance, hydrostatic_strain));
+  
+        minimizer->compute(force, box, atom, atom.position_per_atom, group);
 
-      minimizer->compute(
-        force,
-        box,
-        position_per_atom,
-        type,
-        group,
-        potential_per_atom,
-        force_per_atom,
-        virial_per_atom);
-
-      break;
-    case 2:
-      printf("\nStart to do an energy minimization.\n");
-      printf("    using the fast inertial relaxation engine (FIRE) method.\n");
-      printf("    with variable box.\n");
-      if (hydrostatic_strain == 1) {
-        printf("    with hydrostatic pressure.\n");
+        minimizer->compute(
+          force,
+          box,
+          atom,
+          atom.position_per_atom,
+          group);
       }
-      printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
-      printf("    for maximally %d steps.\n", number_of_steps);
-
-      minimizer.reset(new Minimizer_FIRE_Box_Change(
-        number_of_atoms, number_of_steps, force_tolerance, hydrostatic_strain));
-
-      minimizer->compute(
-        force,
-        box,
-        position_per_atom,
-        type,
-        group,
-        potential_per_atom,
-        force_per_atom,
-        virial_per_atom);
       break;
     default:
       PRINT_INPUT_ERROR("Invalid minimizer.");

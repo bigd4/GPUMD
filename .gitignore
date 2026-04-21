@@ -7,12 +7,15 @@ src/*/*.obj
 src/*/*.o
 src/gpumd*
 src/nep*
+src/*.xyz
+src/*.out
 src/gnep*
 src/build
 src/CMakeLists.txt
 
 .history
 .vscode
+.DS_Store
 *~
 local
 public

@@ -17,6 +17,7 @@
 
 #include "model/box.cuh"
 #include "model/group.cuh"
+// #include "model/atoms.cuh"
 #include "potential.cuh"
 #include "utilities/common.cuh"
 #include <memory>
@@ -50,6 +51,8 @@ public:
     GPU_Vector<double>& virial_per_atom,
     GPU_Vector<double>& velocity_per_atom,
     GPU_Vector<double>& mass_per_atom);
+  
+  // void compute(Atoms& atoms);
 
   void finalize();
 
@@ -78,7 +81,7 @@ private:
   int number_of_atoms_ = -1;
   bool is_fcp = false;
   bool has_non_nep = false;
-  std::string multiple_potentials_mode_ = "observe"; // "observe" or "average"
+  std::string multiple_potentials_mode_ = "observe"; // "observe", "average" or "sum"
   std::string atom_types[NUM_ELEMENTS];
 
   void check_types(const char* file_potential);

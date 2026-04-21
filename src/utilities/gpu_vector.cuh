@@ -45,11 +45,87 @@ public:
     memory_ = 0;
     memory_type_ = Memory_Type::global;
     allocated_ = false;
+    // printf("GPUVector construct %p\n", this);
   }
+
+  GPU_Vector(const GPU_Vector& vec0){
+    // printf("GPU_Vector copy constructor. This should better not be used. %p\n", this);
+    // allocated_ = vec0.allocated_;
+    // size_ = vec0.size_;
+    // memory_ = vec0.memory_;
+    // memory_type_ = vec0.memory_type_;
+    if (vec0.allocated_){
+      resize(vec0.size_, vec0.memory_type_);
+      copy_from_device(vec0.data_);
+    }
+    else if (allocated_) {
+      CHECK(cudaFree(data_));
+      allocated_ = false;
+    }
+  };
+
+  GPU_Vector& operator=(const GPU_Vector& vec0){
+    #ifdef DEBUG
+    printf("GPU_Vector = constructor. This should better not be used. %p\n", this);
+    #endif
+    // allocated_ = vec0.allocated_;
+    if (&vec0 == this) return *this;
+    if (vec0.allocated_){
+      resize(vec0.size_, vec0.memory_type_);
+      copy_from_device(vec0.data_);
+    }
+    else if (allocated_) {
+      CHECK(cudaFree(data_));
+      allocated_ = false;
+    }
+    return *this;
+  };
+
+  GPU_Vector& operator=(GPU_Vector&& vec0){
+    #ifdef DEBUG
+    printf("GPU_Vector = move constructor. %p\n", this);
+    #endif
+    if (allocated_) {
+      CHECK(cudaFree(data_));
+    }
+    allocated_ = vec0.allocated_;
+    size_ = vec0.size_;
+    memory_ = vec0.memory_;
+    memory_type_ = vec0.memory_type_;
+    if (vec0.allocated_){
+      data_ = vec0.data_;
+      vec0.data_ = NULL;
+    }
+    vec0.allocated_ = false;
+    vec0.size_ = 0;
+    vec0.memory_ = 0;
+    return *this;
+  };
+
+  GPU_Vector (GPU_Vector&& vec0) noexcept {
+    #ifdef DEBUG
+    printf("GPU_Vector move constructor. %p\n", this);
+    #endif
+    if (allocated_) {
+      CHECK(cudaFree(data_));
+    }
+    allocated_ = vec0.allocated_;
+    size_ = vec0.size_;
+    memory_ = vec0.memory_;
+    memory_type_ = vec0.memory_type_;
+    if (vec0.allocated_){
+      data_ = vec0.data_;
+      vec0.data_ = NULL;
+    }
+    vec0.allocated_ = false;
+    vec0.size_ = 0;
+    vec0.memory_ = 0;
+  };
 
   // only allocate memory
   GPU_Vector(const size_t size, const Memory_Type memory_type = Memory_Type::global)
   {
+    // printf("GPU_Vector allocate memory constructor. %p\n", this);
     allocated_ = false;
     resize(size, memory_type);
   }
@@ -57,6 +133,7 @@ public:
   // allocate memory and initialize
   GPU_Vector(const size_t size, const T value, const Memory_Type memory_type = Memory_Type::global)
   {
+    // printf("GPU_Vector allocate memory and initialize constructor. %p\n", this);
     allocated_ = false;
     resize(size, value, memory_type);
   }
@@ -64,6 +141,7 @@ public:
   // deallocate memory
   ~GPU_Vector()
   {
+    // printf("GPUVector destruct %p\n", this);
     if (allocated_) {
       CHECK(gpuFree(data_));
       allocated_ = false;
@@ -199,9 +277,20 @@ public:
   T* data() { return data_; }
 
 private:
-  bool allocated_;          // true for allocated memory
+  bool allocated_=false;          // true for allocated memory
   size_t size_;             // number of elements
   size_t memory_;           // memory in bytes
   Memory_Type memory_type_; // global or unified memory
   T* data_;                 // data pointer
 };
+
+template <typename T>
+GPU_Vector<T>& GPU_Vector_copy(GPU_Vector<T>& gpu_vector){
+  GPU_Vector<T> new_gpu_vector;
+  new_gpu_vector.resize(gpu_vector.size());
+  new_gpu_vector.copy_from_device(gpu_vector.data());
+  return new_gpu_vector;
+}
+
+
+

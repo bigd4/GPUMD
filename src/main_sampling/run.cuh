@@ -19,28 +19,27 @@ class Force;
 class Integrate;
 class Measure;
 
-#include "add_efield.cuh"
-#include "add_force.cuh"
-#include "add_random_force.cuh"
-#include "electron_stop.cuh"
+#include "main_gpumd/add_efield.cuh"
+#include "main_gpumd/add_force.cuh"
+#include "main_gpumd/add_spring.cuh"
+#include "main_gpumd/add_random_force.cuh"
+#include "main_gpumd/electron_stop.cuh"
 #include "force/force.cuh"
 #include "integrate/integrate.cuh"
 #include "mc/mc.cuh"
 #include "measure/measure.cuh"
 #include "model/atom.cuh"
+#include "model/atoms.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
 #include "utilities/common.cuh"
 #include "utilities/gpu_vector.cuh"
-#include "velocity.cuh"
+#include "main_gpumd/velocity.cuh"
+#include "neb/neb.cuh"
 #include <vector>
-#include <iostream>
-
-// #ifdef USE_GAS
+#include <deque>
 #include "gas-metad.cuh"
 #include "gas-monitor.cuh"
-// #endif
-
 class Run
 {
 public:
@@ -76,13 +75,17 @@ private:
   Integrate integrate;
   MC mc;
   Measure measure;
+  NEB neb;
   Electron_Stop electron_stop;
   Add_Force add_force;
+  Add_Spring add_spring;
   Add_Random_Force add_random_force;
   Add_Efield add_efield;
-  // #ifdef USE_GAS
   std::unique_ptr<TorchMonitor> p_gasps;
   bool is_pathsampling = false;
   bool is_ffs = false;
+  // #ifdef USE_GAS
+  // std::unique_ptr<TorchPathSampling> p_gasps;
+  // bool is_pathsampling = false;
   // #endif
 };

@@ -20,6 +20,7 @@ Reference: PhysRevLett 97, 170201 (2006)
 ------------------------------------------------------------------------------*/
 
 #include "minimizer_fire.cuh"
+#include "model/atom.cuh"
 #include "utilities/gpu_macro.cuh"
 #include <cstring>
 
@@ -32,7 +33,7 @@ __global__ void gpu_multiply(const int size, double a, double* b, double* c)
     c[n] = b[n] * a;
 }
 
-__global__ void gpu_vector_sum(const int size, double* a, double* b, double* c)
+__global__ void gpu_vector_add(const int size, double* a, double* b, double* c)
 {
   int n = blockDim.x * blockIdx.x + threadIdx.x;
   if (n < size)
@@ -97,22 +98,19 @@ void scalar_multiply(const double& a, GPU_Vector<double>& b, GPU_Vector<double>&
   gpu_multiply<<<(size - 1) / 128 + 1, 128>>>(size, a, b.data(), c.data());
 }
 
-void vector_sum(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
+void vector_add(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
 {
   int size = a.size();
-  gpu_vector_sum<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
+  gpu_vector_add<<<(size - 1) / 128 + 1, 128>>>(size, a.data(), b.data(), c.data());
 }
 } // namespace
 
 void Minimizer_FIRE::compute(
   Force& force,
   Box& box,
+  Atom& atom,
   GPU_Vector<double>& position_per_atom,
-  GPU_Vector<int>& type,
-  std::vector<Group>& group,
-  GPU_Vector<double>& potential_per_atom,
-  GPU_Vector<double>& force_per_atom,
-  GPU_Vector<double>& virial_per_atom)
+  std::vector<Group>& group)
 {
   double next_dt;
   const int size = number_of_atoms_ * 3;
@@ -126,10 +124,10 @@ void Minimizer_FIRE::compute(
 
   for (int step = 0; step < number_of_steps_; ++step) {
     force.compute(
-      box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
-    calculate_force_square_max(force_per_atom);
+      box, position_per_atom, atom.type, group, atom.potential_per_atom, atom.force_per_atom, atom.virial_per_atom);
+    calculate_force_square_max(atom.force_per_atom);
     const double force_max = sqrt(cpu_force_square_max_[0]);
-    calculate_total_potential(potential_per_atom);
+    calculate_total_potential(atom.potential_per_atom);
 
     if (step == 0 || (step + 1) % base == 0 || force_max < force_tolerance_) {
       printf(
@@ -141,7 +139,7 @@ void Minimizer_FIRE::compute(
         break;
     }
 
-    P = dot(v, force_per_atom);
+    P = dot(v, atom.force_per_atom);
 
     if (P > 0) {
       if (N_neg > N_min) {
@@ -158,24 +156,24 @@ void Minimizer_FIRE::compute(
       alpha = alpha_start;
       // move position back
       scalar_multiply(-0.5 * dt, v, temp1);
-      vector_sum(position_per_atom, temp1, position_per_atom);
+      vector_add(position_per_atom, temp1, position_per_atom);
       v.fill(0);
       N_neg = 0;
     }
 
     // md step
     // implicit Euler integration
-    double F_modulus = sqrt(dot(force_per_atom, force_per_atom));
+    double F_modulus = sqrt(dot(atom.force_per_atom, atom.force_per_atom));
     double v_modulus = sqrt(dot(v, v));
     // dv = F/m*dt
-    scalar_multiply(dt / m, force_per_atom, temp2);
-    vector_sum(v, temp2, v);
+    scalar_multiply(dt / m, atom.force_per_atom, temp2);
+    vector_add(v, temp2, v);
     scalar_multiply(1 - alpha, v, temp1);
-    scalar_multiply(alpha * v_modulus / F_modulus, force_per_atom, temp2);
-    vector_sum(temp1, temp2, v);
+    scalar_multiply(alpha * v_modulus / F_modulus, atom.force_per_atom, temp2);
+    vector_add(temp1, temp2, v);
     // dx = v*dt
     scalar_multiply(dt, v, temp1);
-    vector_sum(position_per_atom, temp1, position_per_atom);
+    vector_add(position_per_atom, temp1, position_per_atom);
   }
 
   printf("Energy minimization finished.\n");

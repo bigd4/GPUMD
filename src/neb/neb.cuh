@@ -1,0 +1,222 @@
+#pragma once
+#include "force/force.cuh"
+#include "force/nep.cuh"
+// #include "minimize/minimizer.cuh"
+#include "minimize/minimizer_fire_jqh.cuh"
+#include "utilities/common.cuh"
+#include "model/atoms.cuh"
+#include "model/box.cuh"
+#include "model/atom.cuh"
+#include "measure/dump_position.cuh"
+#include "measure/parse_utilities.cuh"
+#include <algorithm>
+#include <deque>
+#include <list>
+#include <map>
+#include <cstring>
+#include <cmath>
+#include <cusolverDn.h>
+#include <force/neighbor.cuh>
+
+struct Spring
+{
+  double k, de, nt;
+  GPU_Vector<double> t;
+  
+  Spring(){};
+
+  Spring(double k0, double de0, GPU_Vector<double> t0);
+};
+
+class BaseTangentMethod
+{
+protected:
+  double k = 0.1;
+  // double nt1, nt2;
+
+public:
+  BaseTangentMethod(){};
+
+  BaseTangentMethod(double k0):k(k0) {};
+    
+  virtual GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2) = 0;
+  
+  virtual void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) = 0;
+};
+
+class NormalTangentMethod: public BaseTangentMethod
+{
+public:
+  NormalTangentMethod(){};
+
+  NormalTangentMethod(double k0):BaseTangentMethod(k0) {};
+  
+  GPU_Vector<double> compute_tangent(Spring& spring1, Spring& spring2);
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce);
+};
+class ImprovedTangentMethod: public BaseTangentMethod
+{
+public:
+  ImprovedTangentMethod(double k0):BaseTangentMethod(k0) {};
+
+  GPU_Vector<double> compute_tangent (Spring& spring1, Spring& spring2) override;
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) override;
+};
+
+class ModifiedImprovedTangentMethod: public ImprovedTangentMethod
+{
+public:  
+  // ---- workspace vectors ----
+  GPU_Vector<double> perp_force;
+  GPU_Vector<double> unit_perp_force;
+  GPU_Vector<double> ori_spring_force;
+  GPU_Vector<double> par_spring_force;
+  GPU_Vector<double> perp_spring_force;
+  GPU_Vector<double> dneb_force;
+  int workspace_size = 0;
+
+  ModifiedImprovedTangentMethod(double k0):ImprovedTangentMethod(k0) {};
+
+  void ensure_workspace(int size);
+
+
+  void add_image_force(
+    int size,
+    double& tangential_force,
+    double* tangent,
+    Spring& spring1,
+    Spring& spring2,
+    double* imgforce) override;
+};
+
+
+class NEB: public BaseAtoms
+{
+private:
+  // compute setting
+  double k = 0.1;
+  bool auto_k = false;
+  std::vector<double> pressure = {0.0};
+  bool has_mid = false;
+  int n_interpolate = 0;
+  bool need_relax = false;
+  bool climb = false;
+  bool find_min = false;
+  double etol = 0.0;
+  bool remove_translation = true;
+  bool remove_rotation = true;
+  bool variable_cell = true;
+
+  bool var_image_number = true;
+  bool vi_k = false;
+  double vi_k_efficient = 1.8;
+  int vi_check_coord = 0; //  0: no check
+  double vicc_num = 0.0; // >0 & <1: percent, >=1: number
+  double vicc_rc = 1.7; 
+  int vi_interval = 20;
+  double vi_cell_factor = -1.0;
+  double vi_force_tol = 1;
+  double min_dist = 0.01, max_dist = 0.1;
+  int dist_ncount = 10;
+  int print_interval = 1;
+  int dump_interval = -1;
+  int peek_interval = -1;
+  int max_steps = 0;
+  std::string istate_name = "is.xyz";
+  std::string fstate_name = "fs.xyz";
+  std::string mid_name = "mid.xyz";
+  std::string traj_name = "";
+  std::vector<std::string> mid_name_list;
+  std::string tangent_method_name = "improved";
+
+
+  // private variables
+  // cublasHandle_t handle;
+  std::vector<double> klist;
+  std::unique_ptr<Minimizer> minimizer;
+  std::vector<const char *> optimizer_opt;
+  int imax;
+  std::list<int> imins;
+  std::list<int> imaxes;
+  double fmax;
+  // std::vector<pair<int,Atoms*>> mid_list;
+  std::vector<int> imid_list; // the positions that each mid_image should be insert into
+  std::vector<double> h_ref{9};
+  double first_energy = 0.0;
+  double last_energy = 0.0;
+  int vi_count = 0;
+  int step = 0;
+  bool count_force_calc = false;
+  int n_force_calc = 0;
+  double force_tolerance;
+  int minimizer_type;
+  int nimages, natoms_per_image, n_realatoms;
+  double optimize_factor;
+
+  void find_min_max(double etol=0.0);
+
+  void initialize_images();
+
+  void initialize_compute();
+
+  void check_dist();
+
+  void print_info();
+
+public:
+  std::vector<std::unique_ptr<Atoms>> images;
+  std::vector<double> image_energies;
+  std::unique_ptr<BaseTangentMethod> tangentmethod;
+
+  NEB();
+
+  ~NEB();
+
+  double get_energy() override;
+
+  void parse_options(const char** param, int num_param, int& n);
+
+  // NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)
+  // {}
+
+  void parse_neb(const char** param, int num_param, Force& force);
+
+  void reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance);
+
+  void compute() override;
+
+  GPU_Vector<double>& build_positions();
+
+  void set_positions();
+
+  // GPU_Vector<double>& get_forces();
+
+  void run_neb();
+
+  void write_neb_traj(const char* filename, const char* mode);
+
+  void write_energies();
+
+  void interpolate();
+
+};

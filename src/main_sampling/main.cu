@@ -33,7 +33,7 @@ int main(int argc, char* argv[])
   print_gpu_information();
 
   print_line_1();
-  printf("Started running GPUMD.\n");
+  printf("Started running GPU-Sampling.\n");
   print_line_2();
   #ifndef USE_GAS
     cudaDeviceSynchronize();
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
   print_line_2();
 
   print_line_1();
-  printf("Finished running GPUMD.\n");
+  printf("Finished running GPU-Sampling.\n");
   print_line_2();
 
   return EXIT_SUCCESS;
@@ -67,10 +67,10 @@ void print_welcome_information(void)
 {
   printf("\n");
   printf("***************************************************************\n");
-  printf("*                 Welcome to use GPUMD                        *\n");
-  printf("*     (Graphics Processing Units Molecular Dynamics)          *\n");
-  printf("*                     version 4.4                             *\n");
-  printf("*              This is the gpumd executable                   *\n");
+  printf("*                 Welcome to use GPU-Sampling                 *\n");
+  printf("*           (GPUMD-based Enhanced Sampling package)           *\n");
+  printf("*                       version 5.1                           *\n");
+  printf("*              This is the gpusamplng executable              *\n");
   printf("***************************************************************\n");
   printf("\n");
 }

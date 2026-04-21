@@ -19,6 +19,7 @@ Run simulation according to the inputs in the run.in file.
 
 #include "add_efield.cuh"
 #include "add_force.cuh"
+#include "add_spring.cuh"
 #include "add_random_force.cuh"
 #include "cohesive.cuh"
 #include "electron_stop.cuh"
@@ -29,6 +30,7 @@ Run simulation according to the inputs in the run.in file.
 #include "measure/adf.cuh"
 #include "measure/angular_rdf.cuh"
 #include "measure/compute.cuh"
+#include "measure/compute_chunk.cuh"
 #include "measure/compute_dpdt.cuh"
 #include "measure/dos.cuh"
 #include "measure/dump_beads.cuh"
@@ -44,6 +46,7 @@ Run simulation according to the inputs in the run.in file.
 #include "measure/dump_thermo.cuh"
 #include "measure/dump_velocity.cuh"
 #include "measure/dump_xyz.cuh"
+#include "measure/dump_cg.cuh"
 #include "measure/extrapolation.cuh"
 #include "measure/hac.cuh"
 #include "measure/hnemd_kappa.cuh"
@@ -69,6 +72,7 @@ Run simulation according to the inputs in the run.in file.
 #include "utilities/gpu_macro.cuh"
 #include "utilities/read_file.cuh"
 #include "velocity.cuh"
+#include "force/target_opt.cuh"
 #include <chrono>
 #include <cstring>
 
@@ -154,10 +158,7 @@ Run::Run()
   velocity.initialize(
     has_velocity_in_xyz,
     300,
-    atom.cpu_mass,
-    atom.cpu_position_per_atom,
-    atom.cpu_velocity_per_atom,
-    atom.velocity_per_atom,
+    atom,
     false,
     123);
   if (has_velocity_in_xyz) {
@@ -216,8 +217,6 @@ void Run::perform_a_run()
   mc.initialize();
   measure.initialize(number_of_steps, time_step, integrate, group, atom, box, force);
 
-  const auto time_begin = std::chrono::high_resolution_clock::now();
-
   // compute force for the first integrate step
   if (integrate.type >= 31) { // PIMD
     for (int k = 0; k < integrate.number_of_beads; ++k) {
@@ -247,16 +246,11 @@ void Run::perform_a_run()
 
   double initial_time_step = time_step;
 
+  const auto time_begin = std::chrono::high_resolution_clock::now();
+
   for (int step = 0; step < number_of_steps; ++step) {
 
-    velocity.correct_velocity(
-      step,
-      group,
-      atom.cpu_mass,
-      atom.position_per_atom,
-      atom.cpu_position_per_atom,
-      atom.cpu_velocity_per_atom,
-      atom.velocity_per_atom);
+    velocity.correct_velocity(step, group, atom);
 
     calculate_time_step(
       max_distance_per_step, atom.velocity_per_atom, initial_time_step, time_step);
@@ -293,6 +287,7 @@ void Run::perform_a_run()
 
     electron_stop.compute(time_step, atom);
     add_force.compute(step, group, atom);
+    add_spring.compute(step, group, atom);
     add_random_force.compute(step, atom);
     add_efield.compute(step, group, atom, force);
 
@@ -344,6 +339,7 @@ void Run::perform_a_run()
 
   electron_stop.finalize();
   add_force.finalize();
+  add_spring.finalize();
   add_random_force.finalize();
   add_efield.finalize();
   integrate.finalize();
@@ -366,6 +362,7 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
+<<<<<<< HEAD
 // #ifdef USE_GAS
 //   } else if (strcmp(param[0], "GASMD") == 0) {
 //     std::unique_ptr<TorchMetad> p_gas_metad = TorchMetad::parse_GASMD(param,num_param,atom.number_of_atoms);
@@ -375,6 +372,12 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 //     p_gasps = TorchPathSampling::parse_GASPS(param,num_param,atom.number_of_atoms);
 //     is_pathsampling=true;
 // #endif
+=======
+  } else if (strcmp(param[0], "target_opt") == 0) {
+    std::unique_ptr<TargetOpt> p_target_opt = std::make_unique<TargetOpt>();
+    p_target_opt->parse_target_opt(param, num_param, force);
+    force.potentials.push_back(std::move(p_target_opt));
+>>>>>>> GPUMD-wjj/neb_dev
   } else if (strcmp(param[0], "replicate") == 0) {
     Replicate(param, num_param, box, atom, group);
     allocate_memory_gpu(group, atom, thermo);
@@ -383,51 +386,24 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     minimize.parse_minimize(
       param,
       num_param,
+      integrate.fixed_group,
+      integrate.fixed_grouping_method,
       force,
       box,
-      atom.position_per_atom,
-      atom.type,
-      group,
-      atom.potential_per_atom,
-      atom.force_per_atom,
-      atom.virial_per_atom);
+      atom,
+      group);
   } else if (strcmp(param[0], "compute_phonon") == 0) {
     Hessian hessian;
     hessian.parse(param, num_param);
-    hessian.compute(
-      force,
-      box,
-      atom.cpu_position_per_atom,
-      atom.position_per_atom,
-      atom.type,
-      group,
-      atom.potential_per_atom,
-      atom.force_per_atom,
-      atom.virial_per_atom);
+    hessian.compute(force, box, atom, group);
   } else if (strcmp(param[0], "compute_cohesive") == 0) {
     Cohesive cohesive;
     cohesive.parse(param, num_param, 0);
-    cohesive.compute(
-      box,
-      atom.position_per_atom,
-      atom.type,
-      group,
-      atom.potential_per_atom,
-      atom.force_per_atom,
-      atom.virial_per_atom,
-      force);
+    cohesive.compute(box, atom, group, force);
   } else if (strcmp(param[0], "compute_elastic") == 0) {
     Cohesive cohesive;
     cohesive.parse(param, num_param, 1);
-    cohesive.compute(
-      box,
-      atom.position_per_atom,
-      atom.type,
-      group,
-      atom.potential_per_atom,
-      atom.force_per_atom,
-      atom.virial_per_atom,
-      force);
+    cohesive.compute(box, atom, group, force);
   } else if (strcmp(param[0], "change_box") == 0) {
     parse_change_box(param, num_param);
   } else if (strcmp(param[0], "velocity") == 0) {
@@ -482,6 +458,10 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     std::unique_ptr<Property> property;
     property.reset(new Dump_XYZ(param, num_param, group, atom));
     measure.properties.emplace_back(std::move(property));
+  } else if (strcmp(param[0], "dump_cg") == 0) {
+    std::unique_ptr<Property> property;
+    property.reset(new Dump_CG(param, num_param, group));
+    measure.properties.emplace_back(std::move(property));
   } else if (strcmp(param[0], "dump_beads") == 0) {
     std::unique_ptr<Property> property;
     property.reset(new Dump_Beads(param, num_param));
@@ -524,7 +504,7 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     measure.properties.emplace_back(std::move(property));
   } else if (strcmp(param[0], "compute_rdf") == 0) {
     std::unique_ptr<Property> property;
-    property.reset(new RDF(param, num_param, box, number_of_types, number_of_steps));
+    property.reset(new RDF(param, num_param, box, atom.cpu_type_size, number_of_steps));
     measure.properties.emplace_back(std::move(property));
   } else if (strcmp(param[0], "compute_adf") == 0) {
     std::unique_ptr<Property> property;
@@ -572,6 +552,10 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     measure.properties.emplace_back(std::move(property));
   } else if (strcmp(param[0], "deform") == 0) {
     integrate.parse_deform(param, num_param);
+  } else if (strcmp(param[0], "compute_chunk") == 0) {
+    std::unique_ptr<Property> property;
+    property.reset(new ComputeChunk(param, num_param, box));
+    measure.properties.emplace_back(std::move(property));
   } else if (strcmp(param[0], "compute") == 0) {
     std::unique_ptr<Property> property;
     property.reset(new Compute(param, num_param, group));
@@ -586,6 +570,8 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     add_random_force.parse(param, num_param, atom.number_of_atoms);
   } else if (strcmp(param[0], "add_force") == 0) {
     add_force.parse(param, num_param, group);
+  } else if (strcmp(param[0], "add_spring") == 0) {
+    add_spring.parse(param, num_param, group, atom);
   } else if (strcmp(param[0], "add_efield") == 0) {
     add_efield.parse(param, num_param, group);
   } else if (strcmp(param[0], "mc") == 0) {
@@ -598,6 +584,15 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     std::unique_ptr<Property> property;
     property.reset(new LSQT(param, num_param));
     measure.properties.emplace_back(std::move(property));
+  } else if (strcmp(param[0], "save_virials") == 0) {
+    save_xyz_virials(
+      box,
+      atom.cpu_atom_symbol,
+      atom.position_per_atom,
+      atom.virial_per_atom);
+  } else if (strcmp(param[0], "neb_run") == 0 ||
+             strcmp(param[0], "neb_set") == 0) {
+    neb.parse_neb(param, num_param, force);
   } else if (strcmp(param[0], "run") == 0) {
     parse_run(param, num_param);
   } else {
@@ -630,10 +625,7 @@ void Run::parse_velocity(const char** param, int num_param)
   velocity.initialize(
     has_velocity_in_xyz,
     initial_temperature,
-    atom.cpu_mass,
-    atom.cpu_position_per_atom,
-    atom.cpu_velocity_per_atom,
-    atom.velocity_per_atom,
+    atom,
     use_seed,
     seed);
   if (!has_velocity_in_xyz) {

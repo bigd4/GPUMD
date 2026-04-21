@@ -8,8 +8,6 @@
 #    You can consider removing -Xcompiler "/wd 4819"
 # 3) Add -DUSE_PLUMED to CFLAGS when use the PLUMED plugin
 #    and remove it otherwise.
-# 4) Add -DUSE_TABLE to speed up MD simulations with NEP
-#    using pre-computed radial functions in the descriptors
 ###########################################################
 
 
@@ -17,11 +15,11 @@
 # some flags
 ###########################################################
 CC = nvcc
-CUDA_ARCH=-arch=sm_60
+CUDA_ARCH=-arch=sm_75
 ifdef OS # For Windows with the cl.exe compiler
-CFLAGS = -O3 $(CUDA_ARCH)
+CFLAGS = -O3 $(CUDA_ARCH) -DNO_THICKNESS_CHECK
 else # For linux
-CFLAGS = -std=c++14 -O3 $(CUDA_ARCH)
+CFLAGS = -std=c++14 -O3 $(CUDA_ARCH) -DNO_THICKNESS_CHECK #-g -G 
 endif
 INC = -I./
 LDFLAGS = 
@@ -40,7 +38,8 @@ SOURCES_GPUMD =                   \
 	$(wildcard force/*.cu)        \
 	$(wildcard measure/*.cu)      \
 	$(wildcard model/*.cu)        \
-	$(wildcard utilities/*.cu)
+	$(wildcard utilities/*.cu)    \
+	$(wildcard neb/*.cu)
 SOURCES_NEP =                     \
 	$(wildcard main_nep/*.cu)     \
 	$(wildcard utilities/*.cu)
@@ -77,6 +76,7 @@ HEADERS =                         \
 	$(wildcard model/*.cuh)       \
 	$(wildcard phonon/*.cuh)      \
 	$(wildcard main_nep/*.cuh)    \
+	$(wildcard neb/*.cuh)	      \
 	$(wildcard main_gnep/*.cuh)
 
 
@@ -113,6 +113,8 @@ minimize/%.obj: minimize/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 force/%.obj: force/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+neb/%.obj: neb/%.cu $(HEADERS)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 measure/%.obj: measure/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 main_gpumd/%.obj: main_gpumd/%.cu $(HEADERS)
@@ -135,6 +137,8 @@ mc/%.o: mc/%.cu $(HEADERS)
 minimize/%.o: minimize/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 force/%.o: force/%.cu $(HEADERS)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+neb/%.o: neb/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 measure/%.o: measure/%.cu $(HEADERS)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
