@@ -19,7 +19,6 @@ Below you can find a listing of keywords for the ``nep.in`` input file.
    zbl
    use_typewise_cutoff_zbl
    cutoff
-   use_typewise_cutoff
    n_max
    basis_size
    l_max
@@ -29,8 +28,15 @@ Below you can find a listing of keywords for the ``nep.in`` input file.
    lambda_e
    lambda_f
    lambda_v
+   lambda_q
+   lambda_z
+   atomic_v
    lambda_shear
    force_delta
    batch
    population
    generation
+   save_potential
+   output_descriptor
+   fine_tune
+   charge_mode

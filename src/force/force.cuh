@@ -54,8 +54,10 @@ public:
   
   // void compute(Atoms& atoms);
 
+  void finalize();
+
   int get_number_of_types(FILE* fid_potential);
-  void set_hnemd_parameters(const bool, const double, const double, const double);
+  void set_hnemd_parameters(const double, const double, const double);
   void set_hnemdec_parameters(
     const int compute_hnemdec,
     const double hnemd_fe_x,

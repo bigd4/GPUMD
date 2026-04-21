@@ -24,12 +24,15 @@ The driver class for the various integrators.
 #include "ensemble_msst.cuh"
 #include "ensemble_mttk.cuh"
 #include "ensemble_nhc.cuh"
+#include "ensemble_npt_qtb.cuh"
 #include "ensemble_nphug.cuh"
 #include "ensemble_npt_scr.cuh"
 #include "ensemble_nve.cuh"
 #include "ensemble_pimd.cuh"
+#include "ensemble_qtb.cuh"
 #include "ensemble_ti.cuh"
 #include "ensemble_ti_as.cuh"
+#include "ensemble_ti_liquid.cuh"
 #include "ensemble_ti_rs.cuh"
 #include "ensemble_ti_spring.cuh"
 #include "ensemble_wall_harmonic.cuh"
@@ -38,7 +41,9 @@ The driver class for the various integrators.
 #include "integrate.cuh"
 #include "model/atom.cuh"
 #include "utilities/common.cuh"
+#include "utilities/gpu_macro.cuh"
 #include "utilities/read_file.cuh"
+#include <cstring>
 
 void Integrate::initialize(
   double time_step,
@@ -54,10 +59,13 @@ void Integrate::initialize(
     if (fixed_group < 0) {
       PRINT_INPUT_ERROR("It is not allowed to have moving group but no fixed group.");
     }
+    if (fixed_grouping_method != move_grouping_method) {
+      PRINT_INPUT_ERROR("The fixed and moving groups must use the same grouping method.");
+    }
     if (move_group == fixed_group) {
       PRINT_INPUT_ERROR("The fixed and moving groups cannot be the same.");
     }
-    if (type != 1 && type != 2 && type != 4) {
+    if (type != 1 && type != 2 && type != 4 && type != 22) {
       PRINT_INPUT_ERROR(
         "It is only allowed to use nvt_ber, nvt_nhc, or nvt_bdp with a moving group.");
     }
@@ -91,6 +99,16 @@ void Integrate::initialize(
       break;
     case 5: // NVT-BAOAB_Langevin
       ensemble.reset(new Ensemble_BAO(type, number_of_atoms, temperature, temperature_coupling));
+      break;
+    case 6: // NVT-QTB
+      ensemble.reset(new Ensemble_QTB(
+        type,
+        number_of_atoms,
+        temperature,
+        temperature_coupling,
+        time_step,
+        qtb_f_max,
+        qtb_n_f));
       break;
     case 11: // NPT-Berendsen
       ensemble.reset(new Ensemble_BER(
@@ -138,6 +156,10 @@ void Integrate::initialize(
       break;
     case -10:
       break;
+    case -11: // ti_liquid
+      break;
+    case -12: // npt_qtb
+      break;
     case 21: // heat-NHC
       ensemble.reset(new Ensemble_NHC(
         type,
@@ -153,6 +175,8 @@ void Integrate::initialize(
     case 22: // heat-Langevin
       ensemble.reset(new Ensemble_LAN(
         type,
+        move_group, 
+        move_velocity,
         source,
         sink,
         group[0].cpu_size[source],
@@ -201,12 +225,16 @@ void Integrate::initialize(
   ensemble->total_steps = &this->total_steps;
   ensemble->thermo = &thermo;
   ensemble->fixed_group = fixed_group;
+  ensemble->fixed_grouping_method = fixed_grouping_method;
+  ensemble->move_grouping_method = move_grouping_method;
 }
 
 void Integrate::finalize()
 {
   fixed_group = -1; // no group has an index of -1
   move_group = -1;
+  fixed_grouping_method = 0;
+  move_grouping_method = 0;
   deform_x = 0;
   deform_y = 0;
   deform_z = 0;
@@ -264,31 +292,34 @@ void Integrate::compute1(
       temperature1 + (temperature2 - temperature1) * step_over_number_of_steps;
   }
 
-  const int num_atoms = atom.position_per_atom.size() / 3;
-  gpu_copy_position<<<(num_atoms - 1) / 128 + 1, 128>>>(
-    num_atoms,
-    atom.position_per_atom.data(),
-    atom.position_per_atom.data() + num_atoms,
-    atom.position_per_atom.data() + num_atoms * 2,
-    atom.position_temp.data(),
-    atom.position_temp.data() + num_atoms,
-    atom.position_temp.data() + num_atoms * 2);
-  CUDA_CHECK_KERNEL
+  if (atom.unwrapped_position.size() > 0) {
+    gpu_copy_position<<<(atom.number_of_atoms - 1) / 128 + 1, 128>>>(
+      atom.number_of_atoms,
+      atom.position_per_atom.data(),
+      atom.position_per_atom.data() + atom.number_of_atoms,
+      atom.position_per_atom.data() + atom.number_of_atoms * 2,
+      atom.position_temp.data(),
+      atom.position_temp.data() + atom.number_of_atoms,
+      atom.position_temp.data() + atom.number_of_atoms * 2);
+    GPU_CHECK_KERNEL
+  }
 
   ensemble->compute1(time_step, group, box, atom, thermo);
 
-  gpu_update_unwrapped_position<<<(num_atoms - 1) / 128 + 1, 128>>>(
-    num_atoms,
-    atom.position_per_atom.data(),
-    atom.position_per_atom.data() + num_atoms,
-    atom.position_per_atom.data() + num_atoms * 2,
-    atom.position_temp.data(),
-    atom.position_temp.data() + num_atoms,
-    atom.position_temp.data() + num_atoms * 2,
-    atom.unwrapped_position.data(),
-    atom.unwrapped_position.data() + num_atoms,
-    atom.unwrapped_position.data() + num_atoms * 2);
-  CUDA_CHECK_KERNEL
+  if (atom.unwrapped_position.size() > 0) {
+    gpu_update_unwrapped_position<<<(atom.number_of_atoms - 1) / 128 + 1, 128>>>(
+      atom.number_of_atoms,
+      atom.position_per_atom.data(),
+      atom.position_per_atom.data() + atom.number_of_atoms,
+      atom.position_per_atom.data() + atom.number_of_atoms * 2,
+      atom.position_temp.data(),
+      atom.position_temp.data() + atom.number_of_atoms,
+      atom.position_temp.data() + atom.number_of_atoms * 2,
+      atom.unwrapped_position.data(),
+      atom.unwrapped_position.data() + atom.number_of_atoms,
+      atom.unwrapped_position.data() + atom.number_of_atoms * 2);
+    GPU_CHECK_KERNEL
+  }
 }
 
 void Integrate::compute2(
@@ -297,13 +328,17 @@ void Integrate::compute2(
   const std::vector<Group>& group,
   Box& box,
   Atom& atom,
-  GPU_Vector<double>& thermo)
+  GPU_Vector<double>& thermo,
+  Force& force)
 {
   if (type == 0 || type == 31 || type == 32) {
     ensemble->temperature = temperature2;
   } else if (type > 0 && (type <= 20 || type == 33)) {
     ensemble->temperature =
       temperature1 + (temperature2 - temperature1) * step_over_number_of_steps;
+  } else if (type == -11) {
+    ensemble->compute3(time_step, group, box, atom, thermo, force);
+    return;
   }
 
   ensemble->compute2(time_step, group, box, atom, thermo);
@@ -324,6 +359,9 @@ void Integrate::parse_ensemble(
   std::vector<Group>& group,
   GPU_Vector<double>& thermo)
 {
+  qtb_f_max = 200.0;
+  qtb_n_f = 100;
+
   // 1. Determine the integration method
   if (strcmp(param[1], "nve") == 0) {
     type = 0;
@@ -355,6 +393,12 @@ void Integrate::parse_ensemble(
     if (num_param != 5) {
       PRINT_INPUT_ERROR("ensemble nvt_bao should have 3 parameters.");
     }
+  } else if (strcmp(param[1], "nvt_qtb") == 0) {
+    type = 6;
+    if (num_param < 5 || num_param % 2 == 0) {
+      PRINT_INPUT_ERROR(
+        "ensemble nvt_qtb should have 3 required parameters plus optional key-value pairs.");
+    }
   } else if (strcmp(param[1], "npt_ber") == 0) {
     type = 11;
     if (num_param != 18 && num_param != 12 && num_param != 8) {
@@ -370,6 +414,12 @@ void Integrate::parse_ensemble(
     strcmp(param[1], "nph_mttk") == 0) {
     type = -3;
     Ensemble_MTTK* ptr_temp = new Ensemble_MTTK(param, num_param);
+    ensemble.reset(ptr_temp);
+    temperature1 = ptr_temp->t_start;
+    temperature2 = ptr_temp->t_stop;
+  } else if (strcmp(param[1], "npt_qtb") == 0) {
+    type = -12;
+    Ensemble_NPT_QTB* ptr_temp = new Ensemble_NPT_QTB(param, num_param);
     ensemble.reset(ptr_temp);
     temperature1 = ptr_temp->t_start;
     temperature2 = ptr_temp->t_stop;
@@ -430,6 +480,9 @@ void Integrate::parse_ensemble(
   } else if (strcmp(param[1], "wall_harmonic") == 0) {
     type = -10;
     ensemble.reset(new Ensemble_wall_harmonic(param, num_param));
+  } else if (strcmp(param[1], "ti_liquid") == 0) {
+    type = -11;
+    ensemble.reset(new Ensemble_TI_Liquid(param, num_param));
   } else {
     PRINT_INPUT_ERROR("Invalid ensemble type.");
   }
@@ -470,6 +523,32 @@ void Integrate::parse_ensemble(
     }
   }
 
+  // 2b. Optional parameters for QTB
+  if (type == 6) {
+    // For nvt_qtb (type 6): optional params start at index 5
+    int i = 5;
+    while (i < num_param) {
+      if (strcmp(param[i], "f_max") == 0) {
+        if (!is_valid_real(param[i + 1], &qtb_f_max)) {
+          PRINT_INPUT_ERROR("f_max should be a number.");
+        }
+        if (qtb_f_max <= 0.0) {
+          PRINT_INPUT_ERROR("f_max should > 0.");
+        }
+      } else if (strcmp(param[i], "N_f") == 0) {
+        if (!is_valid_int(param[i + 1], &qtb_n_f)) {
+          PRINT_INPUT_ERROR("N_f should be an integer.");
+        }
+        if (qtb_n_f <= 0) {
+          PRINT_INPUT_ERROR("N_f should > 0.");
+        }
+      } else {
+        PRINT_INPUT_ERROR("Unknown nvt_qtb optional keyword.");
+      }
+      i += 2;
+    }
+  }
+
   // 3. Pressures and pressure_coupling (NPT)
   if (type >= 11 && type < 20) {
     // pressures:
@@ -488,7 +567,9 @@ void Integrate::parse_ensemble(
         }
       }
       num_target_pressure_components = 3;
-      if (box.triclinic == 1) {
+      if (
+        box.cpu_h[1] != 0 || box.cpu_h[2] != 0 || box.cpu_h[3] != 0 || box.cpu_h[5] != 0 ||
+        box.cpu_h[6] != 0 || box.cpu_h[7] != 0) {
         PRINT_INPUT_ERROR("Cannot use triclinic box with only 3 target pressure components.");
       }
     } else if (num_param == 8) { // isotropic
@@ -502,7 +583,9 @@ void Integrate::parse_ensemble(
         PRINT_INPUT_ERROR("elastic modulus should > 0.");
       }
       num_target_pressure_components = 1;
-      if (box.triclinic == 1) {
+      if (
+        box.cpu_h[1] != 0 || box.cpu_h[2] != 0 || box.cpu_h[3] != 0 || box.cpu_h[5] != 0 ||
+        box.cpu_h[6] != 0 || box.cpu_h[7] != 0) {
         PRINT_INPUT_ERROR("Cannot use triclinic box with only 1 target pressure component.");
       }
       if (box.pbc_x == 0 || box.pbc_y == 0 || box.pbc_z == 0) {
@@ -524,9 +607,6 @@ void Integrate::parse_ensemble(
         }
       }
       num_target_pressure_components = 6;
-      if (box.triclinic == 0) {
-        PRINT_INPUT_ERROR("Must use triclinic box with 6 target pressure components.");
-      }
       if (box.pbc_x == 0 || box.pbc_y == 0 || box.pbc_z == 0) {
         PRINT_INPUT_ERROR(
           "Cannot use 6 pressure components with non-periodic boundary in any direction.");
@@ -549,6 +629,9 @@ void Integrate::parse_ensemble(
     }
     for (int i = 0; i < 6; i++) {
       pressure_coupling[i] = 1.0 / (tau_p * 3.0 * elastic_modulus[i]);
+      if (elastic_modulus[i] > 2.0e3) {
+        pressure_coupling[i] = 0.0;
+      }
     }
   }
 
@@ -668,7 +751,9 @@ void Integrate::parse_ensemble(
             }
           }
           num_target_pressure_components = 3;
-          if (box.triclinic == 1) {
+          if (
+            box.cpu_h[1] != 0 || box.cpu_h[2] != 0 || box.cpu_h[3] != 0 || box.cpu_h[5] != 0 ||
+            box.cpu_h[6] != 0 || box.cpu_h[7] != 0) {
             PRINT_INPUT_ERROR("Cannot use triclinic box with only 3 target pressure components.");
           }
         } else if (num_param == 9) { // isotropic
@@ -682,7 +767,9 @@ void Integrate::parse_ensemble(
             PRINT_INPUT_ERROR("elastic modulus should > 0.");
           }
           num_target_pressure_components = 1;
-          if (box.triclinic == 1) {
+          if (
+            box.cpu_h[1] != 0 || box.cpu_h[2] != 0 || box.cpu_h[3] != 0 || box.cpu_h[5] != 0 ||
+            box.cpu_h[6] != 0 || box.cpu_h[7] != 0) {
             PRINT_INPUT_ERROR("Cannot use triclinic box with only 1 target pressure component.");
           }
           if (box.pbc_x == 0 || box.pbc_y == 0 || box.pbc_z == 0) {
@@ -704,9 +791,6 @@ void Integrate::parse_ensemble(
             }
           }
           num_target_pressure_components = 6;
-          if (box.triclinic == 0) {
-            PRINT_INPUT_ERROR("Must use triclinic box with 6 target pressure components.");
-          }
           if (box.pbc_x == 0 || box.pbc_y == 0 || box.pbc_z == 0) {
             PRINT_INPUT_ERROR(
               "Cannot use 6 pressure components with non-periodic boundary in any direction.");
@@ -723,6 +807,9 @@ void Integrate::parse_ensemble(
         }
         for (int i = 0; i < 6; i++) {
           pressure_coupling[i] = 1.0 / (tau_p * 3.0 * elastic_modulus[i]);
+          if (elastic_modulus[i] > 2.0e3) {
+            pressure_coupling[i] = 0.0;
+          }
         }
       }
     }
@@ -766,6 +853,15 @@ void Integrate::parse_ensemble(
       printf("    initial temperature is %g K.\n", temperature1);
       printf("    final temperature is %g K.\n", temperature2);
       printf("    tau_T is %g time_step.\n", temperature_coupling);
+      break;
+    case 6:
+      printf("Use NVT ensemble for this run.\n");
+      printf("    choose the quantum thermal bath method.\n");
+      printf("    initial temperature is %g K.\n", temperature1);
+      printf("    final temperature is %g K.\n", temperature2);
+      printf("    tau_T is %g time_step.\n", temperature_coupling);
+      printf("    f_max is %g ps^-1.\n", qtb_f_max);
+      printf("    N_f is %d.\n", qtb_n_f);
       break;
     case 11:
       if (temperature_coupling <= 100000) {
@@ -870,6 +966,10 @@ void Integrate::parse_ensemble(
       break;
     case -10:
       break;
+    case -11:
+      break;
+    case -12: // npt_qtb (self-parsed)
+      break;
     case 21:
       printf("Integrate with heating and cooling for this run.\n");
       printf("    choose the Nose-Hoover chain method.\n");
@@ -963,64 +1063,105 @@ void Integrate::parse_ensemble(
 
 void Integrate::parse_fix(const char** param, int num_param, std::vector<Group>& group)
 {
-  if (num_param != 2) {
-    PRINT_INPUT_ERROR("Keyword 'fix' should have 1 parameter.");
-  }
-
-  if (!is_valid_int(param[1], &fixed_group)) {
-    PRINT_INPUT_ERROR("Fixed group ID should be an integer.");
+  if (num_param != 2 && num_param != 3) {
+    PRINT_INPUT_ERROR("Keyword 'fix' should have 1 or 2 parameters.");
   }
 
   if (group.size() < 1) {
     PRINT_INPUT_ERROR("Cannot use 'fix' without grouping method.");
   }
 
+  if (num_param == 3) {
+    // fix grouping_method group_id
+    if (!is_valid_int(param[1], &fixed_grouping_method)) {
+      PRINT_INPUT_ERROR("Grouping method for 'fix' should be an integer.");
+    }
+    if (fixed_grouping_method < 0) {
+      PRINT_INPUT_ERROR("Grouping method for 'fix' should >= 0.");
+    }
+    if (fixed_grouping_method >= group.size()) {
+      PRINT_INPUT_ERROR("Grouping method for 'fix' should < number of grouping methods.");
+    }
+    if (!is_valid_int(param[2], &fixed_group)) {
+      PRINT_INPUT_ERROR("Fixed group ID should be an integer.");
+    }
+  } else {
+    // fix group_id (default grouping_method = 0)
+    fixed_grouping_method = 0;
+    if (!is_valid_int(param[1], &fixed_group)) {
+      PRINT_INPUT_ERROR("Fixed group ID should be an integer.");
+    }
+  }
+
   if (fixed_group < 0) {
     PRINT_INPUT_ERROR("Fixed group ID should >= 0.");
   }
 
-  if (fixed_group >= group[0].number) {
+  if (fixed_group >= group[fixed_grouping_method].number) {
     PRINT_INPUT_ERROR("Fixed group ID should < number of groups.");
   }
 
-  printf("Group %d in grouping method 0 will be fixed.\n", fixed_group);
+  printf(
+    "Group %d in grouping method %d will be fixed.\n", fixed_group, fixed_grouping_method);
 }
 
 void Integrate::parse_move(const char** param, int num_param, std::vector<Group>& group)
 {
-  if (num_param != 5) {
-    PRINT_INPUT_ERROR("Keyword 'move' should have 4 parameters.");
-  }
-
-  if (!is_valid_int(param[1], &move_group)) {
-    PRINT_INPUT_ERROR("Moving group ID should be an integer.");
+  if (num_param != 5 && num_param != 6) {
+    PRINT_INPUT_ERROR("Keyword 'move' should have 4 or 5 parameters.");
   }
 
   if (group.size() < 1) {
     PRINT_INPUT_ERROR("Cannot use 'move' without grouping method.");
   }
 
+  int vid; // index where vx starts
+  if (num_param == 6) {
+    // move grouping_method group_id vx vy vz
+    if (!is_valid_int(param[1], &move_grouping_method)) {
+      PRINT_INPUT_ERROR("Grouping method for 'move' should be an integer.");
+    }
+    if (move_grouping_method < 0) {
+      PRINT_INPUT_ERROR("Grouping method for 'move' should >= 0.");
+    }
+    if (move_grouping_method >= group.size()) {
+      PRINT_INPUT_ERROR("Grouping method for 'move' should < number of grouping methods.");
+    }
+    if (!is_valid_int(param[2], &move_group)) {
+      PRINT_INPUT_ERROR("Moving group ID should be an integer.");
+    }
+    vid = 3;
+  } else {
+    // move group_id vx vy vz (default grouping_method = 0)
+    move_grouping_method = 0;
+    if (!is_valid_int(param[1], &move_group)) {
+      PRINT_INPUT_ERROR("Moving group ID should be an integer.");
+    }
+    vid = 2;
+  }
+
   if (move_group < 0) {
     PRINT_INPUT_ERROR("Moving group ID should >= 0.");
   }
 
-  if (move_group >= group[0].number) {
+  if (move_group >= group[move_grouping_method].number) {
     PRINT_INPUT_ERROR("Moving group ID should < number of groups.");
   }
 
-  if (!is_valid_real(param[2], &move_velocity[0])) {
+  if (!is_valid_real(param[vid], &move_velocity[0])) {
     PRINT_INPUT_ERROR("Moving velocity in x direction should be a number.");
   }
-  if (!is_valid_real(param[3], &move_velocity[1])) {
+  if (!is_valid_real(param[vid + 1], &move_velocity[1])) {
     PRINT_INPUT_ERROR("Moving velocity in y direction should be a number.");
   }
-  if (!is_valid_real(param[4], &move_velocity[2])) {
+  if (!is_valid_real(param[vid + 2], &move_velocity[2])) {
     PRINT_INPUT_ERROR("Moving velocity in z direction should be a number.");
   }
 
   printf(
-    "Group %d in grouping method 0 will move with velocity vector (%g, %g, %g) A/fs.\n",
+    "Group %d in grouping method %d will move with velocity vector (%g, %g, %g) A/fs.\n",
     move_group,
+    move_grouping_method,
     move_velocity[0],
     move_velocity[1],
     move_velocity[2]);

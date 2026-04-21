@@ -24,100 +24,134 @@ This software is distributed under the GNU General Public License (GPL) version 
 * When the compilation finishes, two executables, `gpumd` and `nep`, will be generated in the `src` directory. 
 
 ## Run GPUMD
-* Go to the directory of an example and type one of the following commands:
+* Go to the directory of an example in the [examples directory](examples) and type one of the following commands:
   * `path/to/gpumd`
   * `path/to/nep`
 
-## Colab tutorial
+## Tutorials
 * We provide a [Colab Tutorial](https://colab.research.google.com/drive/1QnXAveZgzwut4Mvldsw-r2I0EWIsj1KA?usp=sharing) to show the workflow of the construction of a NEP model and its application in large-scale atomistic simulations for PbTe system. This will run entirely on Google's cloud virtual machine.
-* You can also check other offline tutorials in the examples.
+* We also provide many tutorials and examples in the [GPUMD-Tutorials repository](https://github.com/brucefan1983/GPUMD-Tutorials).
 
 ## Manual
-* Latest released version: https://gpumd.org/
-* Development version: https://gpumd.org/dev/
+* For users and developers:
+  * Latest released version: https://gpumd.org/
+  * Development version: https://gpumd.org/dev/
+* For developers only:
+  * [The developer guide](developers)
+  
+## Discussion
+* Github discussion: https://github.com/brucefan1983/GPUMD/discussions
+* matsci.org discussion: https://matsci.org/c/gpumd/68
 
-## Python packages related to GPUMD and/or NEP:
+## Tools
 
-| Package               | link                           | comment |
-| --------------------- | --------------------------------- | ---------------------------------- |
-| `calorine`            | https://gitlab.com/materials-modeling/calorine  | `calorine` is a Python package for running and analyzing molecular dynamics (MD) simulations via GPUMD. It also provides functionality for constructing and sampling neuroevolution potential (NEP) models via GPUMD. |
-| `GPUMD-Wizard`        | https://github.com/Jonsnow-willow/GPUMD-Wizard  | `GPUMD-Wizard` is a material structure processing software based on ASE (Atomic Simulation Environment) providing automation capabilities for calculating various properties of metals. Additionally, it aims to run and analyze molecular dynamics (MD) simulations using GPUMD.  |
-| `gpyumd`              |https://github.com/AlexGabourie/gpyumd   | `gpyumd` is a Python3 interface for GPUMD. It helps users generate input and process output files based on the details provided by the GPUMD documentation. It currently supports up to GPUMD-v3.3.1 and only the gpumd executable. |
-| `mdapy`               | https://github.com/mushroomfire/mdapy | The `mdapy` python library provides an array of powerful, flexible, and straightforward tools to analyze atomic trajectories generated from Molecular Dynamics (MD) simulations. |
-| `pynep`               | https://github.com/bigd4/PyNEP   | `PyNEP` is a python interface of the machine learning potential NEP used in GPUMD. |
-| `somd`                | https://github.com/initqp/somd  | `SOMD` is an ab-initio molecular dynamics (AIMD) package designed for the SIESTA DFT code. The SOMD code provides some common functionalities to perform standard Born-Oppenheimer molecular dynamics (BOMD) simulations, and contains a simple wrapper to the Neuroevolution Potential (NEP) package. The SOMD code may be used to automatically build NEPs by the mean of the active-learning methodology. |
+Various tools for `GPUMD` and `NEP` can be found in [tools](./tools/readme.md).
+
+## CPU version of NEP
+There is a standalone C++ implementation of the neuroevolution potential (NEP) in the [NEP_CPU repository](https://github.com/brucefan1983/NEP_CPU), which serves as the engine for many Python packages and provides an interface to the [LAMMPS package](https://github.com/lammps/lammps).
 
 ## Citations
 
 | Reference             | cite for what?                    |
 | --------------------- | --------------------------------- |
-| [1]                   | for any work that used `GPUMD`   |
-| [2-3]                 | virial and heat current formulation   |
-| [4]                   | in-out decomposition and related spectral decomposition  |
-| [5,3]                 | HNEMD and related spectral decomposition   |
-| [6]                   | force constant potential (FCP) |
-| [7]                   | neuroevolution potential (NEP) and specifically NEP1 |
-| [8]                   | NEP2 |
-| [9]                   | NEP3 |
-| [10]                  | NEP + ZBL |
-| [11]                  | NEP + D3 dispersion correction |
-| [12]                  | MSST integrator for shock wave simulation |
-| [13]                  | linear-scaling quantum transport |
-| [14]                  | NEP4 |
-| [15]                  | TNEP (tensorial NEP models of dipole and polarizability) |
-| [16]                  | MCMD (hybrid Monte Carlo and molecular dynamics simulations) |
-| [17]                  | PIMD/TRPMD (path-integral molecular dynamics/thermostatted ring-polymer molecular dynamics) |
+| [Xu2025]                   | for any work that used `GPUMD`    |
+| [Fan2017]                   | for historical citation   |
+| [Fan2015]                 | virial and heat current formulation   |
+| [Fan2017]                   | in-out decomposition and related spectral decomposition  |
+| [Fan2019]                 | HNEMD and related spectral decomposition   |
+| [Gabourie2021]                 | EMD and HNEMD based modal analyses   |
+| [Brorsson2021]                   | force constant potential (FCP) |
+| [Fan2021]                   | neuroevolution potential (NEP) and specifically NEP1 |
+| [Fan2022JPCM]                   | NEP2 |
+| [Fan2022JCP]                   | NEP3 |
+| [Liu2023]                  | NEP + ZBL |
+| [Ying2024]                  | NEP + D3 dispersion correction |
+| [Shi2023]                  | MSST integrator for shock wave simulation |
+| [Fan2024]                  | linear-scaling quantum transport |
+| [Song2024]                  | NEP4 or UNEP-v1 (General-purpose machine-learned potential for 16 elemental metals and their alloys)|
+| [Xu2024]                  | TNEP (tensorial NEP models of dipole and polarizability) |
+| [Song2026]                  | MCMD (hybrid Monte Carlo and molecular dynamics simulations) |
+| [Ying2025]                  | PIMD/TRPMD (path-integral molecular dynamics/thermostatted ring-polymer molecular dynamics) |
+| [Pan2024]                  | NEMD and NPHug shock methods |
+| [Jiang2025]                  | SW + ILP (hybrid Stillinger-Weber potential with anisotropic interlayer potential) |
+| [Liang2025]                  | NEP89 (Universal neuroevolution potential for inorganic and organic materials across 89 elements) |
+| [Huang2026]                  | GNEP: An alternative training scheme for NEP models |
+| [Fan2026a]                  | qNEP: NEP with dynamic charge (q) |
+| [Li2025]                    | CGNEP: Coarse-grained machine learning potential for mesoscale multilayered graphene (https://github.com/lmqnuaa/CGNEP) |
+| [Fan2026b]                  | NEP-CG and NEP-AACG: NEP with coarse graining |
+| [Bu2026]                  | NEP + ILP (hybrid NEP with anisotropic interlayer potential) |
+
 
 ## References
 
-[1] Zheyong Fan, Wei Chen, Ville Vierimaa, and Ari Harju. [Efficient molecular dynamics simulations with many-body potentials on graphics processing units](https://doi.org/10.1016/j.cpc.2017.05.003), Computer Physics Communications **218**, 10 (2017). 
+[Xu2025] Ke Xu, Hekai Bu, Shuning Pan, Eric Lindgren, Yongchao Wu, Yong Wang, Jiahui Liu, Keke Song, Bin Xu, Yifan Li, Tobias Hainer, Lucas Svensson, Julia Wiktor, Rui Zhao, Hongfu Huang, Cheng Qian, Shuo Zhang, Zezhu Zeng, Bohan Zhang, Benrui Tang, Yang Xiao, Zihan Yan, Jiuyang Shi, Zhixin Liang, Junjie Wang, Ting Liang, Shuo Cao, Yanzhou Wang, Penghua Ying, Nan Xu, Chengbing Chen, Yuwen Zhang, Zherui Chen, Xin Wu, Wenwu Jiang, Esme Berger, Yanlong Li, Shunda Chen, Alexander J. Gabourie, Haikuan Dong, Shiyun Xiong, Ning Wei, Yue Chen, Jianbin Xu, Feng Ding, Zhimei Sun, Tapio Ala-Nissila, Ari Harju, Jincheng Zheng, Pengfei Guan, Paul Erhart, Jian Sun, Wengen Ouyang, Yanjing Su, Zheyong Fan, [GPUMD 4.0: A high-performance molecular dynamics package for versatile materials simulations with machine-learned potentials]( https://doi.org/10.1002/mgea.70028), MGE Advances **3**, e70028 (2025).
 
-[2] Zheyong Fan, Luiz Felipe C. Pereira, Hui-Qiong Wang, Jin-Cheng Zheng, Davide Donadio, and Ari Harju. [Force and heat current formulas for many-body potentials in molecular dynamics simulations with applications to thermal conductivity calculations](https://doi.org/10.1103/PhysRevB.92.094301), Phys. Rev. B **92**, 094301, (2015). 
+[Fan2017] Zheyong Fan, Wei Chen, Ville Vierimaa, and Ari Harju. [Efficient molecular dynamics simulations with many-body potentials on graphics processing units](https://doi.org/10.1016/j.cpc.2017.05.003), Computer Physics Communications **218**, 10 (2017). 
 
-[3] Alexander J. Gabourie, Zheyong Fan, Tapio Ala-Nissila, Eric Pop,
+[Fan2015] Zheyong Fan, Luiz Felipe C. Pereira, Hui-Qiong Wang, Jin-Cheng Zheng, Davide Donadio, and Ari Harju. [Force and heat current formulas for many-body potentials in molecular dynamics simulations with applications to thermal conductivity calculations](https://doi.org/10.1103/PhysRevB.92.094301), Phys. Rev. B **92**, 094301, (2015). 
+
+[Gabourie2021] Alexander J. Gabourie, Zheyong Fan, Tapio Ala-Nissila, Eric Pop,
 [Spectral Decomposition of Thermal Conductivity: Comparing Velocity Decomposition Methods in Homogeneous Molecular Dynamics Simulations](https://doi.org/10.1103/PhysRevB.103.205421),
 Phys. Rev. B **103**, 205421 (2021).
 
-[4] Zheyong Fan, Luiz Felipe C. Pereira, Petri Hirvonen, Mikko M. Ervasti, Ken R. Elder, Davide Donadio, Tapio Ala-Nissila, and Ari Harju. [Thermal conductivity decomposition in two-dimensional materials: Application to graphene](https://doi.org/10.1103/PhysRevB.95.144309), Phys. Rev. B **95**, 144309, (2017).  
+[Fan2017] Zheyong Fan, Luiz Felipe C. Pereira, Petri Hirvonen, Mikko M. Ervasti, Ken R. Elder, Davide Donadio, Tapio Ala-Nissila, and Ari Harju. [Thermal conductivity decomposition in two-dimensional materials: Application to graphene](https://doi.org/10.1103/PhysRevB.95.144309), Phys. Rev. B **95**, 144309, (2017).  
 
-[5] Zheyong Fan, Haikuan Dong, Ari Harju, and Tapio Ala-Nissila, [Homogeneous nonequilibrium molecular dynamics method for heat transport and spectral decomposition with many-body potentials](https://doi.org/10.1103/PhysRevB.99.064308), Phys. Rev. B **99**, 064308 (2019). 
+[Fan2019] Zheyong Fan, Haikuan Dong, Ari Harju, and Tapio Ala-Nissila, [Homogeneous nonequilibrium molecular dynamics method for heat transport and spectral decomposition with many-body potentials](https://doi.org/10.1103/PhysRevB.99.064308), Phys. Rev. B **99**, 064308 (2019). 
 
-[6] Joakim Brorsson, Arsalan Hashemi, Zheyong Fan, Erik Fransson, Fredrik Eriksson, Tapio Ala-Nissila, Arkady V. Krasheninnikov, Hannu-Pekka Komsa, Paul Erhart, [Efficient calculation of the lattice thermal conductivity by atomistic simulations with ab-initio accuracy]( https://doi.org/10.1002/adts.202100217), Advanced Theory and Simulations **4**, 2100217 (2021). 
+[Brorsson2021] Joakim Brorsson, Arsalan Hashemi, Zheyong Fan, Erik Fransson, Fredrik Eriksson, Tapio Ala-Nissila, Arkady V. Krasheninnikov, Hannu-Pekka Komsa, Paul Erhart, [Efficient calculation of the lattice thermal conductivity by atomistic simulations with ab-initio accuracy]( https://doi.org/10.1002/adts.202100217), Advanced Theory and Simulations **4**, 2100217 (2021). 
 
-[7] Zheyong Fan, Zezhu Zeng, Cunzhi Zhang, Yanzhou Wang, Keke Song, Haikuan Dong, Yue Chen, and Tapio Ala-Nissila, [Neuroevolution machine learning potentials: Combining high accuracy and low cost in atomistic simulations and application to heat transport](https://doi.org/10.1103/PhysRevB.104.104309), Phys. Rev. B. **104**, 104309 (2021).
+[Fan2021] Zheyong Fan, Zezhu Zeng, Cunzhi Zhang, Yanzhou Wang, Keke Song, Haikuan Dong, Yue Chen, and Tapio Ala-Nissila, [Neuroevolution machine learning potentials: Combining high accuracy and low cost in atomistic simulations and application to heat transport](https://doi.org/10.1103/PhysRevB.104.104309), Phys. Rev. B. **104**, 104309 (2021).
 
-[8] Zheyong Fan, [Improving the accuracy of the neuroevolution machine learning potentials for multi-component systems](https://iopscience.iop.org/article/10.1088/1361-648X/ac462b), Journal of Physics: Condensed Matter **34**, 125902 (2022).
+[Fan2022JPCM] Zheyong Fan, [Improving the accuracy of the neuroevolution machine learning potentials for multi-component systems](https://iopscience.iop.org/article/10.1088/1361-648X/ac462b), Journal of Physics: Condensed Matter **34**, 125902 (2022).
 
-[9] Zheyong Fan, Yanzhou Wang, Penghua Ying, Keke Song, Junjie Wang, Yong Wang, Zezhu Zeng, Ke Xu, Eric Lindgren, J. Magnus Rahm, Alexander J. Gabourie, Jiahui Liu, Haikuan Dong, Jianyang Wu, Yue Chen, Zheng Zhong, Jian Sun, Paul Erhart, Yanjing Su, Tapio Ala-Nissila,
+[Fan2022JCP] Zheyong Fan, Yanzhou Wang, Penghua Ying, Keke Song, Junjie Wang, Yong Wang, Zezhu Zeng, Ke Xu, Eric Lindgren, J. Magnus Rahm, Alexander J. Gabourie, Jiahui Liu, Haikuan Dong, Jianyang Wu, Yue Chen, Zheng Zhong, Jian Sun, Paul Erhart, Yanjing Su, Tapio Ala-Nissila,
 [GPUMD: A package for constructing accurate machine-learned potentials and performing highly efficient atomistic simulations](https://doi.org/10.1063/5.0106617), The Journal of Chemical Physics **157**, 114801 (2022).
 
-[10] Jiahui Liu, Jesper Byggmästar, Zheyong Fan, Ping Qian, and Yanjing Su,
+[Liu2023] Jiahui Liu, Jesper Byggmästar, Zheyong Fan, Ping Qian, and Yanjing Su,
 [Large-scale machine-learning molecular dynamics simulation of primary radiation damage in tungsten](https://doi.org/10.1103/PhysRevB.108.054312),
 Phys. Rev. B **108**, 054312 (2023).
 
-[11] Penghua Ying and Zheyong Fan,
+[Ying2024] Penghua Ying and Zheyong Fan,
 [Combining the D3 dispersion correction with the neuroevolution machine-learned potential](https://doi.org/10.1088/1361-648X/ad1278),
 Journal of Physics: Condensed Matter **36**, 125901 (2024).
 
-[12] Jiuyang Shi, Zhixing Liang, Junjie Wang, Shuning Pan, Chi Ding, Yong Wang, Hui-Tian Wang, Dingyu Xing, and Jian Sun,
+[Shi2023] Jiuyang Shi, Zhixing Liang, Junjie Wang, Shuning Pan, Chi Ding, Yong Wang, Hui-Tian Wang, Dingyu Xing, and Jian Sun,
 [Double-Shock Compression Pathways from Diamond to BC8 Carbon](https://doi.org/10.1103/PhysRevLett.131.146101),
 Phys. Rev. Lett. **131**, 146101 (2023).
 
-[13] Zheyong Fan, Yang Xiao, Yanzhou Wang, Penghua Ying, Shunda Chen, and Haikuan Dong,
+[Fan2024] Zheyong Fan, Yang Xiao, Yanzhou Wang, Penghua Ying, Shunda Chen, and Haikuan Dong,
 [Combining linear-scaling quantum transport and machine-learning molecular dynamics to study thermal and electronic transports in complex materials](https://doi.org/10.1088/1361-648X/ad31c2),
 Journal of Physics: Condensed Matter **36**, 245901 (2024).
 
-[14] Keke Song, Rui Zhao, Jiahui Liu, Yanzhou Wang, Eric Lindgren, Yong Wang, Shunda Chen, Ke Xu, Ting Liang, Penghua Ying, Nan Xu, Zhiqiang Zhao, Jiuyang Shi, Junjie Wang, Shuang Lyu, Zezhu Zeng, Shirong Liang, Haikuan Dong, Ligang Sun, Yue Chen, Zhuhua Zhang, Wanlin Guo, Ping Qian, Jian Sun, Paul Erhart, Tapio Ala-Nissila, Yanjing Su, Zheyong Fan,
-[General-purpose machine-learned potential for 16 elemental metals and their alloys](https://doi.org/10.48550/arXiv.2311.04732)
-arXiv:2311.04732 [cond-mat.mtrl-sci]
+[Song2024] Keke Song, Rui Zhao, Jiahui Liu, Yanzhou Wang, Eric Lindgren, Yong Wang, Shunda Chen, Ke Xu, Ting Liang, Penghua Ying, Nan Xu, Zhiqiang Zhao, Jiuyang Shi, Junjie Wang, Shuang Lyu, Zezhu Zeng, Shirong Liang, Haikuan Dong, Ligang Sun, Yue Chen, Zhuhua Zhang, Wanlin Guo, Ping Qian, Jian Sun, Paul Erhart, Tapio Ala-Nissila, Yanjing Su, Zheyong Fan,
+[General-purpose machine-learned potential for 16 elemental metals and their alloys](https://doi.org/10.1038/s41467-024-54554-x),
+Nature Communications **15**, 10208 (2024).
 
-[15] Nan Xu, Petter Rosander, Christian Schäfer, Eric Lindgren, Nicklas Österbacka, Mandi Fang, Wei Chen, Yi He, Zheyong Fan, Paul Erhart,
-[Tensorial properties via the neuroevolution potential framework: Fast simulation of infrared and Raman spectra](https://doi.org/10.1021/acs.jctc.3c01343)
+[Xu2024] Nan Xu, Petter Rosander, Christian Schäfer, Eric Lindgren, Nicklas Österbacka, Mandi Fang, Wei Chen, Yi He, Zheyong Fan, Paul Erhart,
+[Tensorial properties via the neuroevolution potential framework: Fast simulation of infrared and Raman spectra](https://doi.org/10.1021/acs.jctc.3c01343),
 J. Chem. Theory Comput. **20**, 3273 (2024).
 
-[16] Keke Song, Jiahui Liu, Shunda Chen, Zheyong Fan, Yanjing Su, Ping Qian, [Solute segregation in polycrystalline aluminum from hybrid Monte Carlo and molecular dynamics simulations with a unified neuroevolution potential](https://arxiv.org/abs/2404.13694)
-arXiv:2404.13694 [cond-mat.mtrl-sci]
+[Song2026] Keke Song, Jiahui Liu, Yuanxu Zhu, Shunda Chen, Zheyong Fan, Yanjing Su, Ping Qian, [Solute Segregation in Polycrystalline Aluminum From Hybrid Monte Carlo and Molecular Dynamics Simulations With a Unified Neuroevolution Potential](https://onlinelibrary.wiley.com/doi/10.1002/mgea.70049),
+Materials Genome Engineering Advances, e70049 (2026).
 
-[17] Penghua Ying, Wenjiang Zhou, Lucas Svensson, Erik Fransson, Fredrik Eriksson, Ke Xu, Ting Liang, Bai Song, Shunda Chen, Paul Erhart, Zheyong Fan, [Highly efficient path-integral molecular dynamics simulations with GPUMD using neuroevolution potentials: Case studies on thermal properties of materials](https://arxiv.org/abs/2409.04430)
-arXiv:2409.04430 [cond-mat.mtrl-sci]
+[Ying2025] Penghua Ying, Wenjiang Zhou, Lucas Svensson, Esmée Berger, Erik Fransson, Fredrik Eriksson, Ke Xu, Ting Liang, Jianbin Xu, Bai Song, Shunda Chen, Paul Erhart, Zheyong Fan, [Highly efficient path-integral molecular dynamics simulations with GPUMD using neuroevolution potentials: Case studies on thermal properties of materials](https://doi.org/10.1063/5.0241006),
+J. Chem. Phys. **162**, 064109 (2025).
 
+[Pan2024] Shuning Pan, Jiuyang Shi, Zhixin Liang, Cong Liu, Junjie Wang, Yong Wang, Hui-Tian Wang, Dingyu Xing, and Jian Sun, [Shock compression pathways to pyrite silica from machine learning simulations](https://doi.org/10.1103/PhysRevB.110.224101),
+Phys. Rev. B **110**, 224101 (2024).
+
+[Jiang2025] Wenwu Jiang, Ting Liang, Hekai Bu, Jianbin Xu, and Wengen Ouyang, [Moiré-driven interfacial thermal transport in twisted transition metal dichalcogenides](https://doi.org/10.1021/acsnano.4c12148),
+ACS Nano **19**, 16287 (2025).
+
+[Liang2025] Ting Liang, Ke Xu, Eric Lindgren, Zherui Chen, Rui Zhao, Jiahui Liu, Esmée Berger, Benrui Tang, Bohan Zhang, Yanzhou Wang, Keke Song, Penghua Ying, Nan Xu, Haikuan Dong, Shunda Chen, Paul Erhart, Zheyong Fan, Tapio Ala-Nissila, Jianbin Xu, [NEP89: Universal neuroevolution potential for inorganic and organic materials across 89 elements](https://arxiv.org/abs/2504.21286), arXiv:2504.21286 [cond-mat.mtrl-sci].
+
+[Huang2026] Hongfu Huang, Junhao Peng, Kaiqi Li, Jian Zhou, Zhimei Sun, [Efficient GPU-accelerated training of a neuroevolution potential with analytical gradients](https://doi.org/10.1016/j.cpc.2025.109994),
+Computer Physics Communications **320**, 109994 (2026).
+
+[Fan2026a] Zheyong Fan, Benrui Tang, Esmée Berger, Ethan Berger, Erik Fransson, Ke Xu, Zihan Yan, Zhoulin Liu, Zichen Song, Haikuan Dong, Shunda Chen, Lei Li, Ziliang Wang, Yizhou Zhu, Julia Wiktor, Paul Erhart [qNEP: A highly efficient neuroevolution potential with dynamic charges for large-scale atomistic simulations](https://arxiv.org/abs/2601.19034), arXiv:2601.19034 [physics.comp-ph].
+
+[Li2025] Mingqian Li, Lifeng Wang, Zhuoqun Zheng, [Coarse-grained machine learning potential for mesoscale multilayered graphene](https://doi.org/10.1038/s41524-025-01849-2), npj Computational Materials **11**, 374 (2025).
+
+[Fan2026b] Zheyong Fan, Wenjun Zhang, Zhenhao Zhang, Ke Xu, Xuecheng Shao, Haikuan Dong, [NEP-CG and NEP-AACG: Efficient coarse-grained and multiscale all-atom-coarse-grained neuroevolution potentials](https://arxiv.org/abs/2603.01234), arXiv:2603.01234 [physics.comp-ph] (2026).
+
+[Bu2026] Hekai Bu, Wenwu Jiang, Penghua Ying, Ting Liang, Zheyong Fan, and Wengen Ouyang, [Modular hybrid machine learning and physics-based potentials for scalable modeling of Van der Waals heterostructures](https://doi.org/10.1016/j.jmps.2026.106540), J. Mech. Phys. Solids **210**, 106540 (2026).

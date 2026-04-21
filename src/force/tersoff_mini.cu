@@ -26,6 +26,8 @@ J. Phys.: Condens. Matter 32, 135901 (2020).
 #include "tersoff_mini.cuh"
 #include "utilities/common.cuh"
 #include "utilities/error.cuh"
+#include "utilities/gpu_macro.cuh"
+#include <cstring>
 
 #define BLOCK_SIZE_FORCE 64
 
@@ -91,9 +93,7 @@ Tersoff_mini::Tersoff_mini(FILE* fid, int num_of_types, const int num_atoms)
   tersoff_mini_data.f12z.resize(num_of_neighbors);
   tersoff_mini_data.NN.resize(num_atoms);
   tersoff_mini_data.NL.resize(num_of_neighbors);
-  tersoff_mini_data.cell_count.resize(num_atoms);
-  tersoff_mini_data.cell_count_sum.resize(num_atoms);
-  tersoff_mini_data.cell_contents.resize(num_atoms);
+  neighbor.initialize(rc, num_atoms, 50);
 }
 
 Tersoff_mini::~Tersoff_mini(void)
@@ -224,7 +224,7 @@ static __global__ void find_force_step1(
 }
 
 // step 2: calculate all the partial forces dU_i/dr_ij
-static __global__ void __launch_bounds__(BLOCK_SIZE_FORCE, 10) find_force_step2(
+static __global__ void find_force_step2(
   const int number_of_particles,
   const int N1,
   const int N2,
@@ -333,27 +333,18 @@ void Tersoff_mini::compute(
   const int number_of_atoms = type.size();
   const int grid_size = (N2 - N1 - 1) / BLOCK_SIZE_FORCE + 1;
 
-#ifdef USE_FIXED_NEIGHBOR
-  static int num_calls = 0;
-#endif
-#ifdef USE_FIXED_NEIGHBOR
-  if (num_calls++ == 0) {
-#endif
-    find_neighbor(
-      N1,
-      N2,
-      rc,
-      box,
-      type,
-      position_per_atom,
-      tersoff_mini_data.cell_count,
-      tersoff_mini_data.cell_count_sum,
-      tersoff_mini_data.cell_contents,
-      tersoff_mini_data.NN,
-      tersoff_mini_data.NL);
-#ifdef USE_FIXED_NEIGHBOR
-  }
-#endif
+  neighbor.find_neighbor_global(
+    rc,
+    box, 
+    type, 
+    position_per_atom);
+
+  neighbor.find_local_neighbor_from_global(
+    rc,
+    box, 
+    position_per_atom,
+    tersoff_mini_data.NN,
+    tersoff_mini_data.NL);
 
   // pre-compute the bond order functions and their derivatives
   find_force_step1<<<grid_size, BLOCK_SIZE_FORCE>>>(
@@ -371,7 +362,7 @@ void Tersoff_mini::compute(
     position_per_atom.data() + number_of_atoms * 2,
     tersoff_mini_data.b.data(),
     tersoff_mini_data.bp.data());
-  CUDA_CHECK_KERNEL
+  GPU_CHECK_KERNEL
 
   // pre-compute the partial forces
   find_force_step2<<<grid_size, BLOCK_SIZE_FORCE>>>(
@@ -393,7 +384,7 @@ void Tersoff_mini::compute(
     tersoff_mini_data.f12x.data(),
     tersoff_mini_data.f12y.data(),
     tersoff_mini_data.f12z.data());
-  CUDA_CHECK_KERNEL
+  GPU_CHECK_KERNEL
 
   // the final step: calculate force and related quantities
   find_properties_many_body(

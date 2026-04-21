@@ -33,7 +33,6 @@ static __global__ void get_dpos_target(
       double x12 = g_x[n2] - x1;
       double y12 = g_y[n2] - y1;
       double z12 = g_z[n2] - z1;
-      int t = box.triclinic;
       apply_mic(box, x12, y12, z12);
       g_dx[nid + i2 * n_pick] = x12;
       g_dy[nid + i2 * n_pick] = y12;
@@ -312,7 +311,7 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
         dpos_target.data() + n_pick * max_neighbor * 2
       );
       cudaDeviceSynchronize();
-      CUDA_CHECK_KERNEL;
+      GPU_CHECK_KERNEL;
 
     }
     printf("targets size: %d\n", targets.size());
@@ -364,7 +363,7 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
   //     dpos_target.data() + n_pick * max_neighbor * 2
   //   );
   //   cudaDeviceSynchronize();
-  //   CUDA_CHECK_KERNEL;
+  //   GPU_CHECK_KERNEL;
   // }
 
   force.set_multiple_potentials_mode("sum");

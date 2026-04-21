@@ -16,6 +16,7 @@
 #include "parameters.cuh"
 #include "structure.cuh"
 #include "utilities/error.cuh"
+#include "utilities/gpu_macro.cuh"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -27,6 +28,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cstring>
 
 static float get_area(const float* a, const float* b)
 {
@@ -50,9 +52,9 @@ static void change_box(const Parameters& para, Structure& structure)
   float c[3] = {structure.box_original[2], structure.box_original[5], structure.box_original[8]};
   float det = get_det(structure.box_original);
   structure.volume = abs(det);
-  structure.num_cell[0] = int(ceil(2.0f * para.rc_radial / (structure.volume / get_area(b, c))));
-  structure.num_cell[1] = int(ceil(2.0f * para.rc_radial / (structure.volume / get_area(c, a))));
-  structure.num_cell[2] = int(ceil(2.0f * para.rc_radial / (structure.volume / get_area(a, b))));
+  structure.num_cell[0] = int(ceil(2.0f * para.rc_radial_max / (structure.volume / get_area(b, c))));
+  structure.num_cell[1] = int(ceil(2.0f * para.rc_radial_max / (structure.volume / get_area(c, a))));
+  structure.num_cell[2] = int(ceil(2.0f * para.rc_radial_max / (structure.volume / get_area(a, b))));
 
   structure.box[0] = structure.box_original[0] * structure.num_cell[0];
   structure.box[3] = structure.box_original[3] * structure.num_cell[0];
@@ -85,11 +87,14 @@ static void read_force(
   const int species_offset,
   const int pos_offset,
   const int force_offset,
+  const int avirial_offset,
+  const int bec_offset,
   std::ifstream& input,
   const Parameters& para,
   Structure& structure,
   std::string& xyz_filename,
-  int& line_number)
+  int& line_number,
+  int train_mode)
 {
   structure.type.resize(structure.num_atom);
   structure.x.resize(structure.num_atom);
@@ -98,6 +103,17 @@ static void read_force(
   structure.fx.resize(structure.num_atom);
   structure.fy.resize(structure.num_atom);
   structure.fz.resize(structure.num_atom);
+  structure.bec.resize(structure.num_atom * 9);
+  if (structure.has_atomic_virial) {
+    structure.avirialxx.resize(structure.num_atom);
+    structure.avirialyy.resize(structure.num_atom);
+    structure.avirialzz.resize(structure.num_atom);
+    if (!structure.atomic_virial_diag_only) {
+      structure.avirialxy.resize(structure.num_atom);
+      structure.avirialyz.resize(structure.num_atom);
+      structure.avirialzx.resize(structure.num_atom);
+    }
+  }
 
   for (int na = 0; na < structure.num_atom; ++na) {
     std::vector<std::string> tokens = get_tokens(input);
@@ -108,18 +124,49 @@ static void read_force(
     }
     std::string atom_symbol(tokens[0 + species_offset]);
     structure.x[na] =
-      get_float_from_token(tokens[0 + pos_offset], xyz_filename.c_str(), line_number);
+      get_double_from_token(tokens[0 + pos_offset], xyz_filename.c_str(), line_number);
     structure.y[na] =
-      get_float_from_token(tokens[1 + pos_offset], xyz_filename.c_str(), line_number);
+      get_double_from_token(tokens[1 + pos_offset], xyz_filename.c_str(), line_number);
     structure.z[na] =
-      get_float_from_token(tokens[2 + pos_offset], xyz_filename.c_str(), line_number);
-    if (num_columns > 4) {
+      get_double_from_token(tokens[2 + pos_offset], xyz_filename.c_str(), line_number);
+    if (num_columns > 4 && (train_mode == 0 || train_mode == 3)) {
       structure.fx[na] =
-        get_float_from_token(tokens[0 + force_offset], xyz_filename.c_str(), line_number);
+        get_double_from_token(tokens[0 + force_offset], xyz_filename.c_str(), line_number);
       structure.fy[na] =
-        get_float_from_token(tokens[1 + force_offset], xyz_filename.c_str(), line_number);
+        get_double_from_token(tokens[1 + force_offset], xyz_filename.c_str(), line_number);
       structure.fz[na] =
-        get_float_from_token(tokens[2 + force_offset], xyz_filename.c_str(), line_number);
+        get_double_from_token(tokens[2 + force_offset], xyz_filename.c_str(), line_number);
+    }
+
+    if (num_columns > 4 && structure.has_atomic_virial) {
+      if (structure.atomic_virial_diag_only) {
+        structure.avirialxx[na] =
+          get_double_from_token(tokens[0 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialyy[na] =
+          get_double_from_token(tokens[1 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialzz[na] =
+          get_double_from_token(tokens[2 + avirial_offset], xyz_filename.c_str(), line_number);
+      } else {
+        structure.avirialxx[na] =
+          get_double_from_token(tokens[0 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialyy[na] =
+          get_double_from_token(tokens[4 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialzz[na] =
+          get_double_from_token(tokens[8 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialxy[na] =
+          get_double_from_token(tokens[3 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialyz[na] =
+          get_double_from_token(tokens[7 + avirial_offset], xyz_filename.c_str(), line_number);
+        structure.avirialzx[na] =
+          get_double_from_token(tokens[6 + avirial_offset], xyz_filename.c_str(), line_number);
+      }
+    }
+
+    if (num_columns > 4 && structure.has_bec) {
+      for (int d = 0; d < 9; ++d) {
+        structure.bec[na * 9 + d] =
+          get_double_from_token(tokens[d + bec_offset], xyz_filename.c_str(), line_number);
+      }
     }
 
     bool is_allowed_element = false;
@@ -136,7 +183,7 @@ static void read_force(
 }
 
 static void read_one_structure(
-  const Parameters& para,
+  Parameters& para,
   std::ifstream& input,
   Structure& structure,
   std::string& xyz_filename,
@@ -154,18 +201,36 @@ static void read_one_structure(
     PRINT_INPUT_ERROR("The second line for each frame should not be empty.");
   }
 
+  // get energy_weight (optional)
+  for (const auto& token : tokens) {
+    const std::string energy_weight_string = "energy_weight=";
+    if (token.substr(0, energy_weight_string.length()) == energy_weight_string) {
+      structure.energy_weight = get_double_from_token(
+        token.substr(energy_weight_string.length(), token.length()), xyz_filename.c_str(), line_number);
+    }
+  }
+
   bool has_energy_in_exyz = false;
   for (const auto& token : tokens) {
     const std::string energy_string = "energy=";
     if (token.substr(0, energy_string.length()) == energy_string) {
       has_energy_in_exyz = true;
-      structure.energy = get_float_from_token(
+      structure.energy = get_double_from_token(
         token.substr(energy_string.length(), token.length()), xyz_filename.c_str(), line_number);
       structure.energy /= structure.num_atom;
     }
   }
-  if (para.train_mode == 0 && !has_energy_in_exyz) {
+  if ((para.train_mode == 0 || para.train_mode == 3) && !has_energy_in_exyz) {
     PRINT_INPUT_ERROR("'energy' is missing in the second line of a frame.");
+  }
+
+  // get total charge (optional; default is 0)
+  for (const auto& token : tokens) {
+    const std::string charge_string = "charge=";
+    if (token.substr(0, charge_string.length()) == charge_string) {
+      structure.charge = get_double_from_token(
+        token.substr(charge_string.length(), token.length()), xyz_filename.c_str(), line_number);
+    }
   }
 
   structure.has_temperature = false;
@@ -173,7 +238,7 @@ static void read_one_structure(
     const std::string temperature_string = "temperature=";
     if (token.substr(0, temperature_string.length()) == temperature_string) {
       structure.has_temperature = true;
-      structure.temperature = get_float_from_token(
+      structure.temperature = get_double_from_token(
         token.substr(temperature_string.length(), token.length()),
         xyz_filename.c_str(),
         line_number);
@@ -190,7 +255,7 @@ static void read_one_structure(
   for (const auto& token : tokens) {
     const std::string weight_string = "weight=";
     if (token.substr(0, weight_string.length()) == weight_string) {
-      structure.weight = get_float_from_token(
+      structure.weight = get_double_from_token(
         token.substr(weight_string.length(), token.length()), xyz_filename.c_str(), line_number);
       if (structure.weight <= 0.0f || structure.weight > 100.0f) {
         PRINT_INPUT_ERROR("Configuration weight should > 0 and <= 100.");
@@ -205,7 +270,7 @@ static void read_one_structure(
       has_lattice_in_exyz = true;
       const int transpose_index[9] = {0, 3, 6, 1, 4, 7, 2, 5, 8};
       for (int m = 0; m < 9; ++m) {
-        structure.box_original[transpose_index[m]] = get_float_from_token(
+        structure.box_original[transpose_index[m]] = get_double_from_token(
           tokens[n + m].substr(
             (m == 0) ? (lattice_string.length() + 1) : 0,
             (m == 8) ? (tokens[n + m].length() - 1) : tokens[n + m].length()),
@@ -226,7 +291,7 @@ static void read_one_structure(
       structure.has_virial = true;
       const int reduced_index[9] = {0, 3, 5, 3, 1, 4, 5, 4, 2};
       for (int m = 0; m < 9; ++m) {
-        structure.virial[reduced_index[m]] = get_float_from_token(
+        structure.virial[reduced_index[m]] = get_double_from_token(
           tokens[n + m].substr(
             (m == 0) ? (virial_string.length() + 1) : 0,
             (m == 8) ? (tokens[n + m].length() - 1) : tokens[n + m].length()),
@@ -246,7 +311,7 @@ static void read_one_structure(
       float volume = abs(get_det(structure.box_original));
       const int reduced_index[9] = {0, 3, 5, 3, 1, 4, 5, 4, 2};
       for (int m = 0; m < 9; ++m) {
-        virials_from_stress[reduced_index[m]] = get_float_from_token(
+        virials_from_stress[reduced_index[m]] = get_double_from_token(
           tokens[n + m].substr(
             (m == 0) ? (stress_string.length() + 1) : 0,
             (m == 8) ? (tokens[n + m].length() - 1) : tokens[n + m].length()),
@@ -294,7 +359,7 @@ static void read_one_structure(
           structure.virial[m] = 0.0f;
         }
         for (int m = 0; m < 3; ++m) {
-          structure.virial[m] = get_float_from_token(
+          structure.virial[m] = get_double_from_token(
             tokens[n + m].substr(
               (m == 0) ? (dipole_string.length() + 1) : 0,
               (m == 2) ? (tokens[n + m].length() - 1) : tokens[n + m].length()),
@@ -324,7 +389,7 @@ static void read_one_structure(
         structure.has_virial = true;
         const int reduced_index[9] = {0, 3, 5, 3, 1, 4, 5, 4, 2};
         for (int m = 0; m < 9; ++m) {
-          structure.virial[reduced_index[m]] = get_float_from_token(
+          structure.virial[reduced_index[m]] = get_double_from_token(
             tokens[n + m].substr(
               (m == 0) ? (pol_string.length() + 1) : 0,
               (m == 8) ? (tokens[n + m].length() - 1) : tokens[n + m].length()),
@@ -348,7 +413,12 @@ static void read_one_structure(
   int species_offset = 0;
   int pos_offset = 0;
   int force_offset = 0;
+  int avirial_offset = 0;
+  int bec_offset = 0;
   int num_columns = 0;
+  structure.has_atomic_virial = false;
+  structure.atomic_virial_diag_only = false;
+  structure.has_bec = false;
   for (int n = 0; n < tokens.size(); ++n) {
     const std::string properties_string = "properties=";
     if (tokens[n].substr(0, properties_string.length()) == properties_string) {
@@ -362,6 +432,8 @@ static void read_one_structure(
       int species_position = -1;
       int pos_position = -1;
       int force_position = -1;
+      int avirial_position = -1;
+      int bec_position = -1;
       for (int k = 0; k < sub_tokens.size() / 3; ++k) {
         if (sub_tokens[k * 3] == "species") {
           species_position = k;
@@ -371,6 +443,21 @@ static void read_one_structure(
         }
         if (sub_tokens[k * 3] == "force" || sub_tokens[k * 3] == "forces") {
           force_position = k;
+        }   
+        if (sub_tokens[k * 3] == "adipole" || sub_tokens[k * 3] == "atomic_dipole") {
+          avirial_position = k;
+          structure.has_atomic_virial = true;
+          structure.atomic_virial_diag_only = true;
+        }
+        if (sub_tokens[k * 3] == "apol" || sub_tokens[k * 3] == "atomic_polarizability") {
+          avirial_position = k;
+          structure.has_atomic_virial = true;
+          structure.atomic_virial_diag_only = false;
+        }
+        if (sub_tokens[k * 3] == "bec") {
+          bec_position = k;
+          structure.has_bec = true;
+          para.has_bec = true;
         }
       }
       if (species_position < 0) {
@@ -379,8 +466,14 @@ static void read_one_structure(
       if (pos_position < 0) {
         PRINT_INPUT_ERROR("'pos' is missing in properties.");
       }
-      if (force_position < 0 && para.train_mode == 0) {
+      if (force_position < 0 && (para.train_mode == 0 || para.train_mode == 3)) {
         PRINT_INPUT_ERROR("'force' or 'forces' is missing in properties.");
+      }
+      if (avirial_position < 0 && para.train_mode == 1 && para.atomic_v == 1) {
+        PRINT_INPUT_ERROR("'adipole' or 'atomic_dipole' is missing in properties.");
+      }
+      if (avirial_position < 0 && para.train_mode == 2 && para.atomic_v == 1) {
+        PRINT_INPUT_ERROR("'apol' or 'atomic_polarizability' is missing in properties.");
       }
       for (int k = 0; k < sub_tokens.size() / 3; ++k) {
         if (k < species_position) {
@@ -395,6 +488,14 @@ static void read_one_structure(
           force_offset +=
             get_int_from_token(sub_tokens[k * 3 + 2], xyz_filename.c_str(), line_number);
         }
+        if (k < avirial_position) {
+          avirial_offset +=
+            get_int_from_token(sub_tokens[k * 3 + 2], xyz_filename.c_str(), line_number);
+        }
+        if (k < bec_position) {
+          bec_offset +=
+            get_int_from_token(sub_tokens[k * 3 + 2], xyz_filename.c_str(), line_number);
+        }
         num_columns += get_int_from_token(sub_tokens[k * 3 + 2], xyz_filename.c_str(), line_number);
       }
     }
@@ -405,15 +506,18 @@ static void read_one_structure(
     species_offset,
     pos_offset,
     force_offset,
+    avirial_offset,
+    bec_offset,
     input,
     para,
     structure,
     xyz_filename,
-    line_number);
+    line_number,
+    para.train_mode);
 }
 
 static void read_exyz(
-  const Parameters& para,
+  Parameters& para,
   std::ifstream& input,
   std::vector<Structure>& structures,
   std::string& xyz_filename)
@@ -495,6 +599,7 @@ static void reorder(const int num_batches, std::vector<Structure>& structures)
     structures_copy[nc].weight = structures[nc].weight;
     structures_copy[nc].has_virial = structures[nc].has_virial;
     structures_copy[nc].energy = structures[nc].energy;
+    structures_copy[nc].energy_weight = structures[nc].energy_weight;
     structures_copy[nc].has_temperature = structures[nc].has_temperature;
     structures_copy[nc].temperature = structures[nc].temperature;
     structures_copy[nc].volume = structures[nc].volume;
@@ -533,6 +638,7 @@ static void reorder(const int num_batches, std::vector<Structure>& structures)
     structures[nc].weight = structures_copy[configuration_id[nc]].weight;
     structures[nc].has_virial = structures_copy[configuration_id[nc]].has_virial;
     structures[nc].energy = structures_copy[configuration_id[nc]].energy;
+    structures[nc].energy_weight = structures_copy[configuration_id[nc]].energy_weight;
     structures[nc].has_temperature = structures_copy[configuration_id[nc]].has_temperature;
     structures[nc].temperature = structures_copy[configuration_id[nc]].temperature;
     structures[nc].volume = structures_copy[configuration_id[nc]].volume;

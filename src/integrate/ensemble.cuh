@@ -14,6 +14,7 @@
 */
 
 #pragma once
+#include "force/force.cuh"
 #include "model/atom.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
@@ -42,6 +43,16 @@ public:
     Atom& atom,
     GPU_Vector<double>& thermo) = 0;
 
+  virtual void compute3(
+    const double time_step,
+    const std::vector<Group>& group,
+    Box& box,
+    Atom& atom,
+    GPU_Vector<double>& thermo,
+    Force& force){
+
+  };
+
   void find_thermo(
     const bool use_target_temperature,
     const double volume,
@@ -65,6 +76,8 @@ public:
   int sink;
   int fixed_group = -1; // ID of the group in which the atoms will be fixed
   int move_group = -1;  // ID of the group in which the atoms will move with a constant velocity
+  int fixed_grouping_method = 0;
+  int move_grouping_method = 0;
   double move_velocity[3];
   double temperature; // target temperature at a specific time
   double delta_temperature;
@@ -95,6 +108,17 @@ protected:
     const GPU_Vector<double>& force_per_atom,
     GPU_Vector<double>& position_per_atom,
     GPU_Vector<double>& velocity_per_atom);
+
+#ifdef USE_NEPCG
+  void velocity_verlet_cg(
+    const bool is_step1,
+    const double time_step,
+    const std::vector<Group>& group,
+    const GPU_Vector<double>& mass,
+    const GPU_Vector<double>& force_per_atom,
+    GPU_Vector<double>& position_per_atom,
+    GPU_Vector<double>& velocity_per_atom);
+#endif
 
   void velocity_verlet_v();
   void velocity_verlet_x();

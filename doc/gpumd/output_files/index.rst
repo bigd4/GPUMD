@@ -27,31 +27,31 @@ Output files
      - Overwrite
    * - :ref:`dump.xyz <dump_xyz>`
      - :ref:`dump_exyz <kw_dump_exyz>`
-     - Atomistic positions, velocities and forces.
+     - Atomistic positions, velocities and forces
      - Append
    * - :ref:`observer.xyz <observer_xyz>`
      - :ref:`dump_observer <kw_dump_observer>`
-     - Atomistic positions, velocities and forces as evaluated with observing potentials.
+     - Atomistic quantities as evaluated with observing potentials
      - Append
    * - :ref:`observer.out <observer_out>`
      - :ref:`dump_observer <kw_dump_observer>`
-     - Thermodynamic quantities evaluated with observing potentials.
+     - Thermodynamic quantities evaluated with observing potentials
      - Append
    * - :ref:`active.xyz <active_xyz>`
      - :ref:`active <kw_active>`
-     - Structures selected through active learning.
+     - Structures selected through active learning
      - Append
    * - :ref:`active.out <active_out>`
      - :ref:`active <kw_active>`
-     - Simulation time and uncertainty during active learning.
+     - Simulation time and uncertainty during active learning
      - Append
-   * - :ref:`dipole.out <dipole_out>`
+   * - :ref:`dipole.out <gpumd_dipole_out>`
      - :ref:`dump_dipole <kw_dump_dipole>`
-     - Predicted dipole.
+     - Predicted dipole
      - Append
-   * - :ref:`polarizability.out <polarizability_out>`
+   * - :ref:`polarizability.out <gpumd_polarizability_out>`
      - :ref:`dump_polarizability <kw_dump_polarizability>`
-     - Predicted polarizability.
+     - Predicted polarizability
      - Append
    * - :ref:`velocity.out <velocity_out>`
      - :ref:`dump_velocity <kw_dump_velocity>`
@@ -89,6 +89,10 @@ Output files
      - :ref:`compute_dos <kw_compute_dos>`
      - Phonon density of states (:term:`PDOS`) data
      - Append
+   * - :ref:`dpdt.out <dpdt_out>`
+     - :ref:`compute_dpdt <kw_compute_dpdt>`
+     - time derivative of the polarizability and its time integration
+     - Append
    * - :ref:`sdc.out <sdc_out>`
      - :ref:`compute_sdc <kw_compute_sdc>`
      - Self-diffusion coefficient (:term:`SDC`) data
@@ -109,7 +113,7 @@ Output files
      - :ref:`compute_phonon <kw_compute_phonon>`
      - Phonon frequency squared :math:`\omega^2(\boldsymbol{k})` for the input :math:`\boldsymbol{k}`-points
      - Overwrite
-   * - :ref:`viscosity_out <viscosity_out>`
+   * - :ref:`viscosity.out <viscosity_out>`
      - :ref:`compute_viscosity <kw_compute_viscosity>`
      - Viscosity and stress auto-correlation function
      - Append
@@ -120,6 +124,14 @@ Output files
    * - :ref:`rdf.out <rdf_out>`
      - :ref:`compute_rdf <kw_compute_rdf>`
      - Radial distribution function (:term:`RDF`)
+     - Append
+   * - :ref:`adf.out <adf_out>`
+     - :ref:`compute_adf <kw_compute_adf>`
+     - Angular distribution function (:term:`ADF`)
+     - Append
+   * - :ref:`angular_rdf.out <angular_rdf_out>`
+     - :ref:`compute_angular_rdf <kw_compute_angular_rdf>`
+     - Angular-dependent radial distribution function (:term:`ARDF`)
      - Append
    * - :ref:`mcmd.out <mcmd_out>`
      - :ref:`mc <kw_mc>`
@@ -137,15 +149,20 @@ Output files
      - :ref:`compute_lsqt <kw_compute_lsqt>`
      - Electrical conductivity
      - Append
+   * - :ref:`orientorder.out <orientorder_out>`
+     - :ref:`compute_orientorder <kw_compute_orientorder>`
+     - Steinhardt bond-orientational order parameters
+     - Append
 
 .. toctree::
    :maxdepth: 0
    :caption: Contents
-
+   
    cohesive_out
    compute_out
    D_out
    dos_out
+   dpdt_out
    force_out
    hac_out
    heatmode_out
@@ -170,7 +187,10 @@ Output files
    viscosity_out
    onsager_out
    rdf_out
+   adf_out
    mcmd_out
    lsqt_dos_out
    lsqt_velocity_out
    lsqt_sigma_out
+   angular_rdf_out
+   orientorder_out

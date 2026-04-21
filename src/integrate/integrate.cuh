@@ -52,7 +52,8 @@ public:
     const std::vector<Group>& group,
     Box& box,
     Atom& atom,
-    GPU_Vector<double>& thermo);
+    GPU_Vector<double>& thermo,
+    Force& force);
 
   // get inputs from run.in
   void parse_ensemble(
@@ -73,6 +74,8 @@ public:
   int sink;
   int fixed_group = -1; // ID of the group in which the atoms will be fixed
   int move_group = -1;  // ID of the group in which the atoms will move with a constant velocity
+  int fixed_grouping_method = 0;
+  int move_grouping_method = 0;
   double move_velocity[3];
 
   double temperature;  // target temperature at a specific time
@@ -82,6 +85,8 @@ public:
   double target_pressure[6];
   int num_target_pressure_components;
   double temperature_coupling;
+  double qtb_f_max = 200.0; // in ps^-1
+  int qtb_n_f = 100;
   double tau_p;
   double elastic_modulus[6];
   double pressure_coupling[6];

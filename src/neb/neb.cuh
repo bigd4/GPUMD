@@ -1,6 +1,6 @@
 #pragma once
 #include "force/force.cuh"
-#include "force/nep3.cuh"
+#include "force/nep.cuh"
 // #include "minimize/minimizer.cuh"
 #include "minimize/minimizer_fire_jqh.cuh"
 #include "utilities/common.cuh"
@@ -159,7 +159,6 @@ private:
   std::list<int> imins;
   std::list<int> imaxes;
   double fmax;
-  Dump_Position dump_position;
   // std::vector<pair<int,Atoms*>> mid_list;
   std::vector<int> imid_list; // the positions that each mid_image should be insert into
   std::vector<double> h_ref{9};

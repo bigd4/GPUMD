@@ -200,18 +200,6 @@ namespace
     return temp;
   }
 
-  void change_box_to_triclinic(Box& box){
-    if (!box.triclinic){
-      box.triclinic = 1;
-      double h_tmp[18] = {0.0};
-      h_tmp[0] = box.cpu_h[0];
-      h_tmp[4] = box.cpu_h[1];
-      h_tmp[8] = box.cpu_h[2];
-      memcpy(box.cpu_h, h_tmp, 18*sizeof(double));
-    }
-    box.get_inverse();
-  }
-
 } // namespace
 
 
@@ -263,7 +251,6 @@ Atoms::Atoms(
   #endif
   natoms = type0.size();
   p_force = &force0;
-  change_box_to_triclinic(box0);
   box = box0;
   positions = positions0;
   type = type0;
@@ -309,7 +296,6 @@ Atoms::Atoms(const char* filename)
   ifstream input(filename);
   initialize_position(input, has_velocity, number_of_types, box, group, atom);
   input.close();
-  if (triclinic) change_box_to_triclinic(box);
   initialize(atom);
 }
 
@@ -323,7 +309,6 @@ Atoms::Atoms(ifstream& input, bool& success)
   success = initialize_position(input, has_velocity, number_of_types, box, group, atom);
   if (success){
     printf("read one frame of the traj\n");
-    if (triclinic) change_box_to_triclinic(box);
     initialize(atom);
   }
 }
@@ -489,7 +474,7 @@ VCWrapper::VCWrapper(const VCWrapper& vcatoms0, double* new_position)
   cudaMemcpy(h_ref, vcatoms0.h_ref, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
   // cudaMemcpy(deform, vcatoms0.deform, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
   // cudaMemcpy(virial, vcatoms0.virial, 9 * sizeof(double), cudaMemcpyDeviceToDevice);
-  CUDA_CHECK_KERNEL;
+  GPU_CHECK_KERNEL;
   
   d_h = vcatoms0.d_h;
   // print_gpu(d_h, "d_h");
@@ -610,7 +595,7 @@ void VCWrapper::set_positions() {
   //  cudaMemcpyDeviceToDevice));
   gpu_multiply<<<1, 9>>>(9, 1/cell_factor*optimize_factor, &positions[natoms * 3 - 9], deform);
   cudaDeviceSynchronize();
-  CUDA_CHECK_KERNEL;
+  GPU_CHECK_KERNEL;
   // CHECK(cudaMemcpy(deform, &positions[natoms * 3 - 9], 9*sizeof(double),
     // cudaMemcpyDeviceToDevice)); 
   get_3x3_inverse(deform, deform + 9);
@@ -623,7 +608,7 @@ void VCWrapper::set_positions() {
   gpu_matmul(positions.data(), deform, p_atoms->positions.data(), natoms-3, 3, 3);
   // last 9 : h = h0 @ D (recording to h_ref)
   gpu_matmul(h_ref, deform, d_h.data(), 3, 3, 3);
-  CUDA_CHECK_KERNEL;
+  GPU_CHECK_KERNEL;
   p_atoms->set_box(d_h, 9);
   // printf("vcwrapper set_positions finish\n");
 }

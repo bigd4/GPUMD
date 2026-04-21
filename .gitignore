@@ -9,9 +9,11 @@ src/gpumd*
 src/nep*
 src/*.xyz
 src/*.out
+src/gnep*
 
 .history
 .vscode
+.DS_Store
 *~
 local
 public
@@ -20,6 +22,9 @@ public.*
 
 /nep
 /gpumd*
+/gnep
 
 __pycache__/
 */__pycache__/
+README.gnep.md
+push-to-both.sh

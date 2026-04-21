@@ -20,7 +20,7 @@ Bibliography
    | Erik Bitzek, Pekka Koskinen, Franz Gähler, Michael Moseler, and Peter Gumbsch
    | *Structural Relaxation Made Simple*
    | Phys. Rev. Lett. **97**, 170201 (2006)
-   | DOI: `10.1103/PhysRevLett.97.170201 <https://doi.org/10.1103/PhysRevB.69.144113>`_
+   | DOI: `10.1103/PhysRevLett.97.170201 <https://doi.org/10.1103/PhysRevLett.97.170201>`_
 
 .. [Brorsson2021]
    | Joakim Brorsson, Arsalan Hashemi, Zheyong Fan, Erik Fransson, Fredrik Eriksson, Tapio Ala-Nissila, Arkady V. Krasheninnikov, Hannu-Pekka Komsa, and Paul Erhart
@@ -178,6 +178,13 @@ Bibliography
    | The Journal of Chemical Physics, **101**, 4177-4189 (1994)
    | DOI: `10.1063/1.467468 <https://doi.org/10.1063/1.467468>`
 
+
+.. [Mishin2005]
+   | Y. Mishin, M. J. Mehl, and D. A. Papaconstantopoulos
+   | *Phase stability in the Fe–Ni system: Investigation by first-principles calculations and atomistic simulations*
+   | Acta Materialia **53**, 4029 (2005)
+   | DOI: `10.1016/j.actamat.2005.05.001 <https://doi.org/10.1016/j.actamat.2005.05.001>`
+
 .. [Parrinello1981]
    | M. Parrinello and A. Rahman
    | *Polymorphic transitions in single crystals: A new molecular dynamics method*
@@ -227,6 +234,12 @@ Bibliography
    | GECCO '11 (Association for Computing Machinery), New York, USA (2011), pp. 845–852
    | DOI: `10.1145/2001576.2001692 <https://doi.org/10.1145/2001576.2001692>`_
 
+.. [Song2024]
+   | Keke Song, Rui Zhao, Jiahui Liu, Yanzhou Wang, Eric Lindgren, Yong Wang, Shunda Chen, Ke Xu, Ting Liang, Penghua Ying, Nan Xu, Zhiqiang Zhao, Jiuyang Shi, Junjie Wang, Shuang Lyu, Zezhu Zeng, Shirong Liang, Haikuan Dong, Ligang Sun, Yue Chen, Zhuhua Zhang, Wanlin Guo, Ping Qian, Jian Sun, Paul Erhart, Tapio Ala-Nissila, Yanjing Su, and Zheyong Fan
+   | *General-purpose machine-learned potential for 16 elemental metals and their alloys*
+   | Nature Communications *15*, 10208 (2024)
+   | DOI: `10.1038/s41467-024-54554-x <https://doi.org/10.1038/s41467-024-54554-x>`_
+
 .. [Tersoff1988]
    | Jerry Tersoff
    | *New empirical approach for the structure and energy of covalent systems*
@@ -267,3 +280,86 @@ Bibliography
    | Computational Materials Science **207**, 111275 (2022)
    | DOI: `10.1016/j.commatsci.2022.111275 <https://doi.org/10.1016/j.commatsci.2022.111275>`_
 
+.. [Podryabinkin2023]
+   | Evgeny Podryabinkin, Kamil Garifullin, Alexander Shapeev, and Ivan Novikov
+   | *MLIP-3: Active learning on atomic environments with moment tensor potentials*
+   | J. Chem. Phys. **159**, 084112 (2023)
+   | DOI: `10.1063/5.0155887 <https://doi.org/10.1063/5.0155887>`_
+
+.. [Lysogorskiy2023]
+   | Yury Lysogorskiy, Anton Bochkarev, Matous Mrovec, and Ralf Drautz
+   | *Active learning strategies for atomic cluster expansion models*
+   | Phys. Rev. M **7**, 043801 (2023)
+   | DOI: `10.1103/PhysRevMaterials.7.043801 <https://doi.org/10.1103/PhysRevMaterials.7.043801>`_
+
+.. [Ouyang2018]
+   | Wengen Ouyang, Davide Mandelli, Michael Urbakh, and Oded Hod
+   | *Nanoserpents: graphene nanoribbon motion on two-dimensional hexagonal materials*
+   | Nano Lett. **18**, 6009-6016 (2018)
+   | DOI: `10.1021/acs.nanolett.8b02848 <https://doi.org/10.1021/acs.nanolett.8b02848>`_
+
+.. [Ouyang2020]
+   | Wengen Ouyang, Ido Azuri, Davide Mandelli, Alexandre Tkatchenko, Leeor Kronik, Michael Urbakh, and Oded Hod
+   | *Mechanical and tribological properties of layered materials under high pressure: assessing the importance of many-body dispersion effects*
+   | J. Chem. Theory Comput. **16(1)**, 666-676 (2020)
+   | DOI: `10.1021/acs.jctc.9b00908 <https://doi.org/10.1021/acs.jctc.9b00908>`_
+
+.. [Stillinger1985]
+   | Frank H. Stillinger and Thomas A. Weber
+   | *Computer simulation of local order in condensed phases of silicon*
+   | Phys. Rev. B **31**, 5262-5271 (1985)
+   | DOI: `10.1103/PhysRevB.31.5262 <https://doi.org/10.1103/PhysRevB.31.5262>`_
+
+.. [Jiang2015]
+   | Jinwu Jiang
+   | *Parametrization of Stillinger-Weber potential based on valence force field model: application to single-layer MoS2 and black phosphorus*
+   | Nanotechnology **26**, 315706 (2015)
+   | DOI: `10.1088/0957-4484/26/31/315706 <https://doi.org/10.1088/0957-4484/26/31/315706>`_
+
+.. [Jiang2019]
+   | Jinwu Jiang
+   | *Misfit strain-induced buckling for transition-metal dichalcogenide lateral heterostructures: a molecular dynamics study*
+   | Acta Mech. Solida Sin. **32**, 17-28 (2019)
+   | DOI: `10.1007/s10338-018-0049-z <https://doi.org/10.1007/s10338-018-0049-z>`_
+
+.. [Leite2016]
+   | Rodolfo Paula Leite, Rodrigo Freitas, Rodolfo Azevedo and Maurice de Koning
+   | *The Uhlenbeck-Ford model: Exact virial coefficients and application as a reference system in fluid-phase free-energy calculations*
+   | J. Chem. Phys. 145, 194101 (2016)
+   | DOI: `10.1063/1.4967775 <https://doi.org/10.1063/1.4967775>`_
+
+.. [Leite2019]
+   | Rodolfo Paula Leite and Maurice de Koning
+   | *Nonequilibrium free-energy calculations of fluids using LAMMPS*
+   | Computational Materials Science, Volume 159, 316-326 (2019)
+   | DOI: `10.1016/j.commatsci.2018.12.029 <https://doi.org/10.1016/j.commatsci.2018.12.029>`_
+
+.. [Menon2021]
+   | Sarath Menon, Yury Lysogorskiy, Jutta Rogal and Ralf Drautz
+   | *Automated free-energy calculation from atomistic simulations*
+   | Phys. Rev. Materials 5, 103801, (2021)
+   | DOI: `10.1103/PhysRevMaterials.5.103801 <https://doi.org/10.1103/PhysRevMaterials.5.103801>`_
+
+.. [Steinhardt1983]
+   | Steinhardt, P. J., Nelson, D. R., & Ronchetti, M.
+   | *Bond-orientational order in liquids and glasses* 
+   | Physical Review B, 28(2), 784, (1983)
+   | DOI: `10.1103/PhysRevB.28.784 <https://doi.org/10.1103/PhysRevB.28.784>`_
+
+.. [Mickel2013]
+   | Mickel, W., Kapfer, S. C., Schröder-Turk, G. E., & Mecke, K. (2013).
+   | *Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter* 
+   | The Journal of chemical physics, 138(4), (2013).
+   | DOI: `10.1063/1.4774084 <https://doi.org/10.1063/1.4774084>`_
+
+.. [Jiang2025]
+   | Wenwu Jiang, Ting Liang, Hekai Bu, Jianbin Xu, and Wengen Ouyang
+   | *Moiré-driven interfacial thermal transport in twisted transition metal dichalcogenides*
+   | ACS Nano **19**, 16287 (2025)
+   | DOI: `10.1021/acsnano.4c12148 <https://doi.org/10.1021/acsnano.4c12148>`_
+
+.. [Bu2026]
+   | Hekai Bu, Wenwu Jiang, Penghua Ying, Ting Liang, Zheyong Fan, and Wengen Ouyang
+   | *Modular hybrid machine learning and physics-based potentials for scalable modeling of Van der Waals heterostructures*
+   | J. Mech. Phys. Solids **210**, 106540 (2026)
+   | DOI: `10.1016/j.jmps.2026.106540 <https://doi.org/10.1016/j.jmps.2026.106540>`_

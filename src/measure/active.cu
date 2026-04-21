@@ -23,9 +23,11 @@ Run active learning on-the-fly during MD
 #include "parse_utilities.cuh"
 #include "utilities/common.cuh"
 #include "utilities/error.cuh"
+#include "utilities/gpu_macro.cuh"
 #include "utilities/read_file.cuh"
 #include <iostream>
 #include <vector>
+#include <cstring>
 
 static __global__ void gpu_sum(const int N, const double* g_data, double* g_data_sum)
 {
@@ -107,13 +109,19 @@ static __global__ void compute_uncertainty(int N, double* g_m, double* g_m_sq, d
   }
 }
 
+Active::Active(const char** param, int num_param)
+{
+  parse(param, num_param);
+  property_name = "active";
+}
+
 void Active::parse(const char** param, int num_param)
 {
   check_ = true;
   printf("Active learning.\n");
 
-  if (num_param != 5) {
-    PRINT_INPUT_ERROR("active should have 4 parameters.");
+  if (num_param != 6) {
+    PRINT_INPUT_ERROR("active should have 5 parameters.");
   }
   if (!is_valid_int(param[1], &check_interval_)) {
     PRINT_INPUT_ERROR("check interval should be an integer.");
@@ -140,7 +148,17 @@ void Active::parse(const char** param, int num_param)
   } else {
     printf("    with force data.\n");
   }
-  if (!is_valid_real(param[4], &threshold_)) {
+
+  if (!is_valid_int(param[4], &has_uncertainty_)) {
+    PRINT_INPUT_ERROR("has_uncertainty should be an integer.");
+  }
+  if (has_uncertainty_ == 0) {
+    printf("    without per-atom uncertainty data.\n");
+  } else {
+    printf("    with per-atom uncertainty data.\n");
+  }
+
+  if (!is_valid_real(param[5], &threshold_)) {
     PRINT_INPUT_ERROR("threshold should be a real number.\n");
   }
 
@@ -150,7 +168,14 @@ void Active::parse(const char** param, int num_param)
     check_interval_);
 }
 
-void Active::preprocess(const int number_of_atoms, const int number_of_potentials, Force& force)
+void Active::preprocess(
+  const int number_of_steps,
+  const double time_step,
+  Integrate& integrate,
+  std::vector<Group>& group,
+  Atom& atom,
+  Box& box,
+  Force& force)
 {
   // Always use mode "observe" with all other potentials for active learning.
   // Only propagate MD with the main potential.
@@ -163,24 +188,28 @@ void Active::preprocess(const int number_of_atoms, const int number_of_potential
     gpu_total_virial_.resize(6);
     cpu_total_virial_.resize(6);
     if (has_force_) {
-      cpu_force_per_atom_.resize(number_of_atoms * 3);
+      cpu_force_per_atom_.resize(atom.number_of_atoms * 3);
     }
-    mean_force_.resize(number_of_atoms * 3);
-    mean_force_sq_.resize(number_of_atoms * 3);
-    gpu_uncertainty_.resize(number_of_atoms);
-    cpu_uncertainty_.resize(number_of_atoms);
+    mean_force_.resize(atom.number_of_atoms * 3);
+    mean_force_sq_.resize(atom.number_of_atoms * 3);
+    gpu_uncertainty_.resize(atom.number_of_atoms);
+    cpu_uncertainty_.resize(atom.number_of_atoms);
   }
 }
 
 void Active::process(
+  const int number_of_steps,
   int step,
+  const int fixed_group,
+  const int move_group,
   const double global_time,
-  const int number_of_atoms_fixed,
-  std::vector<Group>& group,
+  const double temperature,
+  Integrate& integrate,
   Box& box,
+  std::vector<Group>& group,
+  GPU_Vector<double>& thermo,
   Atom& atom,
-  Force& force,
-  GPU_Vector<double>& thermo)
+  Force& force)
 {
   // Only run if should check, since forces have to be recomputed with each potential.
   if (!check_)
@@ -193,7 +222,7 @@ void Active::process(
   // Reset mean vectors to zero
   initialize_mean_vectors<<<(3 * number_of_atoms - 1) / 128 + 1, 128>>>(
     number_of_atoms, mean_force_.data(), mean_force_sq_.data());
-  CUDA_CHECK_KERNEL
+  GPU_CHECK_KERNEL
 
   // Loop backwards over files to evaluate the main potential last, keeping it's properties intact
   for (int potential_index = number_of_potentials - 1; potential_index >= 0; potential_index--) {
@@ -205,7 +234,7 @@ void Active::process(
       atom.force_per_atom.data() + number_of_atoms * 2,
       atom.potential_per_atom.data(),
       atom.virial_per_atom.data());
-    CUDA_CHECK_KERNEL
+    GPU_CHECK_KERNEL
     // Compute new potential properties
     force.potentials[potential_index]->compute(
       box,
@@ -223,12 +252,12 @@ void Active::process(
       atom.force_per_atom.data(),
       atom.force_per_atom.data() + number_of_atoms,
       atom.force_per_atom.data() + number_of_atoms * 2);
-    CUDA_CHECK_KERNEL
+    GPU_CHECK_KERNEL
   }
   // Sum mean and mean_sq on GPU, move sum to CPU
   compute_uncertainty<<<(number_of_atoms - 1) / 128 + 1, 128>>>(
     number_of_atoms, mean_force_.data(), mean_force_sq_.data(), gpu_uncertainty_.data());
-  CUDA_CHECK_KERNEL
+  GPU_CHECK_KERNEL
   gpu_uncertainty_.copy_to_host(cpu_uncertainty_.data());
   double uncertainty = -1.0;
   for (int i = 0; i < number_of_atoms; i++) {
@@ -289,33 +318,18 @@ void Active::output_line2(
   fprintf(fid_, " uncertainty=%.8f", uncertainty);
 
   // box
-  if (box.triclinic == 0) {
-    fprintf(
-      fid_,
-      " Lattice=\"%.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\"",
-      box.cpu_h[0],
-      0.0,
-      0.0,
-      0.0,
-      box.cpu_h[1],
-      0.0,
-      0.0,
-      0.0,
-      box.cpu_h[2]);
-  } else {
-    fprintf(
-      fid_,
-      " Lattice=\"%.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\"",
-      box.cpu_h[0],
-      box.cpu_h[3],
-      box.cpu_h[6],
-      box.cpu_h[1],
-      box.cpu_h[4],
-      box.cpu_h[7],
-      box.cpu_h[2],
-      box.cpu_h[5],
-      box.cpu_h[8]);
-  }
+  fprintf(
+    fid_,
+    " Lattice=\"%.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f %.8f\"",
+    box.cpu_h[0],
+    box.cpu_h[3],
+    box.cpu_h[6],
+    box.cpu_h[1],
+    box.cpu_h[4],
+    box.cpu_h[7],
+    box.cpu_h[2],
+    box.cpu_h[5],
+    box.cpu_h[8]);
 
   // energy and virial (symmetric tensor) in eV, and stress (symmetric tensor) in eV/A^3
   double cpu_thermo[8];
@@ -358,6 +372,9 @@ void Active::output_line2(
   }
   if (has_force_) {
     fprintf(fid_, ":forces:R:3");
+  }
+  if (has_uncertainty_) {
+    fprintf(fid_, ":uncertainty:R:1");
   }
 
   // Over
@@ -418,13 +435,22 @@ void Active::write_exyz(
         fprintf(fid_, " %.8f", cpu_force_per_atom_[n + num_atoms_total * d]);
       }
     }
+    if (has_uncertainty_) {
+      fprintf(fid_, " %.8f", cpu_uncertainty_[n]);
+    }
     fprintf(fid_, "\n");
   }
 
   fflush(fid_);
 }
 
-void Active::postprocess()
+void Active::postprocess(
+  Atom& atom,
+  Box& box,
+  Integrate& integrate,
+  const int number_of_steps,
+  const double time_step,
+  const double temperature)
 {
   if (check_) {
     fclose(exyz_file_);

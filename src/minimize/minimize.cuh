@@ -30,14 +30,10 @@ public:
   void parse_minimize(
     const char** param,
     int num_param,
+    int fixed_group,
+    int fixed_grouping_method,
     Force& force,
     Box& box,
-    GPU_Vector<double>& position_per_atom,
-    GPU_Vector<int>& type,
-    std::vector<Group>& group,
-    GPU_Vector<double>& potential_per_atom,
-    GPU_Vector<double>& force_per_atom,
-    GPU_Vector<double>& virial_per_atom,
-    const std::vector<std::string>& cpu_atom_symbol = std::vector<std::string>());
-
+    Atom& atom,
+    std::vector<Group>& group);
 };

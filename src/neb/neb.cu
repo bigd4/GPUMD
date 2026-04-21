@@ -225,7 +225,7 @@ namespace
       }
 
       cleanup();
-      CUDA_CHECK_KERNEL
+      GPU_CHECK_KERNEL
   }
 
   // Cholesky factorization by SVD:
@@ -298,7 +298,7 @@ namespace
       }
     }
     CHECK(cudaMemcpy(L, h_l.data(), sizeof(double) * n * n, cudaMemcpyDefault));
-    CUDA_CHECK_KERNEL;
+    GPU_CHECK_KERNEL;
 
     cleanup();
   }
@@ -992,9 +992,9 @@ void NEB::run_neb() {
   if (etol < 0) etol *= -n_realatoms;
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
-  if (typeid(*(p_force->potentials[0]))==typeid(NEP3)){
+  if (typeid(*(p_force->potentials[0]))==typeid(NEP)){
     printf("nep forces\n");
-    dynamic_cast<NEP3&>(*p_force->potentials[0]).resize(n_realatoms);
+    dynamic_cast<NEP&>(*p_force->potentials[0]).resize(n_realatoms);
   }
   for (int i=0; i < images.size(); i++) images[i]->set_calc(*p_force);
   if (need_relax){
@@ -1176,7 +1176,7 @@ void NEB::compute()
         forces.data() + 3*i*natoms_per_image-9,
         virial_real.data(),
         3, 3, 3, 1, 0);
-      CUDA_CHECK_KERNEL;
+      GPU_CHECK_KERNEL;
       cudaDeviceSynchronize();
       // print_gpu(virial_real, "vr1");
       virial_real[1] = virial_real[3] = 0.5 * (virial_real[1] + virial_real[3]);
@@ -1188,10 +1188,10 @@ void NEB::compute()
         virial_real.data(),
         forces.data() + 3*i*natoms_per_image-9,
         3, 3, 3, 1, 0);
-      CUDA_CHECK_KERNEL;
+      GPU_CHECK_KERNEL;
     }
     spring1 = move(spring2);
-  CUDA_CHECK_KERNEL;
+  GPU_CHECK_KERNEL;
   }
   print_info();
   if (var_image_number) check_dist();
