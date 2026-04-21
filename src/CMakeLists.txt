@@ -46,6 +46,7 @@ file(GLOB SOURCES_GPUMD
     "${CMAKE_SOURCE_DIR}/measure/*.cu"
     "${CMAKE_SOURCE_DIR}/model/*.cu"
     "${CMAKE_SOURCE_DIR}/utilities/*.cu"
+    "${CMAKE_SOURCE_DIR}/neb/*.cu"
     # "${CMAKE_SOURCE_DIR}/measure/gasCV/*.cu" for libtorch version
 )
 
@@ -65,8 +66,12 @@ file(GLOB SOURCES_GPUSAMP
     "${CMAKE_SOURCE_DIR}/measure/*.cu"
     "${CMAKE_SOURCE_DIR}/model/*.cu"
     "${CMAKE_SOURCE_DIR}/utilities/*.cu"
+    "${CMAKE_SOURCE_DIR}/neb/*.cu"
 )
-
+# add GPUMD run files
+file(GLOB SOURCES_GPUMD_EXTRA "${CMAKE_SOURCE_DIR}/main_gpumd/*.cu")
+list(FILTER SOURCES_GPUMD_EXTRA EXCLUDE REGEX "main_gpumd/(run|main)\\.cu$")
+list(APPEND SOURCES_GPUSAMP ${SOURCES_GPUMD_EXTRA})
 
 
 
