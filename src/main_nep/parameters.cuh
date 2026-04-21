@@ -34,6 +34,8 @@ public:
   int save_potential_format;   // format of checkpoint nep.txt file name
   int save_potential_restart;  // if restart files should be written or not. 0=no, 1=yes
   int num_neurons1;       // number of nuerons in the 1st hidden layer (only one hidden layer)
+  int num_neurons2;       // number of nuerons in the 2nd hidden layer (only two hidden layers)
+  int num_hidden_layers;  // number of hidden layers
   int basis_size_radial;  // for nep3
   int basis_size_angular; // for nep3
   int n_max_radial;       // maximum order of the radial Chebyshev polynomials
@@ -41,8 +43,6 @@ public:
   int L_max;              // maximum order of the 3body spherical harmonics
   int L_max_4body;        // maximum order of the 4body spherical harmonics
   int L_max_5body;        // maximum order of the 5body spherical harmonics
-  float rc_radial;        // radial cutoff distance
-  float rc_angular;       // angular cutoff distance
   float lambda_1;         // weight parameter for L1 regularization loss
   float lambda_2;         // weight parameter for L2 regularization loss
   float lambda_e;         // weight parameter for energy RMSE loss
@@ -50,6 +50,7 @@ public:
   float lambda_v;         // weight parameter for virial RMSE loss
   float lambda_shear;     // extra weight parameter for shear virial
   float lambda_q;         // weight for global charge
+  float lambda_z;         // weight for BEC
   float force_delta;      // a parameters used to modify the force loss
   bool enable_zbl;        // true for inlcuding the universal ZBL potential
   bool flexible_zbl;      // true for inlcuding the flexible ZBL potential
@@ -60,16 +61,14 @@ public:
   float initial_para;
   float sigma0;
   int atomic_v;
-  bool use_typewise_cutoff;
   bool use_typewise_cutoff_zbl;
-  float typewise_cutoff_radial_factor;
-  float typewise_cutoff_angular_factor;
   float typewise_cutoff_zbl_factor;
   int output_descriptor;
   int charge_mode; // add dynamic charge to NEP potential model
   bool has_bec = false; // check if there are target BEC values
   int flip_charge = 0; // 1 for flipping charges upon restarting
   int fine_tune = 0; // fine_tune option; 0=no, 1=yes
+  int fine_tune_descriptor = 1; // fine-tune descriptor; 0=no, 1=yes
   std::string fine_tune_nep_txt = "";
   std::string fine_tune_nep_restart = "";
 
@@ -97,7 +96,6 @@ public:
   bool is_type_weight_set;
   bool is_force_delta_set;
   bool is_zbl_set;
-  bool is_use_typewise_cutoff_set;
   bool is_use_typewise_cutoff_zbl_set;
   bool is_charge_mode_set;
 
@@ -117,6 +115,11 @@ public:
   std::vector<std::string> elements;  // atom symbols
   std::vector<int> atomic_numbers;    // atomic numbers
   std::vector<float> zbl_para;        // parameters of zbl potential
+  std::vector<float> rc_radial;       // radial cutoff distance
+  std::vector<float> rc_angular;      // angular cutoff distance
+  float rc_radial_max = 0.0f;         // maximal radial cutoff
+  float rc_angular_max = 0.0f;        // maximal angular cutoff
+  bool has_multiple_cutoffs = false;
 
   GPU_Vector<float> q_scaler_gpu[16]; // used to scale some descriptor components (GPU)
 
@@ -147,6 +150,7 @@ private:
   void parse_lambda_f(const char** param, int num_param);
   void parse_lambda_v(const char** param, int num_param);
   void parse_lambda_q(const char** param, int num_param);
+  void parse_lambda_z(const char** param, int num_param);
   void parse_lambda_shear(const char** param, int num_param);
   void parse_force_delta(const char** param, int num_param);
   void parse_batch(const char** param, int num_param);
@@ -155,7 +159,6 @@ private:
   void parse_initial_para(const char** param, int num_param);
   void parse_sigma0(const char** param, int num_param);
   void parse_atomic_v(const char** param, int num_param);
-  void parse_use_typewise_cutoff(const char** param, int num_param);
   void parse_use_typewise_cutoff_zbl(const char** param, int num_param);
   void parse_output_descriptor(const char** param, int num_param);
   void parse_charge_mode(const char** param, int num_param);

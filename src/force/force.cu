@@ -18,14 +18,15 @@ The driver class calculating force and related quantities.
 #ifdef USE_TENSORFLOW
 #include "dp.cuh"
 #endif
+#ifdef USE_NNAP
+#include "nnap.cuh"
+#endif
 #include "adp.cuh"
 #include "eam.cuh"
 #include "eam_alloy.cuh"
 #include "fcp.cuh"
 #include "force.cuh"
 #include "ilp_nep.cuh"
-#include "ilp_nep_gr_hbn.cuh"
-#include "ilp_nep_tmd.cuh"
 #include "ilp_tmd_sw.cuh"
 #include "ilp_tersoff.cuh"
 #include "lj.cuh"
@@ -118,13 +119,9 @@ void Force::parse_potential(
     strcmp(potential_name, "nep4_charge1") == 0 ||
     strcmp(potential_name, "nep4_charge2") == 0 ||
     strcmp(potential_name, "nep4_charge3") == 0 ||
-    strcmp(potential_name, "nep4_charge4") == 0 ||
-    strcmp(potential_name, "nep4_charge5") == 0 ||
     strcmp(potential_name, "nep4_zbl_charge1") == 0 ||
     strcmp(potential_name, "nep4_zbl_charge2") == 0 ||
-    strcmp(potential_name, "nep4_zbl_charge3") == 0 ||
-    strcmp(potential_name, "nep4_zbl_charge4") == 0 ||
-    strcmp(potential_name, "nep4_zbl_charge5") == 0) {
+    strcmp(potential_name, "nep4_zbl_charge3") == 0) {
     potential.reset(new NEP_Charge(param[1], number_of_atoms));
     is_nep = true;
     check_types(param[1]);
@@ -174,18 +171,17 @@ void Force::parse_potential(
     }
     potential.reset(new DP(param[2], number_of_atoms));
 #endif
+#ifdef USE_NNAP
+  } else if (strcmp(potential_name, "nnap") == 0) {
+    if (num_param != 3) {
+      PRINT_INPUT_ERROR(
+        "The potential command should contain two parameters, "
+        "the setting file and the NNAP driver file name.\n");
+    }
+    potential.reset(new NNAP(param[2], number_of_atoms));
+#endif
   } else if (strcmp(potential_name, "lj") == 0) {
     potential.reset(new LJ(fid_potential, num_types, number_of_atoms));
-  } else if (strcmp(potential_name, "ilp_nep_gr_hbn") == 0) {
-    if (num_param != 3) {
-      PRINT_INPUT_ERROR("potential should contain ILP potential file and NEP potential file.\n");
-    }
-    potential.reset(new ILP_NEP_GR_HBN(fid_potential, param[2], num_types, number_of_atoms));
-  } else if (strcmp(potential_name, "ilp_nep_tmd") == 0) {
-    if (num_param != 3) {
-      PRINT_INPUT_ERROR("potential should contain ILP potential file and NEP potential file.\n");
-    }
-    potential.reset(new ILP_NEP_TMD(fid_potential, param[2], num_types, number_of_atoms));
   } else if (strcmp(potential_name, "nep_ilp") == 0) {
     if (num_param != 3) {
       PRINT_INPUT_ERROR("potential should contain an ILP potential file and a NEP map file.\n");
@@ -497,6 +493,8 @@ void Force::compute(
   GPU_Vector<double>& force_per_atom,
   GPU_Vector<double>& virial_per_atom)
 {
+  box.set_is_orthogonal();
+  
   const int number_of_atoms = type.size();
   if (!is_fcp) {
     gpu_apply_pbc<<<(number_of_atoms - 1) / 128 + 1, 128>>>(
@@ -783,6 +781,8 @@ void Force::compute(
   GPU_Vector<double>& velocity_per_atom,
   GPU_Vector<double>& mass_per_atom)
 {
+  box.set_is_orthogonal();
+
   const int number_of_atoms = type.size();
   if (!is_fcp) {
     gpu_apply_pbc<<<(number_of_atoms - 1) / 128 + 1, 128>>>(

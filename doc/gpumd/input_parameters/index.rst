@@ -19,10 +19,11 @@ Below you can find a listing of keywords for the ``run.in`` input file.
    dftd3
    change_box
    deform
-   move
+   time_step
    ensemble
    ensemble_standard
    ensemble_mttk
+   ensemble_qtb
    ensemble_heat
    ensemble_pimd
    ensemble_ti_liquid
@@ -33,13 +34,15 @@ Below you can find a listing of keywords for the ``run.in`` input file.
    ensemble_shock_nemd
    ensemble_msst
    ensemble_nphug
-   fix
-   time_step
-   plumed
-   mc
-   electron_stop
    add_force
    add_efield
+   add_spring
+   electron_stop
+   fix
+   kspace
+   move
+   mc
+   plumed
 
 .. toctree::
    :maxdepth: 1
@@ -48,9 +51,11 @@ Below you can find a listing of keywords for the ``run.in`` input file.
    minimize
    run
    compute
+   compute_chunk
    compute_adf
    compute_cohesive
    compute_dos
+   compute_dpdt
    compute_elastic
    compute_gkma
    compute_hac

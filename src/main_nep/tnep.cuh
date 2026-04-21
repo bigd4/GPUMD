@@ -41,15 +41,8 @@ class TNEP : public Potential
 {
 public:
   struct ParaMB {
-    bool use_typewise_cutoff = false;
-    bool use_typewise_cutoff_zbl = false;
-    float typewise_cutoff_radial_factor = 2.5f;
-    float typewise_cutoff_angular_factor = 2.0f;
-    float typewise_cutoff_zbl_factor = 0.65f;
-    float rc_radial = 0.0f;     // radial cutoff
-    float rc_angular = 0.0f;    // angular cutoff
-    float rcinv_radial = 0.0f;  // inverse of the radial cutoff
-    float rcinv_angular = 0.0f; // inverse of the angular cutoff
+    float rc_radial[NUM_ELEMENTS];     // radial cutoff
+    float rc_angular[NUM_ELEMENTS];    // angular cutoff
     int basis_size_radial = 0;
     int basis_size_angular = 0;
     int n_max_radial = 0;  // n_radial = 0, 1, 2, ..., n_max_radial
@@ -61,22 +54,20 @@ public:
     int num_types_sq = 0;
     int num_c_radial = 0;
     int version = 4; // 3 for NEP3 and 4 for NEP4
-    int atomic_numbers[NUM_ELEMENTS];
   };
 
   struct ANN {
     int dim = 0;                    // dimension of the descriptor
     int num_neurons1 = 0;           // number of neurons in the hidden layer
+    int num_neurons2 = 0;           // number of neurons in the output layer
+    int num_hidden_layers = 0;      // number of hidden layers
     int num_para = 0;               // number of parameters
-    const float* w0[NUM_ELEMENTS]; // weight from the input layer to the hidden layer
-    const float* b0[NUM_ELEMENTS]; // bias for the hidden layer
-    const float* w1[NUM_ELEMENTS]; // weight from the hidden layer to the output layer
-    const float* b1;               // bias for the output layer
+    int one_ann_no_bias = 0;        // number of parameters in the ANN without bias
+    const float* wb[NUM_ELEMENTS];  // weight from the input layer to the hidden layer for dipole
+    const float* b;                 // bias for the output layer for dipole
     // for the scalar part of polarizability
-    const float* w0_pol[10]; // weight from the input layer to the hidden layer
-    const float* b0_pol[10]; // bias for the hidden layer
-    const float* w1_pol[10]; // weight from the hidden layer to the output layer
-    const float* b1_pol;     // bias for the output layer
+    const float* wb_pol[NUM_ELEMENTS]; // weight from the input layer to the hidden layer for polarizability
+    const float* b_pol;                // bias for the output layer for polarizability
     // for elements in descriptor
     const float* c;
   };

@@ -12,12 +12,12 @@ The syntax is as follows::
 
   zbl <cutoff>
 
-Here, :attr:`<cutoff>` is a real number that specifies the "outer" cutoff :math:`r_\mathrm{c}^\mathrm{ZBL-outer}`, below which the :term:`NEP` pair potential is being splined to the :term:`ZBL` potential.
+Here, :attr:`<cutoff>` is a real number that specifies the "outer" cutoff :math:`r_\mathrm{c}^\mathrm{ZBL-outer}`, beyond which the :term:`ZBL` potential is zero.
 The "inner" cutoff of the :term:`ZBL` potential, below which value the pair interaction is completely given by the :term:`ZBL` potential, is fixed to half of the outer cutoff, :math:`r_\mathrm{c}^\mathrm{ZBL-inner} = r_\mathrm{c}^\mathrm{ZBL-outer} /2`, which we have empirically found to be a reasonable choice.
 
 When this keyword is absent, the :term:`ZBL` potential will not be enabled and the value of :math:`r_\mathrm{c}^\mathrm{ZBL-outer}` is irrelevant.
 
-Permissible values are 1 Å :math:`\leq r_\mathrm{c}^\mathrm{ZBL-outer} \leq` 2.5 Å
+Permissible values are 1 Å :math:`\leq r_\mathrm{c}^\mathrm{ZBL-outer} \leq` 3 Å
 
 One can also use flexible ZBL parameters by providing a `zbl.in` file in the working directory, in which case the :attr:`<cutoff>` parameter is still needed but will not be used.
 For a :math:`n`-species system, there should be :math:`n(n+1)/2` lines in the `zbl.in` files.
