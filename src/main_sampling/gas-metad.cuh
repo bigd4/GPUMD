@@ -81,6 +81,13 @@ struct Config {
 
         // 创建并初始化结构体实例
         Config config;
+
+        std::vector<std::string> necessary_keys = {"max_cv_nums", "cv_size", "cv_storage_interval", "cv_change_interval", "cv_log_interval", "neighbor_rc", "max_neighbors", "n_atoms", "debug_interval"};
+        for (const auto& key : necessary_keys) {
+            if (configMap.find(key) == configMap.end()) {
+                throw std::runtime_error("Missing necessary key in configuration: " + key);
+            }
+        }
         try {
             // values
             config.max_cv_nums = std::stoi(configMap.at("max_cv_nums"));
