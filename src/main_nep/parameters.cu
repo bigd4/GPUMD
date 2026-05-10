@@ -29,10 +29,12 @@ const std::string ELEMENTS[NUM_ELEMENTS] = {
   "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W",  "Re", "Os", "Ir", "Pt", "Au", "Hg",
   "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th", "Pa", "U",  "Np", "Pu"};
 
-Parameters::Parameters()
+Parameters::Parameters() : Parameters("nep.in") {}
+
+Parameters::Parameters(const std::string& input_filename_in) : input_filename(input_filename_in)
 {
   print_line_1();
-  printf("Started reading nep.in.\n");
+  printf("Started reading %s.\n", input_filename.c_str());
   print_line_2();
 
   set_default_parameters();
@@ -44,7 +46,7 @@ Parameters::Parameters()
   report_inputs();
 
   print_line_1();
-  printf("Finished reading nep.in.\n");
+  printf("Finished reading %s.\n", input_filename.c_str());
   print_line_2();
 }
 
@@ -118,9 +120,9 @@ void Parameters::set_default_parameters()
 
 void Parameters::read_nep_in()
 {
-  std::ifstream input("nep.in");
+  std::ifstream input(input_filename);
   if (!input.is_open()) {
-    std::cout << "Failed to open nep.in." << std::endl;
+    std::cout << "Failed to open " << input_filename << "." << std::endl;
     exit(1);
   }
 

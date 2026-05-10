@@ -105,14 +105,23 @@ static void calculate_time_step(
   }
 }
 
-Run::Run()
+Run::Run() : Run("model.xyz", "run.in") {}
+
+Run::Run(const std::string& model_filename_in) : Run(model_filename_in, "run.in") {}
+
+Run::Run(const std::string& model_filename_in, const std::string& run_filename_in)
+  : model_filename(model_filename_in), run_filename(run_filename_in)
 {
+  set_run_input_filename(run_filename);
+
   print_line_1();
   printf("Started initializing positions and related parameters.\n");
   fflush(stdout);
   print_line_2();
 
-  initialize_position(has_velocity_in_xyz, number_of_types, box, group, atom);
+  std::string initial_structure_filename = get_initial_structure_filename();
+  printf("Initializing structure from %s.\n", initial_structure_filename.c_str());
+  initialize_position(initial_structure_filename.c_str(), has_velocity_in_xyz, number_of_types, box, group, atom);
 
   allocate_memory_gpu(group, atom, thermo);
 
@@ -126,7 +135,7 @@ Run::Run()
     false,
     123);
   if (has_velocity_in_xyz) {
-    printf("Initialized velocities with data in model.xyz.\n");
+    printf("Initialized velocities with data in %s.\n", initial_structure_filename.c_str());
   } else {
     printf("Initialized velocities with default T = 300 K.\n");
   }
@@ -139,16 +148,77 @@ Run::Run()
   execute_run_in();
 }
 
+std::string Run::get_initial_structure_filename()
+{
+  std::ifstream input(run_filename);
+  if (!input.is_open()) {
+    std::cout << "Failed to open " << run_filename << "." << std::endl;
+    exit(1);
+  }
+
+  std::string neb_initial_structure = "is.xyz";
+  std::string initial_structure = model_filename;
+  bool has_neb_run = false;
+  bool has_non_neb_run = false;
+
+  while (input.peek() != EOF) {
+    std::vector<std::string> tokens = get_tokens(input);
+    std::vector<std::string> tokens_without_comments;
+    for (const auto& t : tokens) {
+      if (t[0] != '#') {
+        tokens_without_comments.emplace_back(t);
+      } else {
+        break;
+      }
+    }
+    if (tokens_without_comments.size() == 0) {
+      continue;
+    }
+
+    const std::string& keyword = tokens_without_comments[0];
+    if (keyword == "neb_run") {
+      has_neb_run = true;
+    } else if (
+      keyword == "read_xyz" || keyword == "model_file" || keyword == "structure") {
+      if (tokens_without_comments.size() != 2) {
+        PRINT_INPUT_ERROR("read_xyz/model_file/structure should have 1 parameter.");
+      }
+      initial_structure = tokens_without_comments[1];
+      has_non_neb_run = true;
+    } else if (keyword == "neb_set") {
+      for (int n = 1; n < int(tokens_without_comments.size()); ++n) {
+        if (tokens_without_comments[n] == "is_name" &&
+            n + 1 < int(tokens_without_comments.size())) {
+          neb_initial_structure = tokens_without_comments[n + 1];
+          ++n;
+        } else if (tokens_without_comments[n] == "suffix" &&
+                   n + 1 < int(tokens_without_comments.size())) {
+          neb_initial_structure = "is_" + tokens_without_comments[n + 1] + ".xyz";
+          ++n;
+        } else if (tokens_without_comments[n] == "traj_name" &&
+                   n + 1 < int(tokens_without_comments.size())) {
+          neb_initial_structure = tokens_without_comments[n + 1];
+          ++n;
+        }
+      }
+    } else if (keyword != "potential") {
+      has_non_neb_run = true;
+    }
+  }
+
+  return (has_neb_run && !has_non_neb_run) ? neb_initial_structure : initial_structure;
+}
+
 void Run::execute_run_in()
 {
   print_line_1();
-  printf("Started executing the commands in run.in.\n");
+  printf("Started executing the commands in %s.\n", run_filename.c_str());
   fflush(stdout);
   print_line_2();
 
-  std::ifstream input("run.in");
+  std::ifstream input(run_filename);
   if (!input.is_open()) {
-    std::cout << "Failed to open run.in." << std::endl;
+    std::cout << "Failed to open " << run_filename << "." << std::endl;
     exit(1);
   }
 
@@ -168,7 +238,7 @@ void Run::execute_run_in()
   }
 
   print_line_1();
-  printf("Finished executing the commands in run.in.\n");
+  printf("Finished executing the commands in %s.\n", run_filename.c_str());
   fflush(stdout);
   print_line_2();
 
@@ -341,6 +411,10 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
 
   if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
+  } else if (
+    strcmp(param[0], "read_xyz") == 0 || strcmp(param[0], "model_file") == 0 ||
+    strcmp(param[0], "structure") == 0) {
+    // Handled before the initial structure is loaded.
   } else if (strcmp(param[0], "target_opt") == 0) {
     std::unique_ptr<TargetOpt> p_target_opt = std::make_unique<TargetOpt>();
     p_target_opt->parse_target_opt(param, num_param, force);

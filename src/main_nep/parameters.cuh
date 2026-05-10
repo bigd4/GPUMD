@@ -22,6 +22,7 @@ class Parameters
 {
 public:
   Parameters();
+  Parameters(const std::string& input_filename);
 
   // parameters to be read in
   int version;            // nep version, can be 3 or 4
@@ -102,6 +103,7 @@ public:
   std::vector<std::string> elements;  // atom symbols
   std::vector<int> atomic_numbers;    // atomic numbers
   std::vector<float> zbl_para;        // parameters of zbl potential
+  std::string input_filename = "nep.in";
 
   GPU_Vector<float> q_scaler_gpu[16]; // used to scale some descriptor components (GPU)
 
