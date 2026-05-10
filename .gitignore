@@ -14,7 +14,7 @@ src/*.out
 src/gnep*
 src/build
 src/CMakeLists.txt
-
+src/build*
 .history
 .vscode
 .DS_Store
