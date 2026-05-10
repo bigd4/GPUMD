@@ -21,11 +21,13 @@
 #include "utilities/main_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <time.h>
 #include <chrono>
 #include <cstring>
 
 void print_welcome_information(void);
+std::string parse_input_filename(int argc, char* argv[]);
 
 int main(int argc, char* argv[])
 {
@@ -37,7 +39,7 @@ int main(int argc, char* argv[])
   print_line_2();
 
   const auto time_begin1 = std::chrono::high_resolution_clock::now();
-  Parameters para;
+  Parameters para(parse_input_filename(argc, argv));
   Fitness fitness(para);
   const auto time_finish1 = std::chrono::high_resolution_clock::now();
 
@@ -65,6 +67,26 @@ int main(int argc, char* argv[])
   print_line_2();
 
   return EXIT_SUCCESS;
+}
+
+std::string parse_input_filename(int argc, char* argv[])
+{
+  std::string input_filename = "nep.in";
+  for (int n = 1; n < argc; ++n) {
+    std::string option(argv[n]);
+    if (option == "-i" || option == "--input") {
+      if (n + 1 >= argc) {
+        PRINT_INPUT_ERROR("-i/--input should be followed by a NEP input filename.");
+      }
+      input_filename = argv[++n];
+    } else {
+      std::string error = "Unknown nep option: ";
+      error += option;
+      error += ".";
+      PRINT_INPUT_ERROR(error.c_str());
+    }
+  }
+  return input_filename;
 }
 
 void print_welcome_information(void)

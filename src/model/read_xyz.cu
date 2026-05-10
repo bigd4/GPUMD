@@ -138,6 +138,43 @@ const std::map<std::string, double> MASS_TABLE{
   {"No", 259},
   {"Lr", 262}};
 
+static std::string run_input_filename = "run.in";
+
+void set_run_input_filename(const std::string& filename)
+{
+  run_input_filename = filename;
+}
+
+static bool need_triclinic()
+{
+  std::ifstream input_run(run_input_filename);
+  if (!input_run.is_open()) {
+    std::string error = "Cannot open ";
+    error += run_input_filename;
+    error += ".";
+    PRINT_INPUT_ERROR(error.c_str());
+  }
+  bool triclinic = false;
+  std::string line;
+  while (std::getline(input_run, line)) {
+    std::vector<std::string> tokens = get_tokens(line);
+    if (tokens.size() != 0) {
+      if (tokens[0] == "compute_elastic") {
+        triclinic = true;
+      }
+      if (tokens[0] == "change_box" && tokens.size() == 7) {
+        triclinic = true;
+      }
+      if (tokens[0] == "ensemble" && tokens.size() >= 18) {
+        triclinic = true;
+      }
+    }
+  }
+
+  input_run.close();
+  return triclinic;
+}
+
 static void read_xyz_line_1(std::ifstream& input, int& N)
 {
   std::vector<std::string> tokens = get_tokens(input);
@@ -426,9 +463,12 @@ void find_type_size(
 
 static std::string get_filename_potential()
 {
-  std::ifstream input_run("run.in");
+  std::ifstream input_run(run_input_filename);
   if (!input_run.is_open()) {
-    PRINT_INPUT_ERROR("No run.in.");
+    std::string error = "Cannot open ";
+    error += run_input_filename;
+    error += ".";
+    PRINT_INPUT_ERROR(error.c_str());
   }
 
   std::string line;
@@ -443,7 +483,10 @@ static std::string get_filename_potential()
   }
   input_run.close();
   if (filename_potential.size() == 0) {
-    PRINT_INPUT_ERROR("There is no 'potential' keyword in run.in.");
+    std::string error = "There is no 'potential' keyword in ";
+    error += run_input_filename;
+    error += ".";
+    PRINT_INPUT_ERROR(error.c_str());
   } else {
     return filename_potential;
   }
@@ -494,7 +537,7 @@ void initialize_position(
   atom_symbols = get_atom_symbols(filename_potential);
 
   read_xyz_line_1(input, atom.number_of_atoms);
-  int property_offset[6] = {0, 0, 0, 0, 0, 0}; // species,pos,mass,vel,group
+  int property_offset[6] = {0, 0, 0, 0, 0, 0}; // species,pos,mass,charge,vel,group
   int num_columns = 0;
   bool has_mass = true;
   bool has_charge = true;
@@ -584,6 +627,12 @@ void initialize_position(
 {
   std::string filename(xyzname);
   std::ifstream input(filename);
+  if (!input.is_open()) {
+    std::string error = "Failed to open ";
+    error += xyzname;
+    error += ".";
+    PRINT_INPUT_ERROR(error.c_str());
+  }
   initialize_position(input, has_velocity_in_xyz, number_of_types, box, group, atom);
   input.close();
 }
@@ -620,7 +669,7 @@ bool initialize_position(
   
   atom.number_of_atoms = N;
 
-  int property_offset[6] = {0, 0, 0, 0, 0, 0}; // species,pos,mass,vel,group
+  int property_offset[6] = {0, 0, 0, 0, 0, 0}; // species,pos,mass,charge,vel,group
   int num_columns = 0;
   bool has_mass = true;
   bool has_charge = true;

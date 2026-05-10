@@ -22,6 +22,9 @@ class Atom;
 #include "utilities/gpu_vector.cuh"
 #include <vector>
 #include <fstream>
+#include <string>
+
+void set_run_input_filename(const std::string& filename);
 
 void initialize_position(
   int& has_velocity_in_xyz, int& number_of_types, Box& box, std::vector<Group>& group, Atom& atom);

@@ -2,6 +2,7 @@
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
+#include <numeric>
 using namespace std;
 
 void print_mem(const char* tag) {
@@ -407,7 +408,7 @@ namespace
     double result;
     cublasIdamax(handle, size, vec, 1, &index);
     if (printflag){
-      printf("i_fmax: %d", index);
+      printf("i_fmax: %d:%d", index/nsingle, (index%nsingle)%int(nsingle/3));
       if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
     }
     cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
@@ -1107,14 +1108,15 @@ void NEB::compute()
 
   find_min_max(etol);
   // printf("klist: ");
-  if (auto_k) {
+  if (auto_k) {  //TODO: compatibility with vi_k 
     for (int i=0; i<nimages-1;i++){
       int dist2imaxes=nimages;
       for (auto x:imaxes) {
         if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
         if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
       }
-      double k_target = k / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
+      double k_ori = klist[i];
+      double k_target = k_ori / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
       if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
       else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
       else klist[i] -= 0.1*(k_target - k);
@@ -1299,7 +1301,8 @@ void NEB::check_dist() {
       }
       klist.insert(klist.begin() + i, ori_k);
       if (vi_k) {
-        double new_k = ori_k / vi_k_efficient;
+        double new_k = ori_k * vi_k_efficient;
+        if (new_k > k * 10) new_k = ori_k;
         klist[i-1] = new_k;
         klist[i] = new_k;
       }
@@ -1313,7 +1316,8 @@ void NEB::check_dist() {
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
       if (vi_k) {
-        double new_k = ori_k * vi_k_efficient;
+        double new_k = ori_k / vi_k_efficient;
+        if (new_k < k / 10) new_k = ori_k;
         klist[i-1] = new_k;
       }
       printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
@@ -1321,9 +1325,16 @@ void NEB::check_dist() {
       i_ori++;
       vi_count = 0;
     }
+    if (vi_k) { //renomalize klist
+      double avg_k = accumulate(klist.begin(), klist.end(), 0.0) / klist.size();
+      for (int j=0; j<klist.size(); j++){
+        klist[j] = klist[j] / avg_k * k;
+      }
+    }
   }
   
   if (vi_count==0){
+    print_arr(klist.data(), klist.size(), "klist");
     forces.fill(0);
     printf("imaxes before change: ");
     for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});

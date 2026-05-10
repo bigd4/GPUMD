@@ -3,6 +3,8 @@
 core
 
 src/.vscode/*
+src/.codex
+src/.test
 src/*/*.obj
 src/*/*.o
 src/gpumd*

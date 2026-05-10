@@ -22,6 +22,7 @@ class Parameters
 {
 public:
   Parameters();
+  Parameters(const std::string& input_filename);
 
   // parameters to be read in
   int version;            // nep version, can be 3 or 4 or 5
@@ -120,6 +121,7 @@ public:
   float rc_radial_max = 0.0f;         // maximal radial cutoff
   float rc_angular_max = 0.0f;        // maximal angular cutoff
   bool has_multiple_cutoffs = false;
+  std::string input_filename = "nep.in";
 
   GPU_Vector<float> q_scaler_gpu[16]; // used to scale some descriptor components (GPU)
 

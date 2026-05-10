@@ -20,11 +20,20 @@
 #include <chrono>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <time.h>
 #include <chrono>
 #include <cstring>
 
 void print_welcome_information();
+
+struct Gpumd_Options
+{
+  std::string model_filename = "model.xyz";
+  std::string run_filename = "run.in";
+};
+
+Gpumd_Options parse_options(int argc, char* argv[]);
 
 int main(int argc, char* argv[])
 {
@@ -42,7 +51,8 @@ int main(int argc, char* argv[])
   #endif
   clock_t time_begin = clock();
 
-  Run run;
+  Gpumd_Options options = parse_options(argc, argv);
+  Run run(options.model_filename, options.run_filename);
 
   #ifndef USE_GAS
     cudaDeviceSynchronize();
@@ -61,6 +71,31 @@ int main(int argc, char* argv[])
   print_line_2();
 
   return EXIT_SUCCESS;
+}
+
+Gpumd_Options parse_options(int argc, char* argv[])
+{
+  Gpumd_Options options;
+  for (int n = 1; n < argc; ++n) {
+    std::string option(argv[n]);
+    if (option == "-m" || option == "--model") {
+      if (n + 1 >= argc) {
+        PRINT_INPUT_ERROR("-m/--model should be followed by an xyz filename.");
+      }
+      options.model_filename = argv[++n];
+    } else if (option == "-i" || option == "--input") {
+      if (n + 1 >= argc) {
+        PRINT_INPUT_ERROR("-i/--input should be followed by a run input filename.");
+      }
+      options.run_filename = argv[++n];
+    } else {
+      std::string error = "Unknown gpumd option: ";
+      error += option;
+      error += ".";
+      PRINT_INPUT_ERROR(error.c_str());
+    }
+  }
+  return options;
 }
 
 void print_welcome_information(void)
