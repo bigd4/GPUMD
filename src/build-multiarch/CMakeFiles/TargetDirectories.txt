@@ -1,0 +1,6 @@
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/gpumd.dir
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/nep.dir
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/gpu-sampling.dir
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/clean_all.dir
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/edit_cache.dir
+/home/tensor/software/GPUMD/src/build-multiarch/CMakeFiles/rebuild_cache.dir

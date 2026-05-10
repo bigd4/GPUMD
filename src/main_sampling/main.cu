@@ -25,7 +25,7 @@
 #include <cstring>
 
 void print_welcome_information();
-
+Gpumd_Options parse_options(int argc, char* argv[]);
 int main(int argc, char* argv[])
 {
   print_welcome_information();
@@ -50,6 +50,10 @@ int main(int argc, char* argv[])
     // torch::cuda::synchronize();
   #endif
   clock_t time_finish = clock();
+
+  Gpumd_Options options = parse_options(argc, argv);
+  Run run(options.model_filename, options.run_filename);
+
   double time_used = (time_finish - time_begin) / double(CLOCKS_PER_SEC);
 
   print_line_1();
@@ -63,6 +67,30 @@ int main(int argc, char* argv[])
   return EXIT_SUCCESS;
 }
 
+Gpumd_Options parse_options(int argc, char* argv[])
+{
+  Gpumd_Options options;
+  for (int n = 1; n < argc; ++n) {
+    std::string option(argv[n]);
+    if (option == "-m" || option == "--model") {
+      if (n + 1 >= argc) {
+        PRINT_INPUT_ERROR("-m/--model should be followed by an xyz filename.");
+      }
+      options.model_filename = argv[++n];
+    } else if (option == "-i" || option == "--input") {
+      if (n + 1 >= argc) {
+        PRINT_INPUT_ERROR("-i/--input should be followed by a run input filename.");
+      }
+      options.run_filename = argv[++n];
+    } else {
+      std::string error = "Unknown gpumd option: ";
+      error += option;
+      error += ".";
+      PRINT_INPUT_ERROR(error.c_str());
+    }
+  }
+  return options;
+}
 void print_welcome_information(void)
 {
   printf("\n");
