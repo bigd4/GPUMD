@@ -16,14 +16,14 @@
 
 // 定义一个结构体用于存储配置数据
 struct Config {
-    int max_cv_nums;
-    int cv_size;
-    int cv_storage_interval;
-    int cv_change_interval;
-    int cv_log_interval;
-    double neighbor_rc;
-    int max_neighbors;
-    int n_atoms;
+    int max_cv_nums = 10000;
+    int cv_size = 1;
+    int cv_storage_interval = 100;
+    int cv_change_interval = 100;
+    int cv_log_interval = 100;
+    double neighbor_rc = 5.0;
+    int max_neighbors = 256;
+    int n_atoms = 0;
     bool is_opt_=0;
     bool is_obs_=0;
     int debug_interval=0;
@@ -31,18 +31,26 @@ struct Config {
 
     // 打印结构体内容
     void print() const {
-        std::cout << "Max CV Nums: " << max_cv_nums << std::endl;
-        std::cout << "CV Size: " << cv_size << std::endl;
-        std::cout << "CV Storage Interval: " << cv_storage_interval << std::endl;
-        std::cout << "CV Change Interval: " << cv_change_interval << std::endl;
-        std::cout << "CV Log Interval: " << cv_log_interval << std::endl;
-        std::cout << "Neighbor RC: " << neighbor_rc << std::endl;
-        std::cout << "Max Neighbors: " << max_neighbors << std::endl;
-        std::cout << "Number of Atoms: " << n_atoms << std::endl;
+        std::cout << "[GAScfg]Max CV Nums: " << max_cv_nums << std::endl;
+        std::cout << "[GAScfg]CV Size: " << cv_size << std::endl;
+        std::cout << "[GAScfg]CV Storage Interval: " << cv_storage_interval << std::endl;
+        std::cout << "[GAScfg]CV Change Interval: " << cv_change_interval << std::endl;
+        std::cout << "[GAScfg]CV Log Interval: " << cv_log_interval << std::endl;
+        std::cout << "[GAScfg]Neighbor RC: " << neighbor_rc << std::endl;
+        std::cout << "[GAScfg]Max Neighbors: " << max_neighbors << std::endl;
+        std::cout << "[GAScfg]Number of Atoms: " << n_atoms << std::endl;
+        std::cout << "[GAScfg]Debug Interval: " << debug_interval << std::endl;
+        std::cout << "[GAScfg]MetaCell Enabled: " << is_opt_ << std::endl;
+        std::cout << "[GAScfg]Observe Enabled: " << is_obs_ << std::endl;
     }
 
     // 从文件初始化结构体的静态方法
     static Config fromFile(const std::string& filePath) {
+        Config base_config;
+        return fromFile(filePath, base_config);
+    }
+
+    static Config fromFile(const std::string& filePath, const Config& base_config) {
         std::unordered_map<std::string, std::string> configMap;
         std::ifstream file(filePath);
 
@@ -67,6 +75,12 @@ struct Config {
             std::string key = line.substr(0, colon_pos);
             std::string value = line.substr(colon_pos + 1);
 
+            // 去除行内注释
+            size_t comment_pos = value.find('#');
+            if (comment_pos != std::string::npos) {
+                value = value.substr(0, comment_pos);
+            }
+
             // 修剪键和值的空白字符
             key.erase(0, key.find_first_not_of(" \t"));
             key.erase(key.find_last_not_of(" \t") + 1);
@@ -79,26 +93,36 @@ struct Config {
 
         file.close();
 
-        // 创建并初始化结构体实例
-        Config config;
-
-        std::vector<std::string> necessary_keys = {"max_cv_nums", "cv_size", "cv_storage_interval", "cv_change_interval", "cv_log_interval", "neighbor_rc", "max_neighbors", "n_atoms", "debug_interval"};
-        for (const auto& key : necessary_keys) {
-            if (configMap.find(key) == configMap.end()) {
-                throw std::runtime_error("Missing necessary key in configuration: " + key);
-            }
-        }
+        // 先使用默认/基础配置，再按 YAML 覆盖
+        Config config = base_config;
         try {
-            // values
-            config.max_cv_nums = std::stoi(configMap.at("max_cv_nums"));
-            config.cv_size = std::stoi(configMap.at("cv_size"));
-            config.cv_storage_interval = std::stoi(configMap.at("cv_storage_interval"));
-            config.cv_change_interval = std::stoi(configMap.at("cv_change_interval"));
-            config.cv_log_interval = std::stoi(configMap.at("cv_log_interval"));
-            config.neighbor_rc = std::stod(configMap.at("neighbor_rc"));
-            config.max_neighbors = std::stoi(configMap.at("max_neighbors"));
-            config.n_atoms = std::stoi(configMap.at("n_atoms"));
-            config.debug_interval = std::stoi(configMap.at("debug_interval"));
+            if (configMap.find("max_cv_nums") != configMap.end()) {
+                config.max_cv_nums = std::stoi(configMap.at("max_cv_nums"));
+            }
+            if (configMap.find("cv_size") != configMap.end()) {
+                config.cv_size = std::stoi(configMap.at("cv_size"));
+            }
+            if (configMap.find("cv_storage_interval") != configMap.end()) {
+                config.cv_storage_interval = std::stoi(configMap.at("cv_storage_interval"));
+            }
+            if (configMap.find("cv_change_interval") != configMap.end()) {
+                config.cv_change_interval = std::stoi(configMap.at("cv_change_interval"));
+            }
+            if (configMap.find("cv_log_interval") != configMap.end()) {
+                config.cv_log_interval = std::stoi(configMap.at("cv_log_interval"));
+            }
+            if (configMap.find("neighbor_rc") != configMap.end()) {
+                config.neighbor_rc = std::stod(configMap.at("neighbor_rc"));
+            }
+            if (configMap.find("max_neighbors") != configMap.end()) {
+                config.max_neighbors = std::stoi(configMap.at("max_neighbors"));
+            }
+            if (configMap.find("n_atoms") != configMap.end()) {
+                config.n_atoms = std::stoi(configMap.at("n_atoms"));
+            }
+            if (configMap.find("debug_interval") != configMap.end()) {
+                config.debug_interval = std::stoi(configMap.at("debug_interval"));
+            }
 
             // flag
             config.is_opt_ = (configMap.find("MetaCell")!=configMap.end());

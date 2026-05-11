@@ -49,6 +49,25 @@ torch::Tensor vectorToTensor(const std::vector<std::vector<double>>& data) {
     return tensor.clone();  // 返回一个副本，确保数据不受外部修改的影响
 }
 
+Config load_gas_config_with_defaults(const std::string& cfg_path, int n_atoms)
+{
+    Config base_config;
+    base_config.n_atoms = n_atoms;
+    Config effective_config = base_config;
+
+    try {
+        effective_config = Config::fromFile(cfg_path, base_config);
+        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[GAS-Warn] Failed to load GASConfig from " << cfg_path
+                  << ", using defaults. Details: " << e.what() << std::endl;
+    }
+
+    std::cout << "[GAS-Info] Effective GASConfig:" << std::endl;
+    effective_config.print();
+    return effective_config;
+}
+
 }
 
 
@@ -250,14 +269,8 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
         throw e;
     }
-    // 接受 GASConfig 参数
-    try {
-        config = Config::fromFile(cfg_path);
-        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
-        throw e;
-    }
+    // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
+    config = load_gas_config_with_defaults(cfg_path, n_atoms_);
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -270,6 +283,7 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
     torch_now_cvs = torch::empty({config.cv_size},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
     torch_delta_cv_save = torch::empty({config.cv_size},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
     torch_bias = torch::empty({},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
+    debug_interval = config.debug_interval;
 
     cpu_b_vector = std::vector<double>(9); // Box
     // gpu_v_vector.resize(6);
@@ -292,14 +306,8 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string g
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
         throw e;
     }
-    // 接受 GASConfig 参数
-    try {
-        config = Config::fromFile(cfg_path);
-        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
-        throw e;
-    }
+    // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
+    config = load_gas_config_with_defaults(cfg_path, n_atoms_);
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);

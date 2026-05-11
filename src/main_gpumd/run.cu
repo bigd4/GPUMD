@@ -149,6 +149,14 @@ Run::Run() : Run("model.xyz", "run.in") {}
 Run::Run(const std::string& model_filename_in) : Run(model_filename_in, "run.in") {}
 
 Run::Run(const std::string& model_filename_in, const std::string& run_filename_in)
+  : Run(model_filename_in, run_filename_in, true)
+{
+}
+
+Run::Run(
+  const std::string& model_filename_in,
+  const std::string& run_filename_in,
+  bool execute_run_input)
   : model_filename(model_filename_in), run_filename(run_filename_in)
 {
   set_run_input_filename(run_filename);
@@ -181,7 +189,9 @@ Run::Run(const std::string& model_filename_in, const std::string& run_filename_i
   fflush(stdout);
   print_line_2();
 
-  execute_run_in();
+  if (execute_run_input) {
+    execute_run_in();
+  }
 }
 
 std::string Run::get_initial_structure_filename()

@@ -23,8 +23,16 @@
 #include <time.h>
 #include <chrono>
 #include <cstring>
+#include <string>
 
 void print_welcome_information();
+
+struct Gpumd_Options
+{
+  std::string model_filename = "model.xyz";
+  std::string run_filename = "run.in";
+};
+
 Gpumd_Options parse_options(int argc, char* argv[]);
 int main(int argc, char* argv[])
 {
@@ -42,7 +50,8 @@ int main(int argc, char* argv[])
   #endif
   clock_t time_begin = clock();
 
-  Run run;
+  Gpumd_Options options = parse_options(argc, argv);
+  GSRun run(options.model_filename, options.run_filename);
 
   #ifndef USE_GAS
     cudaDeviceSynchronize();
@@ -50,9 +59,6 @@ int main(int argc, char* argv[])
     // torch::cuda::synchronize();
   #endif
   clock_t time_finish = clock();
-
-  Gpumd_Options options = parse_options(argc, argv);
-  Run run(options.model_filename, options.run_filename);
 
   double time_used = (time_finish - time_begin) / double(CLOCKS_PER_SEC);
 

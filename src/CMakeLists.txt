@@ -70,7 +70,7 @@ file(GLOB SOURCES_GPUSAMP
 )
 # add GPUMD run files
 file(GLOB SOURCES_GPUMD_EXTRA "${CMAKE_SOURCE_DIR}/main_gpumd/*.cu")
-list(FILTER SOURCES_GPUMD_EXTRA EXCLUDE REGEX "main_gpumd/(run|main)\\.cu$")
+list(FILTER SOURCES_GPUMD_EXTRA EXCLUDE REGEX "main_gpumd/(main)\\.cu$")
 list(APPEND SOURCES_GPUSAMP ${SOURCES_GPUMD_EXTRA})
 
 
