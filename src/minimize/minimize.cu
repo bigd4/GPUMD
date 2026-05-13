@@ -226,30 +226,22 @@ void Minimize::parse_minimize(
         minimizer.reset(new Minimizer_FIRE(atom.number_of_atoms, number_of_steps, force_tolerance));
   
         minimizer->compute(force, box, atom, atom.position_per_atom, group);
-  
-        break;
-      case 2:
-        printf("\nStart to do an energy minimization.\n");
-        printf("    using the fast inertial relaxation engine (FIRE) method.\n");
-        printf("    with variable box.\n");
-        if (hydrostatic_strain == 1) {
-          printf("    with hydrostatic pressure.\n");
-        }
-        printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
-        printf("    for maximally %d steps.\n", number_of_steps);
-  
-        minimizer.reset(new Minimizer_FIRE_Box_Change(
-          atom.number_of_atoms, number_of_steps, force_tolerance, hydrostatic_strain));
-  
-        minimizer->compute(force, box, atom, atom.position_per_atom, group);
-
-        minimizer->compute(
-          force,
-          box,
-          atom,
-          atom.position_per_atom,
-          group);
       }
+      break;
+    case 2:
+      printf("\nStart to do an energy minimization.\n");
+      printf("    using the fast inertial relaxation engine (FIRE) method.\n");
+      printf("    with variable box.\n");
+      if (hydrostatic_strain == 1) {
+        printf("    with hydrostatic pressure.\n");
+      }
+      printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
+      printf("    for maximally %d steps.\n", number_of_steps);
+
+      minimizer.reset(new Minimizer_FIRE_Box_Change(
+        atom.number_of_atoms, number_of_steps, force_tolerance, hydrostatic_strain));
+
+      minimizer->compute(force, box, atom, atom.position_per_atom, group);
       break;
     default:
       PRINT_INPUT_ERROR("Invalid minimizer.");

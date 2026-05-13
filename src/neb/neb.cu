@@ -1108,20 +1108,18 @@ void NEB::compute()
   }
 
   find_min_max(etol);
+  vector<double> k_effective_list(klist);
   // printf("klist: ");
-  if (auto_k) {  //TODO: compatibility with vi_k 
+  if (auto_k) {
     for (int i=0; i<nimages-1;i++){
       int dist2imaxes=nimages;
       for (auto x:imaxes) {
         if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
         if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
       }
-      double k_ori = klist[i];
-      double k_target = k_ori / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
-      if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
-      else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
-      else klist[i] -= 0.1*(k_target - k);
-      // printf("%.3f ", klist[i]);
+      double auto_k_factor = 1.0 / (1.0 - 0.8*pow(0.9, pow(dist2imaxes,2)));
+      k_effective_list[i] *= auto_k_factor;
+      // printf("%.3f ", k_effective_list[i]);
     }
   }
   // printf("\n"); 
@@ -1132,11 +1130,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
+  Spring spring1{k_effective_list[0], image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{k_effective_list[i], image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -1206,6 +1204,13 @@ void NEB::compute()
       gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
             1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
     }
+  }
+  if (vi_count==0){
+    print_arr(k_effective_list.data(), k_effective_list.size(), "k_effective_list");
+    forces.fill(0);
+    printf("imaxes before change: ");
+    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
+    printf("\n");
   }
   step++;
   // print_gpu(forces, "neb forces");
@@ -1294,18 +1299,18 @@ void NEB::check_dist() {
 
     if (dist > cur_max_dist){
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
-      double ori_k = klist[i-1];
+      double k_old = klist[i-1];
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
-      klist.insert(klist.begin() + i, ori_k);
+      klist.insert(klist.begin() + i, k_old);
       if (vi_k) {
-        double new_k = ori_k * vi_k_efficient;
-        if (new_k > k * 10) new_k = ori_k;
-        klist[i-1] = new_k;
-        klist[i] = new_k;
+        double k_new = k_old * vi_k_efficient;
+        if (k_new > k * 10) k_new = k_old;
+        klist[i-1] = k_new;
+        klist[i] = k_new;
       }
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
         i_ori, int(images.size()), r_dist, h_dist);
@@ -1313,13 +1318,13 @@ void NEB::check_dist() {
       i_ori++;
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
-      double ori_k = klist[i-1];
+      double k_old = klist[i-1];
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
       if (vi_k) {
-        double new_k = ori_k / vi_k_efficient;
-        if (new_k < k / 10) new_k = ori_k;
-        klist[i-1] = new_k;
+        double k_new = k_old / vi_k_efficient;
+        if (k_new < k / 10) k_new = k_old;
+        klist[i-1] = k_new;
       }
       printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
       // i doesn't change, skip 2 images
@@ -1332,14 +1337,6 @@ void NEB::check_dist() {
         klist[j] = klist[j] / avg_k * k;
       }
     }
-  }
-  
-  if (vi_count==0){
-    print_arr(klist.data(), klist.size(), "klist");
-    forces.fill(0);
-    printf("imaxes before change: ");
-    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
-    printf("\n");
   }
 }
 
