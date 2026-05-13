@@ -1,6 +1,7 @@
 // #ifdef USE_GAS
 #include "gas-metad.cuh"
 #include "model/read_xyz.cuh"
+#include <chrono>
 
 namespace{
   std::vector<std::vector<double>> readFileToVector(const std::string& filename) {
@@ -66,6 +67,16 @@ Config load_gas_config_with_defaults(const std::string& cfg_path, int n_atoms)
     std::cout << "[GAS-Info] Effective GASConfig:" << std::endl;
     effective_config.print();
     return effective_config;
+}
+
+torch::jit::script::Module load_gas_torchscript_model_for_inference(
+  const std::string& model_path)
+{
+    torch::jit::setGraphExecutorOptimize(true);
+    auto loaded_model = torch::jit::load(model_path, torch::kCUDA);
+    loaded_model.eval();
+
+    return loaded_model;
 }
 
 }
@@ -259,11 +270,7 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
+        model = load_gas_torchscript_model_for_inference(model_path);
         std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
     } catch (const c10::Error& e) {
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
@@ -296,11 +303,7 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string g
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
+        model = load_gas_torchscript_model_for_inference(model_path);
         std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
     } catch (const c10::Error& e) {
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
@@ -344,8 +347,22 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string g
 torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
     const torch::Dict<std::string, torch::Tensor>& inputs) {
     // try {
+        const bool profile_predict = (config.debug_interval != 0);
+        std::chrono::high_resolution_clock::time_point t0;
+        if (profile_predict) {
+          torch::cuda::synchronize();
+          t0 = std::chrono::high_resolution_clock::now();
+        }
         // 将输入传递给模型
         auto result = model.forward({inputs}).toGenericDict();
+        if (profile_predict && now_step%debug_interval==0) {
+          torch::cuda::synchronize();
+          const auto t1 = std::chrono::high_resolution_clock::now();
+          const double elapsed_ms =
+            std::chrono::duration<double, std::milli>(t1 - t0).count();
+          std::cout << "[GAS-Debug] predict() time = " << elapsed_ms
+                    << " ms at step " << now_step << std::endl;
+        }
         // 要花括号吗？
         // 转换返回值为 torch::Dict
         torch::Dict<std::string, torch::Tensor> outputs;
@@ -354,7 +371,7 @@ torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
             auto value = item.value().toTensor();
             // #ifdef USE_GAS_DEBUG
             if (config.debug_interval!=0){
-              if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout<<key<<value<<std::endl;}
+              if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout << "[GAS-Debug] " << key << ": " << value << std::endl;}
             }
             // #endif
             outputs.insert(key, value);
