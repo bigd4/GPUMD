@@ -32,6 +32,8 @@ public:
 
   TargetOpt();
 
+  using Potential::compute;
+
   void parse_target_opt(const char** param, int num_param, Force& force);
 
   void compute(

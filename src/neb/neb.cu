@@ -48,7 +48,8 @@ namespace
   }
 
   // vec result = vec a + scalar alpha
-  void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+  void __attribute__((unused)) vector_add_scalar(
+    GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
   {
     int size = a.size();
     gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
@@ -124,7 +125,6 @@ namespace
   {
     int lda = (transa != CUBLAS_OP_T)? M: K;
     int ldb = (transb != CUBLAS_OP_T)? K: N;
-    cublasStatus_t stat;
     // printf("lda: %d, ldb: %d\n",lda, ldb);
     cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
       M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
@@ -233,7 +233,7 @@ namespace
   // 1) use SVD to validate positive-semidefinite-ness;
   // 2) build the strict lower-triangular Cholesky factor L by standard recursion.
   // Input A and output L are both n x n column-major matrices on device/managed memory.
-  void get_cholesky(double* A, double* L, int n)
+  void __attribute__((unused)) get_cholesky(double* A, double* L, int n)
   {
     if (A == nullptr || L == nullptr) {
       PRINT_INPUT_ERROR("get_cholesky: A and L must be preallocated and non-null.");
@@ -358,7 +358,7 @@ namespace
     d_result.copy_to_host(result);
   }
 
-  double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
+  double __attribute__((unused)) dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
   {
     GPU_Vector<double> temp(a.size());
     pairwise_product(a, b, temp);
@@ -384,7 +384,8 @@ namespace
   }
 
 
-  GPU_Vector<double> sum_square_axis1(GPU_Vector<double>& a, const int ncol)
+  GPU_Vector<double> __attribute__((unused)) sum_square_axis1(
+    GPU_Vector<double>& a, const int ncol)
   {
     int nl = a.size()/ncol;
     GPU_Vector<double> temp(nl);
@@ -392,7 +393,7 @@ namespace
     return temp;
   }
 
-  double max_abs(int size, double* vec)
+  double __attribute__((unused)) max_abs(int size, double* vec)
   {
     int index;
     double result;
@@ -430,7 +431,7 @@ namespace
   void print_setting(const char* name, double value){
     printf("%-20s = %g\n", name, value);
   }
-  void print_setting(const char* name, const char* value){
+  void __attribute__((unused)) print_setting(const char* name, const char* value){
     printf("%-20s = %s\n", name, value);
   }
   void print_setting(const char* name, string value){
@@ -855,7 +856,7 @@ std::unique_ptr<BaseTangentMethod> get_tangent_method(string tangent_method_name
 }
 
 void cell_best_match(double* cell_ref, double* cell, double* new_cell){
-  double *H, HTH, *rot;
+  double *H, *rot;
   cudaMalloc(&H, 9*sizeof(double));
   cudaMalloc(&rot, 9*sizeof(double));
   // gpu_matmul(cell_ref, cell, H, 3, 3, 3, 1, 0);
@@ -1235,7 +1236,7 @@ void NEB::check_dist() {
     return;
   }
   GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
-  double nrm2, dist;
+  double dist;
   int max_neighbor = 10, n_sp3;
   GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
   GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);

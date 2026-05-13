@@ -7,8 +7,9 @@ project(GPU-MetaD LANGUAGES CXX CUDA)
 find_package(CUDA REQUIRED)
 # find_package(CUFFT REQUIRED)
 
-set(CUDACXX /usr/local/cuda/bin/nvcc)
-set(CMAKE_CUDA_COMPILER ${CUDACXX})
+if(NOT DEFINED CMAKE_CUDA_COMPILER AND DEFINED ENV{CUDACXX})
+    set(CMAKE_CUDA_COMPILER $ENV{CUDACXX})
+endif()
 
 # # Specify the Python environment
 # set(PYTHON_INCLUDE /home/tensor/anaconda3/envs/py38/include/python3.8)

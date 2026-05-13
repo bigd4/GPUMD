@@ -46,6 +46,7 @@ public:
   Run();
   Run(const std::string& model_filename);
   Run(const std::string& model_filename, const std::string& run_filename);
+  void execute();
 
 private:
   void execute_run_in();

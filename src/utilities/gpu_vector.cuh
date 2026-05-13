@@ -23,7 +23,7 @@ namespace
 template <typename T>
 void __global__ gpu_fill(const size_t size, const T value, T* data)
 {
-  const int i = blockDim.x * blockIdx.x + threadIdx.x;
+  const size_t i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i < size)
     data[i] = value;
 }
@@ -263,7 +263,7 @@ public:
       GPU_CHECK_KERNEL
     } else // managed (or unified) memory
     {
-      for (int i = 0; i < size_; ++i)
+      for (size_t i = 0; i < size_; ++i)
         data_[i] = value;
     }
   }
@@ -285,12 +285,11 @@ private:
 };
 
 template <typename T>
-GPU_Vector<T>& GPU_Vector_copy(GPU_Vector<T>& gpu_vector){
+GPU_Vector<T> GPU_Vector_copy(GPU_Vector<T>& gpu_vector){
   GPU_Vector<T> new_gpu_vector;
   new_gpu_vector.resize(gpu_vector.size());
   new_gpu_vector.copy_from_device(gpu_vector.data());
   return new_gpu_vector;
 }
-
 
 

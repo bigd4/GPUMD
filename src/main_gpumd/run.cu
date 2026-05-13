@@ -180,7 +180,10 @@ Run::Run(const std::string& model_filename_in, const std::string& run_filename_i
   printf("Finished initializing positions and related parameters.\n");
   fflush(stdout);
   print_line_2();
+}
 
+void Run::execute()
+{
   execute_run_in();
 }
 
