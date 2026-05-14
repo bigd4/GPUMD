@@ -115,7 +115,7 @@ class NEB: public BaseAtoms
 private:
   // compute setting
   double k = 0.1;
-  bool auto_k = false;
+  bool energy_based_k = false;
   std::vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 0;
@@ -127,17 +127,18 @@ private:
   bool remove_rotation = true;
   bool variable_cell = true;
 
-  bool var_image_number = true;
-  bool vi_k = false;
-  double vi_k_efficient = 1.8;
-  int vi_check_coord = 0; //  0: no check
-  double vicc_num = 0.0; // >0 & <1: percent, >=1: number
-  double vicc_rc = 1.7; 
-  int vi_interval = 20;
-  double vi_cell_factor = -1.0;
-  double vi_force_tol = 1;
+  bool image_number_adjustment = true;
+  bool ina_k = false;
+  double ina_k_efficient = 1.8;
+  int ina_check_coord = 0; //  0: no check
+  double inacc_num = 0.0; // >0 & <1: percent, >=1: number
+  double inacc_rc = 1.7;
+  int ina_interval = 20;
+  double ina_cell_factor = -1.0;
+  double ina_force_tol = 1;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
+  bool print_k = false;
   int print_interval = 1;
   int dump_interval = -1;
   int peek_interval = -1;
@@ -165,7 +166,7 @@ private:
   std::vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
-  int vi_count = 0;
+  int ina_count = 0;
   int step = 0;
   bool count_force_calc = false;
   int n_force_calc = 0;
@@ -180,7 +181,7 @@ private:
 
   void initialize_compute();
 
-  void check_dist();
+  void adjust_image_number();
 
   void print_info();
 

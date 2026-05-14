@@ -29,7 +29,7 @@ All input structure files should be in extended XYZ format.
 
 ### NEB Method Settings
 - k: key 1, elastic coefficient. default value: 0.1
-- auto_k: flag, adjust spring constants automatically.
+- energy_based_k: flag, adjust spring constants according to the energy extrema.
 - tangent: key 1, tangent method. default value: improved
 	- improved: improved tangent
 	- normal: normal tangent
@@ -38,16 +38,16 @@ All input structure files should be in extended XYZ format.
 - find_min: flag, fully using real force to relax the minimum images
 - etol: key 1, the energy tolerance that judges if the image is maximum or minimum.
 
-### Variable Images
-- no_vi: flag, do not use variable image number feature
+### Image Number Adjustment
+- no_ina: flag, do not use the image number adjustment feature.
 
-- vi_interval: key 1, the minimal neb steps interval between two image adjustment operation. default value: 20
-- vi_k: flag, adjust spring constants when inserting or removing images.
-- vi_cell_factor: key 1, weight factor of cell distance in variable-cell distance checks. default value: natoms^(1/6)
-- vi_force_tol: key 1, force tolerance for variable image checks. default value: 1
-- vi_check_coord: key 1, coordination-number threshold used to check image insertion. default value: 0
-- vicc_num: key 1, number of atoms, or fraction of atoms if smaller than 1, used in coordination checks. default value: 0
-- vicc_rc: key 1, cutoff radius for coordination checks. default value: 1.7
+- ina_interval: key 1, the minimal neb steps interval between two image number adjustment operations. default value: 20
+- ina_k: flag, adjust spring constants when inserting or removing images.
+- ina_cell_factor: key 1, weight factor of cell distance in variable-cell distance checks. default value: natoms^(1/6)
+- ina_force_tol: key 1, force tolerance for image number adjustment checks. default value: 1
+- ina_check_coord: key 1, coordination-number threshold used to check image insertion. default value: 0
+- inacc_num: key 1, number of atoms, or fraction of atoms if smaller than 1, used in coordination checks. default value: 0
+- inacc_rc: key 1, cutoff radius for coordination checks. default value: 1.7
 
 ### Output Settings
 - peek_interval: key 1, the interval of peeking neb trajectory. The output trajectory file is named as **peek_traj.xyz**. The output energy profile file is named as **neb_energies.out**. In each peeking operation, the new data overwrites the old data. default value: ceil(max_steps/50)
