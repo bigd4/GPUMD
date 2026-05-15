@@ -43,8 +43,9 @@ All input structure files should be in extended XYZ format.
 
 - ina_interval: key 1, the minimal neb steps interval between two image number adjustment operations. default value: 20
 - ina_k: flag, adjust spring constants when inserting or removing images.
+- ina_k_efficient: key 1, factor used to increase or decrease spring constants during image number adjustment. default value: 1.8
 - ina_cell_factor: key 1, weight factor of cell distance in variable-cell distance checks. default value: natoms^(1/6)
-- ina_force_tol: key 1, force tolerance for image number adjustment checks. default value: 1
+- ina_force_tol: key variable, staged force residual thresholds for image number adjustment. Values are pairs of stage and residual, where stage is the number of NEB steps since the previous image number adjustment and residual is a positive real. Use a very large residual for an unconditional final stage. If other options follow on the same line, end this option with **ina_force_tol_end**. default value: ina_interval 1 3*ina_interval 3 10*ina_interval 1e100
 - ina_check_coord: key 1, coordination-number threshold used to check image insertion. default value: 0
 - inacc_num: key 1, number of atoms, or fraction of atoms if smaller than 1, used in coordination checks. default value: 0
 - inacc_rc: key 1, cutoff radius for coordination checks. default value: 1.7

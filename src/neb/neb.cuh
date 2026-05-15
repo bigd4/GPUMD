@@ -13,6 +13,7 @@
 #include <deque>
 #include <list>
 #include <map>
+#include <utility>
 #include <cstring>
 #include <cmath>
 #include <cusolverDn.h>
@@ -135,7 +136,7 @@ private:
   double inacc_rc = 1.7;
   int ina_interval = 20;
   double ina_cell_factor = -1.0;
-  double ina_force_tol = 1;
+  std::vector<std::pair<int, double>> ina_force_tol_stages;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
   bool print_k = false;
@@ -180,6 +181,8 @@ private:
   void initialize_images();
 
   void initialize_compute();
+
+  bool satisfy_ina_force_tolerence() const;
 
   void adjust_image_number();
 

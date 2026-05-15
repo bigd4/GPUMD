@@ -700,10 +700,10 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     pressure[2] = pressure[6] = press_in[4];
     pressure[1] = pressure[3] = press_in[5];
     n += 6;
-  } else if (strcmp(param[n], "remove_translation") == 0){
-    remove_translation = true;
-  } else if (strcmp(param[n], "remove_rotation") == 0){
-    remove_rotation = true;
+  } else if (strcmp(param[n], "no_remove_translation") == 0){
+    remove_translation = false;
+  } else if (strcmp(param[n], "no_remove_rotation") == 0){
+    remove_rotation = false;
   } else if (strcmp(param[n], "dist_range") == 0){
     if (!is_valid_real(param[n+1], &min_dist) ||
         !is_valid_real(param[n+2], &max_dist)) {
@@ -747,16 +747,45 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     n++;
   } else if (strcmp(param[n], "ina_k") == 0){
     ina_k = true;
+  } else if (strcmp(param[n], "ina_k_efficient") == 0){
+    if (!is_valid_real(param[n+1], &ina_k_efficient)) {
+      PRINT_INPUT_ERROR("ina_k_efficient should be a real.");
+    }
+    if (ina_k_efficient <= 1.0) PRINT_INPUT_ERROR("ina_k_efficient should > 1.");
+    n++;
   } else if (strcmp(param[n], "ina_cell_factor") == 0){
     if (!is_valid_real(param[n+1], &ina_cell_factor)) {
       PRINT_INPUT_ERROR("ina_cell_factor should be a real.");
     }
     n++;
   } else if (strcmp(param[n], "ina_force_tol") == 0){
-    if (!is_valid_real(param[n+1], &ina_force_tol)) {
-      PRINT_INPUT_ERROR("ina_force_tol should be a real.");
+    ina_force_tol_stages.clear();
+    int previous_stage = 0;
+    int i = n + 1;
+    for (; i < num_param; i += 2) {
+      if (strcmp(param[i], "ina_force_tol_end") == 0) break;
+      if (i + 1 >= num_param || strcmp(param[i + 1], "ina_force_tol_end") == 0) {
+        PRINT_INPUT_ERROR("ina_force_tol should be: stage1 tol1 [stage2 tol2 ...] [ina_force_tol_end].");
+      }
+      int stage;
+      double residual;
+      if (!is_valid_int(param[i], &stage)) {
+        PRINT_INPUT_ERROR("ina_force_tol stage should be an int.");
+      }
+      if (stage <= previous_stage) {
+        PRINT_INPUT_ERROR("ina_force_tol stages should be positive and strictly increasing.");
+      }
+      if (!is_valid_real(param[i + 1], &residual)) {
+        PRINT_INPUT_ERROR("ina_force_tol residual should be a real.");
+      }
+      if (residual <= 0.0) PRINT_INPUT_ERROR("ina_force_tol residual should > 0.");
+      ina_force_tol_stages.push_back({stage, residual});
+      previous_stage = stage;
     }
-    n++;
+    if (ina_force_tol_stages.empty()) {
+      PRINT_INPUT_ERROR("ina_force_tol should contain at least one stage/residual pair.");
+    }
+    n = i;
   } else if (strcmp(param[n], "ina_check_coord") == 0){
     if (!is_valid_int(param[n+1], &ina_check_coord)) {
       PRINT_INPUT_ERROR("ina_check_coord should be an int.");
@@ -968,6 +997,11 @@ void NEB::run_neb() {
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
   if (peek_interval == -1) peek_interval = (max_steps - 1) / 50 + 1;
   if (ina_cell_factor == -1.0) ina_cell_factor = pow(n_realatoms, 1.0/6);
+  if (ina_force_tol_stages.empty()) {
+    ina_force_tol_stages.push_back({ina_interval, 1.0});
+    ina_force_tol_stages.push_back({3 * ina_interval, 3.0});
+    ina_force_tol_stages.push_back({10 * ina_interval, 1.0e100});
+  }
 
   printf("-----------------neb settings-----------------\n");
   print_setting("k", k);
@@ -981,12 +1015,18 @@ void NEB::run_neb() {
   print_setting("climb", climb);
   print_setting("find_min", find_min);
   if (climb) print_setting("etol", etol);
-  print_setting("image_number_adjustment", image_number_adjustment);
+    print_setting("image_number_adjustment", image_number_adjustment);
   if (image_number_adjustment) {
     print_setting("ina_interval", ina_interval);
     print_setting("min_dist", min_dist);
     print_setting("max_dist", max_dist);
+    print_setting("ina_k_efficient", ina_k_efficient);
     print_setting("ina_cell_factor", ina_cell_factor);
+    printf("%-20s =", "ina_force_tol");
+    for (auto stage:ina_force_tol_stages) {
+      printf(" %d %g", stage.first, stage.second);
+    }
+    printf("\n");
     print_setting("dist_ncount", dist_ncount);
     print_setting("ina_check_coord", ina_check_coord);
     if (ina_check_coord) {
@@ -1248,11 +1288,19 @@ void NEB::print_info(){
   }
 }
 
+bool NEB::satisfy_ina_force_tolerence() const
+{
+  for (auto stage:ina_force_tol_stages) {
+    if (ina_count < stage.first) return false;
+    if (fmax < stage.second) return true;
+  }
+  return false;
+}
+
 void NEB::adjust_image_number() {
   // printf("adjust_image_number, natoms: %d, forces.size: %d\n", natoms, forces.size());
   fflush(stdout);
-  if (ina_count < ina_interval || (ina_count < ina_interval *2 && fmax > 2) ||
-      (ina_count < ina_interval *5 && fmax > 3) || fmax > 5){
+  if (!satisfy_ina_force_tolerence()){
     ina_count++;
     return;
   }
