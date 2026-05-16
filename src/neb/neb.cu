@@ -78,6 +78,30 @@ namespace
     gpu_vector_substract<<<(size*3 -1)/128 + 1,128>>>(result.data(), size, a.data(), b.data());
   }
 
+  bool compare_image(Atoms& atoms1, Atoms& atoms2, int n_realatoms, bool variable_cell, double tolerance)
+  {
+    vector<double> pos1(atoms1.get_positions().size());
+    vector<double> pos2(atoms2.get_positions().size());
+    atoms1.get_positions().copy_to_host(pos1.data());
+    atoms2.get_positions().copy_to_host(pos2.data());
+
+    const int real_size = 3 * n_realatoms;
+    for (int i = 0; i < real_size; ++i) {
+      if (abs(pos1[i] - pos2[i]) > tolerance) return false;
+    }
+
+    if (variable_cell) {
+      double cell_rssd2 = 0.0;
+      for (int i = real_size; i < real_size + 9; ++i) {
+        double diff = pos1[i] - pos2[i];
+        cell_rssd2 += diff * diff;
+      }
+      if (sqrt(cell_rssd2) > 3.0 * tolerance) return false;
+    }
+
+    return true;
+  }
+
   __global__ void gpu_pairwise_product(double* c, double* a, double* b, const int size, double alpha=1.0)
   {
     int n = blockDim.x * blockIdx.x + threadIdx.x;
@@ -633,33 +657,42 @@ void NEB::parse_options(const char** param, int num_param, int& n)
 {
   // Input Files: structure file names, initial path construction, and endpoint relaxation.
   if (strcmp(param[n], "is_name") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     istate_name.assign(param[n+1]);
     n++;
   } else if (strcmp(param[n], "fs_name") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     fstate_name.assign(param[n+1]);
     n++;
   } else if (strcmp(param[n], "has_mid") == 0){
     has_mid = true;
   } else if (strcmp(param[n], "mid_name") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     mid_name.assign(param[n+1]);
     n++;
   } else if (strcmp(param[n], "mid_name_list") == 0){
-    for (int i=n+1; i<num_param; i++){
+    int i = n + 1;
+    for (; i<num_param; i++){
+      if (strcmp(param[i], "mid_name_list_end") == 0) break;
       mid_name_list.push_back(string(param[i]));
-      n++;
-      if (strcmp(param[n], "mid_name_list_end") == 0) break;
     }
-    n++;
+    if (mid_name_list.empty()) {
+      PRINT_INPUT_ERROR("mid_name_list should contain at least one filename.");
+    }
+    n = i;
   } else if (strcmp(param[n], "suffix") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     string suffix(param[n+1]);
     istate_name.assign("is_"+suffix+".xyz");
     fstate_name.assign("fs_"+suffix+".xyz");
     mid_name.assign("mid_"+suffix+".xyz");
     n++;
   } else if (strcmp(param[n], "traj_name") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     traj_name.assign(param[n+1]);
     n++;
   } else if (strcmp(param[n], "interpolate") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &n_interpolate)) {
       PRINT_INPUT_ERROR("interpolate should be an int.");
     }
@@ -671,6 +704,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   } else if (strcmp(param[n], "no_vc") == 0){
     variable_cell = false;
   } else if (strcmp(param[n], "p") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     double press_scalar;
     if (!is_valid_real(param[n+1], &press_scalar)) {
       PRINT_INPUT_ERROR("p should be a real.");
@@ -678,6 +712,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     pressure = {press_scalar};
     n++;
   } else if (strcmp(param[n], "p3") == 0){
+    require_option_values(param, num_param, n, 3, "neb_set");
     pressure.resize(3);
     for (int i=0; i<3; i++){
       if (!is_valid_real(param[n+1+i], &pressure[i])) {
@@ -686,6 +721,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     }
     n += 3;
   } else if (strcmp(param[n], "p6") == 0){
+    require_option_values(param, num_param, n, 6, "neb_set");
     vector<double> press_in(6);
     pressure.resize(9);
     for (int i=0; i<6; i++){
@@ -705,12 +741,14 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   } else if (strcmp(param[n], "no_remove_rotation") == 0){
     remove_rotation = false;
   } else if (strcmp(param[n], "dist_range") == 0){
+    require_option_values(param, num_param, n, 2, "neb_set");
     if (!is_valid_real(param[n+1], &min_dist) ||
         !is_valid_real(param[n+2], &max_dist)) {
       PRINT_INPUT_ERROR("dist_range should be two reals.");
     }
     n+=2;
   } else if (strcmp(param[n], "dist_ncount") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &dist_ncount)) {
       PRINT_INPUT_ERROR("dist_ncount should be an int.");
     }
@@ -718,13 +756,24 @@ void NEB::parse_options(const char** param, int num_param, int& n)
 
   // NEB Method Settings: spring model, tangent choice, and special image treatment.
   } else if (strcmp(param[n], "k") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &k)) {
       PRINT_INPUT_ERROR("k should be a real.");
     }
     n++;
   } else if (strcmp(param[n], "energy_based_k") == 0){
     energy_based_k = true;
+  } else if (strcmp(param[n], "energy_k_damping") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &energy_k_damping)) {
+      PRINT_INPUT_ERROR("energy_k_damping should be a real.");
+    }
+    if (energy_k_damping <= 0.0 || energy_k_damping > 1.0) {
+      PRINT_INPUT_ERROR("energy_k_damping should be in (0, 1].");
+    }
+    n++;
   } else if (strcmp(param[n], "tangent") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     tangent_method_name = string(param[n+1]);
     n++;
   } else if (strcmp(param[n], "climb") == 0){
@@ -732,6 +781,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   } else if (strcmp(param[n], "find_min") == 0){
     find_min = true;
   } else if (strcmp(param[n], "etol") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &etol)) {
       PRINT_INPUT_ERROR("etol should be a real.");
     }
@@ -740,7 +790,17 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   // Image Number Adjustment: controls for inserting/removing images along the path.
   } else if (strcmp(param[n], "no_ina") == 0){
     image_number_adjustment = false;
+  } else if (strcmp(param[n], "trim_images") == 0){
+    trim_images = true;
+  } else if (strcmp(param[n], "trim_similar_tol") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &trim_similar_tol)) {
+      PRINT_INPUT_ERROR("trim_similar_tol should be a real.");
+    }
+    if (trim_similar_tol <= 0.0) PRINT_INPUT_ERROR("trim_similar_tol should > 0.");
+    n++;
   } else if (strcmp(param[n], "ina_interval") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &ina_interval)) {
       PRINT_INPUT_ERROR("ina_interval should be an int.");
     }
@@ -748,12 +808,14 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   } else if (strcmp(param[n], "ina_k") == 0){
     ina_k = true;
   } else if (strcmp(param[n], "ina_k_efficient") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &ina_k_efficient)) {
       PRINT_INPUT_ERROR("ina_k_efficient should be a real.");
     }
     if (ina_k_efficient <= 1.0) PRINT_INPUT_ERROR("ina_k_efficient should > 1.");
     n++;
   } else if (strcmp(param[n], "ina_cell_factor") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &ina_cell_factor)) {
       PRINT_INPUT_ERROR("ina_cell_factor should be a real.");
     }
@@ -787,17 +849,20 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     }
     n = i;
   } else if (strcmp(param[n], "ina_check_coord") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &ina_check_coord)) {
       PRINT_INPUT_ERROR("ina_check_coord should be an int.");
     }
     n++;
   } else if (strcmp(param[n], "inacc_num") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &inacc_num)) {
       PRINT_INPUT_ERROR("inacc_num should be a real.");
     }
     if (inacc_num < 0) PRINT_INPUT_ERROR("inacc_num should >= 0");
     n++;
   } else if (strcmp(param[n], "inacc_rc") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_real(param[n+1], &inacc_rc)) {
       PRINT_INPUT_ERROR("inacc_rc should be a real.");
     }
@@ -806,18 +871,21 @@ void NEB::parse_options(const char** param, int num_param, int& n)
 
   // Output Settings: trajectory/energy snapshots and progress reporting.
   } else if (strcmp(param[n], "peek_interval") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &peek_interval)) {
       PRINT_INPUT_ERROR("peek_interval should be an int.");
     }
     if (peek_interval <= 0) PRINT_INPUT_ERROR("peek_interval should > 0.");
     n++;
   } else if (strcmp(param[n], "dump_interval") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &dump_interval)) {
       PRINT_INPUT_ERROR("dump_interval should be an int.");
     }
     if (dump_interval <= 0) PRINT_INPUT_ERROR("dump_interval should > 0.");
     n++;
   } else if (strcmp(param[n], "print_interval") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &print_interval)) {
       PRINT_INPUT_ERROR("print_interval should be an int.");
     }
@@ -839,6 +907,9 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
   p_force = &force;
 
   if (strcmp(param[0], "neb_run") == 0) {
+    if (num_param < 2) {
+      PRINT_INPUT_ERROR("neb_run should specify an optimizer.");
+    }
     if (strcmp(param[1], "fire") == 0) {
       minimizer_type = 1;
       if (num_param < 4) {
@@ -861,6 +932,10 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
       printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
 
       run_neb();
+    } else {
+      string text = "Invalid optimizer for neb_run: ";
+      text += param[1];
+      PRINT_INPUT_ERROR(text.data());
     }
   } else if (strcmp(param[0], "neb_set") == 0){
     for (int n=1; n<num_param; n++){
@@ -1006,6 +1081,7 @@ void NEB::run_neb() {
   printf("-----------------neb settings-----------------\n");
   print_setting("k", k);
   print_setting("energy_based_k", energy_based_k);
+  if (energy_based_k) print_setting("energy_k_damping", energy_k_damping);
   print_setting("variable_cell", variable_cell);
   if (variable_cell){
     printf("%-20s =", "pressure");
@@ -1028,6 +1104,10 @@ void NEB::run_neb() {
     }
     printf("\n");
     print_setting("dist_ncount", dist_ncount);
+    print_setting("trim_images", trim_images);
+    if (trim_images) {
+      print_setting("trim_similar_tol", trim_similar_tol);
+    }
     print_setting("ina_check_coord", ina_check_coord);
     if (ina_check_coord) {
       print_setting("inacc_num", inacc_num);
@@ -1112,6 +1192,7 @@ void NEB::run_neb() {
   last_energy = images.back()->get_energy();
   
   klist.resize(images.size() - 1, k);
+  energy_k_factor.resize(klist.size(), 1.0);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -1167,14 +1248,21 @@ void NEB::compute()
   vector<double> k_effective_list(klist);
   // printf("klist: ");
   if (energy_based_k) {
+    if (energy_k_factor.size() != klist.size()) {
+      energy_k_factor.assign(klist.size(), 1.0);
+    }
     for (int i=0; i<nimages-1;i++){
       int dist2imaxes=nimages;
       for (auto x:imaxes) {
         if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
         if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
       }
-      double energy_based_k_factor = 1.0 / (1.0 - 0.8*pow(0.9, pow(dist2imaxes,2)));
-      k_effective_list[i] *= energy_based_k_factor;
+      double target_factor = 1.0 / (1.0 - 0.8*pow(0.9, pow(dist2imaxes,2)));
+      double log_factor =
+        (1.0 - energy_k_damping) * log(energy_k_factor[i]) +
+        energy_k_damping * log(target_factor);
+      energy_k_factor[i] = exp(log_factor);
+      k_effective_list[i] *= energy_k_factor[i];
       // printf("%.3f ", k_effective_list[i]);
     }
   }
@@ -1304,6 +1392,86 @@ void NEB::adjust_image_number() {
     ina_count++;
     return;
   }
+  bool changed = false;
+  auto renormalize_klist = [&]() {
+    if (ina_k && !klist.empty()) {
+      double avg_k = accumulate(klist.begin(), klist.end(), 0.0) / klist.size();
+      for (int j=0; j<klist.size(); j++){
+        klist[j] = klist[j] / avg_k * k;
+      }
+    }
+  };
+  auto erase_image = [&](int image_index) {
+    images.erase(images.begin() + image_index);
+    size_t spring_index = 0;
+    if (!klist.empty()) {
+      if (image_index < klist.size()) {
+        spring_index = image_index;
+        klist.erase(klist.begin() + image_index);
+      } else {
+        spring_index = klist.size() - 1;
+        klist.erase(klist.end() - 1);
+      }
+    }
+    if (!energy_k_factor.empty()) {
+      if (spring_index < energy_k_factor.size()) {
+        energy_k_factor.erase(energy_k_factor.begin() + spring_index);
+      } else {
+        energy_k_factor.clear();
+      }
+    }
+    changed = true;
+  };
+
+  if (trim_images && images.size() > 3) {
+    find_min_max(etol);
+    vector<int> minima;
+    minima.reserve(imins.size() + 2);
+    minima.push_back(0);
+    minima.insert(minima.end(), imins.begin(), imins.end());
+    minima.push_back(images.size() - 1);
+
+    vector<int> trim_indices;
+    size_t head = 0;
+    while (head + 1 < minima.size()) {
+      bool matched = false;
+      for (size_t tail = minima.size() - 1; tail > head; --tail) {
+        if (compare_image(*images[minima[head]], *images[minima[tail]],
+                          n_realatoms, variable_cell, trim_similar_tol)) {
+          int begin = (head == 0) ? minima[head] + 1 : minima[head];
+          int end = (head == 0) ? minima[tail] : minima[tail] - 1;
+          end = min(end, int(images.size()) - 2);
+          for (int image_index = begin; image_index <= end; ++image_index) {
+            if (image_index > 0 && image_index < int(images.size()) - 1) {
+              trim_indices.push_back(image_index);
+            }
+          }
+          head = tail;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) head++;
+    }
+
+    sort(trim_indices.begin(), trim_indices.end());
+    trim_indices.erase(unique(trim_indices.begin(), trim_indices.end()), trim_indices.end());
+    if (!trim_indices.empty()) {
+      printf("trim images:");
+      for (const auto image_index : trim_indices) printf(" %d", image_index);
+      printf("\n");
+    }
+    for (auto it = trim_indices.rbegin(); it != trim_indices.rend(); ++it) {
+      if (images.size() <= 3) break;
+      erase_image(*it);
+    }
+    if (changed) {
+      renormalize_klist();
+      printf("nimages after trim: %d\n", int(images.size()));
+      ina_count = 0;
+    }
+  }
+
   GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
   double dist;
   int max_neighbor = 10, high_coord_atom_count;
@@ -1363,29 +1531,35 @@ void NEB::adjust_image_number() {
     dist = r_dist + h_dist;
 
     if (dist > cur_max_dist){
-      vector_add(new_pos, pos1, pos2, 0.5, 0.5);
+      double insert_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
+      vector_add(new_pos, pos1, dpos, 1.0, insert_ratio);
       double k_old = klist[i-1];
+      double energy_factor_old =
+        (energy_k_factor.size() == klist.size()) ? energy_k_factor[i-1] : 1.0;
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
       klist.insert(klist.begin() + i, k_old);
+      if (!energy_k_factor.empty()) {
+        energy_k_factor.insert(energy_k_factor.begin() + i, energy_factor_old);
+      }
       if (ina_k) {
-        double k_new = k_old * ina_k_efficient;
-        if (k_new > k * 10) k_new = k_old;
-        klist[i-1] = k_new;
-        klist[i] = k_new;
+        double k_left = k_old * ina_k_efficient * 2.0 * (1.0 - insert_ratio);
+        double k_right = k_old * ina_k_efficient * 2.0 * insert_ratio;
+        klist[i-1] = k_left;
+        klist[i] = k_right;
       }
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
         i_ori, int(images.size()), r_dist, h_dist);
       i+=2; //skip 2 images
       i_ori++;
       ina_count = 0;
+      changed = true;
     }else if (dist < cur_min_dist && i != images.size()-1){
       double k_old = klist[i-1];
-      images.erase(images.begin()+i);
-      klist.erase(klist.begin()+i);
+      erase_image(i);
       if (ina_k) {
         double k_new = k_old / ina_k_efficient;
         if (k_new < k / 10) k_new = k_old;
@@ -1396,12 +1570,7 @@ void NEB::adjust_image_number() {
       i_ori++;
       ina_count = 0;
     }
-    if (ina_k) { //renomalize klist
-      double avg_k = accumulate(klist.begin(), klist.end(), 0.0) / klist.size();
-      for (int j=0; j<klist.size(); j++){
-        klist[j] = klist[j] / avg_k * k;
-      }
-    }
+    renormalize_klist();
   }
 }
 
@@ -1520,6 +1689,14 @@ void NEB::find_min_max(double etol)
         }
       }
       if (best_pair == extrema.size()) {
+        if (abs(image_energies[extrema.front()] - image_energies.front()) < etol) {
+          extrema.erase(extrema.begin());
+          continue;
+        }
+        if (abs(image_energies[extrema.back()] - image_energies.back()) < etol) {
+          extrema.erase(extrema.end() - 1);
+          continue;
+        }
         break;
       }
       extrema.erase(extrema.begin() + best_pair, extrema.begin() + best_pair + 2);

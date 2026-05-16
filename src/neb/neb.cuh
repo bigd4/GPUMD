@@ -124,11 +124,14 @@ private:
   bool climb = false;
   bool find_min = false;
   double etol = 0.0;
+  double energy_k_damping = 0.1;
   bool remove_translation = true;
   bool remove_rotation = true;
   bool variable_cell = true;
 
   bool image_number_adjustment = true;
+  bool trim_images = false;
+  double trim_similar_tol = 0.01;
   bool ina_k = false;
   double ina_k_efficient = 1.8;
   int ina_check_coord = 0; //  0: no check
@@ -155,6 +158,7 @@ private:
   // private variables
   // cublasHandle_t handle;
   std::vector<double> klist;
+  std::vector<double> energy_k_factor;
   std::vector<double> kori_list;
   std::unique_ptr<Minimizer> minimizer;
   std::vector<const char *> optimizer_opt;

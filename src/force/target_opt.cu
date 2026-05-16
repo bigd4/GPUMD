@@ -174,36 +174,45 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
 
   for (int n=1; n<num_param; n++){
     if (strcmp(param[n], "k_end") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &k_end)) {
         PRINT_INPUT_ERROR("k_end should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "tau") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_int(param[n+1], &tau)) {
         PRINT_INPUT_ERROR("Number of steps should be an integer.");
       }
       n++;
     } else if (strcmp(param[n], "rc") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &rc)) {
         PRINT_INPUT_ERROR("rc should be a real.");
       }
       n++;
     } else if (strcmp(param[n], "vert_part") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &vert_part)) {
         PRINT_INPUT_ERROR("vert_part should be a real.");
       }
       n++;
     } else if (strcmp(param[n], "target") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       target_name = param[n+1];
       n++;
     } else if (strcmp(param[n], "target_list") == 0){
-    for (int i=n+1; i<num_param; i++){
-      target_list.push_back(string(param[i]));
-      n++;
-      if (strcmp(param[n], "target_list_end") == 0) break;
-    }
-    n++;
-  } else if (strcmp(param[n], "max_neighbor") == 0) {
+      int i = n + 1;
+      for (; i<num_param; i++){
+        if (strcmp(param[i], "target_list_end") == 0) break;
+        target_list.push_back(string(param[i]));
+      }
+      if (target_list.empty()) {
+        PRINT_INPUT_ERROR("target_list should contain at least one filename.");
+      }
+      n = i;
+    } else if (strcmp(param[n], "max_neighbor") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_int(param[n+1], &max_neighbor)) {
         PRINT_INPUT_ERROR("max_neighbor should be an integer.");
       }

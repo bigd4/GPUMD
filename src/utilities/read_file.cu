@@ -57,6 +57,19 @@ int is_valid_real(const char* s, double* result)
   }
 }
 
+void require_option_values(const char** param, int num_param, int n, int count, const char* context)
+{
+  if (n + count >= num_param) {
+    std::string text = "Missing value";
+    if (count > 1) text += "s";
+    text += " for ";
+    text += context;
+    text += " option: ";
+    text += param[n];
+    PRINT_INPUT_ERROR(text.data());
+  }
+}
+
 static std::string get_potential_file_name()
 {
   std::ifstream input_run("run.in");

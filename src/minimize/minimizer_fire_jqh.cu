@@ -125,11 +125,13 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   printflag = printflag0;
   for (int n=nstart; n<num_param; n++){
     if (strcmp(param[n], "max_move") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &max_move)) {
         PRINT_INPUT_ERROR("max_move should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "dt_max") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_max;
       if (!is_valid_real(param[n+1], &tmp_dt_max)) {
         PRINT_INPUT_ERROR("dt_max should be a number.");
@@ -137,6 +139,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt_max = tmp_dt_max / TIME_UNIT_CONVERSION;
       n++;
     } else if (strcmp(param[n], "dt_min") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_min;
       if (!is_valid_real(param[n+1], &tmp_dt_min)) {
         PRINT_INPUT_ERROR("dt_min should be a number.");
@@ -144,6 +147,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt_min = tmp_dt_min / TIME_UNIT_CONVERSION;
       n++;
     } else if (strcmp(param[n], "dt_0") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_0;
       if (!is_valid_real(param[n+1], &tmp_dt_0)) {
         PRINT_INPUT_ERROR("dt_0 should be a number.");
@@ -152,21 +156,25 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt = dt_0;
       n++;
     } else if (strcmp(param[n], "f_inc") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &f_inc)) {
         PRINT_INPUT_ERROR("f_inc should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "alpha_start") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &alpha_start)) {
         PRINT_INPUT_ERROR("alpha_start should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "f_alpha") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &f_alpha)) {
         PRINT_INPUT_ERROR("f_alpha should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "N_min") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_int(param[n+1], &N_min)) {
         PRINT_INPUT_ERROR("N_min should be an int.");
       }
