@@ -105,10 +105,11 @@ void vector_add(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>
 cublasHandle_t handle;
 double max_abs(int size, double* vec)
 {
-  int index;
+  int index1;
   double result;
-  cublasIdamax(handle, size, vec, 1, &index);
-  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+  cublasIdamax(handle, size, vec, 1, &index1);
+  int index0 = index1 - 1;
+  cudaMemcpy(&result, vec + index0, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
 } // namespace
@@ -179,6 +180,8 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
         PRINT_INPUT_ERROR("N_min should be an int.");
       }
       n++;
+    } else if (strcmp(param[n], "rotation_free") == 0){
+      ;
     } else {
     string text="Invalid option for vcfire: ";
     text += param[n];
@@ -198,7 +201,7 @@ void Minimizer_FIRE_JQH::print_para(){
   printf("%12s = %g\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "f_inc", f_inc);
   printf("%12s = %g\n", "alpha_start", alpha_start);
-  printf("%12s = %g\n", "f_alphat", f_alpha);
+  printf("%12s = %g\n", "f_alpha", f_alpha);
   printf("%12s = %d\n", "N_min", N_min);
   printf("----------------------------------------\n");
 }

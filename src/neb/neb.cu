@@ -102,6 +102,83 @@ namespace
     return true;
   }
 
+  unique_ptr<Atoms> make_cell_filter(
+    Atoms& atoms, const vector<double>& pressure, double* h_ref,
+    bool rotation_free, double cell_factor)
+  {
+    if (rotation_free) {
+      return make_unique<RotationFreeVCWrapper>(atoms, pressure, h_ref, cell_factor);
+    }
+    return make_unique<VCWrapper>(atoms, pressure, h_ref, cell_factor);
+  }
+
+  unique_ptr<Atoms> make_cell_filter(
+    Atoms& atoms, const vector<double>& pressure, bool rotation_free, double cell_factor)
+  {
+    if (rotation_free) {
+      return make_unique<RotationFreeVCWrapper>(atoms, pressure, cell_factor);
+    }
+    return make_unique<VCWrapper>(atoms, pressure, cell_factor);
+  }
+
+  unique_ptr<Atoms> make_cell_filter_from_position(
+    Atoms* prototype, double* position, bool rotation_free)
+  {
+    if (rotation_free) {
+      return make_unique<RotationFreeVCWrapper>(prototype, position);
+    }
+    return make_unique<VCWrapper>(prototype, position);
+  }
+
+  Atoms* new_cell_filter(
+    const char* filename, const vector<double>& pressure, double* h_ref,
+    bool rotation_free, double cell_factor)
+  {
+    if (rotation_free) {
+      return new RotationFreeVCWrapper(filename, pressure, h_ref, cell_factor);
+    }
+    return new VCWrapper(filename, pressure, h_ref, cell_factor);
+  }
+
+  Atoms* new_cell_filter(
+    ifstream& input, bool& success, const vector<double>& pressure,
+    double* h_ref, bool rotation_free, double cell_factor)
+  {
+    if (rotation_free) {
+      return new RotationFreeVCWrapper(input, success, pressure, h_ref, cell_factor);
+    }
+    return new VCWrapper(input, success, pressure, h_ref, cell_factor);
+  }
+
+  void align_image_by_mic(Atoms& ref_image, Atoms& image)
+  {
+    Atoms& ref_atoms = *ref_image.get_p_atoms();
+    Atoms& atoms = *image.get_p_atoms();
+    const int natoms = ref_atoms.get_natoms();
+    if (atoms.get_natoms() != natoms) {
+      PRINT_INPUT_ERROR("find_mic requires the same atom count in every NEB image.");
+    }
+
+    vector<double> ref_pos(ref_atoms.get_positions().size());
+    vector<double> pos(atoms.get_positions().size());
+    ref_atoms.get_positions().copy_to_host(ref_pos.data());
+    atoms.get_positions().copy_to_host(pos.data());
+
+    for (int n = 0; n < natoms; n++) {
+      double dx = pos[n] - ref_pos[n];
+      double dy = pos[n + natoms] - ref_pos[n + natoms];
+      double dz = pos[n + 2 * natoms] - ref_pos[n + 2 * natoms];
+      apply_mic(ref_atoms.box, dx, dy, dz);
+      pos[n] = ref_pos[n] + dx;
+      pos[n + natoms] = ref_pos[n + natoms] + dy;
+      pos[n + 2 * natoms] = ref_pos[n + 2 * natoms] + dz;
+    }
+
+    atoms.get_positions().copy_from_host(pos.data());
+    VCWrapper* vc_image = dynamic_cast<VCWrapper*>(&image);
+    if (vc_image != nullptr) vc_image->build_positions();
+  }
+
   __global__ void gpu_pairwise_product(double* c, double* a, double* b, const int size, double alpha=1.0)
   {
     int n = blockDim.x * blockIdx.x + threadIdx.x;
@@ -143,39 +220,6 @@ namespace
   //   gpu_pairwise_product<<<(nl - 1) / 128 + 1, 128>>>(result + i*nl, a, b + i*nl, nl, alpha);
   //   }
   // }
-  void gpu_matmul(double* mA, double* mB, double* mC,
-    int M, int N, int K, int transa=CUBLAS_OP_N, int transb=CUBLAS_OP_N,
-    double alpha=1.0, double beta=0.0)
-  {
-    int lda = (transa != CUBLAS_OP_T)? M: K;
-    int ldb = (transb != CUBLAS_OP_T)? K: N;
-    // printf("lda: %d, ldb: %d\n",lda, ldb);
-    cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
-      M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
-    // printf("cublas error code: %d\n", stat);
-  }
-
-  void get_3x3_inverse(double* m, double* m_inv)
-  {
-    double det;
-      m_inv[0] = m[4] * m[8] - m[5] * m[7];
-      m_inv[1] = m[2] * m[7] - m[1] * m[8];
-      m_inv[2] = m[1] * m[5] - m[2] * m[4];
-      m_inv[3] = m[5] * m[6] - m[3] * m[8];
-      m_inv[4] = m[0] * m[8] - m[2] * m[6];
-      m_inv[5] = m[2] * m[3] - m[0] * m[5];
-      m_inv[6] = m[3] * m[7] - m[4] * m[6];
-      m_inv[7] = m[1] * m[6] - m[0] * m[7];
-      m_inv[8] = m[0] * m[4] - m[1] * m[3];
-      det = m[0] * (m[4] * m[8] - m[5] * m[7]) +
-            m[1] * (m[5] * m[6] - m[3] * m[8]) +
-            m[2] * (m[3] * m[7] - m[4] * m[6]);
-      for (int n = 0; n < 9; n++) {
-        m_inv[n] /= det;
-      }
-  }
-
-
   void get_svd(double* A, double* S, double* U, double* VT, int m, int n)
   {
       if (A == nullptr || S == nullptr || U == nullptr || VT == nullptr) {
@@ -419,24 +463,27 @@ namespace
 
   double __attribute__((unused)) max_abs(int size, double* vec)
   {
-    int index;
+    int index1;
     double result;
-    cublasIdamax(handle, size, vec, 1, &index);
-    printf("max index: %d, ", index);
-    cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+    cublasIdamax(handle, size, vec, 1, &index1);
+    int index0 = index1 - 1;
+    printf("max index: %d, ", index0);
+    cudaMemcpy(&result, vec + index0, sizeof(double), cudaMemcpyDeviceToHost);
     return abs(result);
   }
 
   double max_abs(int size, double* vec, int nsingle, bool printflag=false)
   {
-    int index;
+    int index1;
     double result;
-    cublasIdamax(handle, size, vec, 1, &index);
+    cublasIdamax(handle, size, vec, 1, &index1);
+    int index0 = index1 - 1;
     if (printflag){
-      printf("i_fmax: %d:%d", index/nsingle, (index%nsingle)%int(nsingle/3));
-      if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
+      int local_index = index0 % nsingle;
+      printf("i_fmax: %d:%d", index0/nsingle, local_index%int(nsingle/3));
+      if ((local_index + 9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
     }
-    cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&result, vec + index0, sizeof(double), cudaMemcpyDeviceToHost);
     return abs(result);
   }
 
@@ -740,6 +787,8 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     remove_translation = false;
   } else if (strcmp(param[n], "no_remove_rotation") == 0){
     remove_rotation = false;
+  } else if (strcmp(param[n], "find_mic") == 0){
+    find_mic = true;
   } else if (strcmp(param[n], "dist_range") == 0){
     require_option_values(param, num_param, n, 2, "neb_set");
     if (!is_valid_real(param[n+1], &min_dist) ||
@@ -761,15 +810,40 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("k should be a real.");
     }
     n++;
-  } else if (strcmp(param[n], "energy_based_k") == 0){
-    energy_based_k = true;
-  } else if (strcmp(param[n], "energy_k_damping") == 0){
+  } else if (strcmp(param[n], "energy_based_spacing") == 0 ||
+             strcmp(param[n], "energy_based_k") == 0){
+    energy_based_spacing = true;
+  } else if (strcmp(param[n], "energy_spacing_damping") == 0 ||
+             strcmp(param[n], "energy_k_damping") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
-    if (!is_valid_real(param[n+1], &energy_k_damping)) {
-      PRINT_INPUT_ERROR("energy_k_damping should be a real.");
+    if (!is_valid_real(param[n+1], &energy_spacing_damping)) {
+      PRINT_INPUT_ERROR("energy_spacing_damping should be a real.");
     }
-    if (energy_k_damping <= 0.0 || energy_k_damping > 1.0) {
-      PRINT_INPUT_ERROR("energy_k_damping should be in (0, 1].");
+    if (energy_spacing_damping <= 0.0 || energy_spacing_damping > 1.0) {
+      PRINT_INPUT_ERROR("energy_spacing_damping should be in (0, 1].");
+    }
+    n++;
+  } else if (strcmp(param[n], "energy_spacing_coeff") == 0 ||
+             strcmp(param[n], "energy_k_coeff") == 0){
+    require_option_values(param, num_param, n, 2, "neb_set");
+    if (!is_valid_real(param[n+1], &energy_spacing_strength) ||
+        !is_valid_real(param[n+2], &energy_spacing_exponent)) {
+      PRINT_INPUT_ERROR("energy_spacing_coeff should be two reals.");
+    }
+    if (energy_spacing_strength < 0.0 || energy_spacing_strength >= 1.0) {
+      PRINT_INPUT_ERROR("energy_spacing_coeff strength should be in [0, 1).");
+    }
+    if (energy_spacing_exponent <= 0.0) {
+      PRINT_INPUT_ERROR("energy_spacing_coeff exponent should be positive.");
+    }
+    n += 2;
+  } else if (strcmp(param[n], "energy_spacing_dist_power") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &energy_spacing_dist_power)) {
+      PRINT_INPUT_ERROR("energy_spacing_dist_power should be a real.");
+    }
+    if (energy_spacing_dist_power < 0.0 || energy_spacing_dist_power > 1.0) {
+      PRINT_INPUT_ERROR("energy_spacing_dist_power should be in [0, 1].");
     }
     n++;
   } else if (strcmp(param[n], "tangent") == 0){
@@ -799,6 +873,13 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     }
     if (trim_similar_tol <= 0.0) PRINT_INPUT_ERROR("trim_similar_tol should > 0.");
     n++;
+  } else if (strcmp(param[n], "trim_etol") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &trim_etol)) {
+      PRINT_INPUT_ERROR("trim_etol should be a real.");
+    }
+    has_trim_etol = true;
+    n++;
   } else if (strcmp(param[n], "ina_interval") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     if (!is_valid_int(param[n+1], &ina_interval)) {
@@ -814,11 +895,12 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     }
     if (ina_k_efficient <= 1.0) PRINT_INPUT_ERROR("ina_k_efficient should > 1.");
     n++;
-  } else if (strcmp(param[n], "ina_cell_factor") == 0){
+  } else if (strcmp(param[n], "cell_factor") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
-    if (!is_valid_real(param[n+1], &ina_cell_factor)) {
-      PRINT_INPUT_ERROR("ina_cell_factor should be a real.");
+    if (!is_valid_real(param[n+1], &cell_factor)) {
+      PRINT_INPUT_ERROR("cell_factor should be a real.");
     }
+    if (cell_factor <= 0.0) PRINT_INPUT_ERROR("cell_factor should > 0.");
     n++;
   } else if (strcmp(param[n], "ina_force_tol") == 0){
     ina_force_tol_stages.clear();
@@ -1003,17 +1085,18 @@ void NEB::initialize_images() {
     else {
       Atoms* p_is = new Atoms(input, read_success);
       if (read_success) {
-        images.push_back(make_unique<VCWrapper>(*p_is, pressure));
+        images.push_back(make_cell_filter(*p_is, pressure, remove_rotation, cell_factor));
       } else {
         printf("read traj failed\n");
         exit(-1);
       }
       h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
       while (true){
-        VCWrapper* p_tmp = new VCWrapper(input, read_success, pressure, h_ref.data());
+        Atoms* p_tmp = new_cell_filter(
+          input, read_success, pressure, h_ref.data(), remove_rotation, cell_factor);
         if (read_success) {
           // mid_list.push_back(make_pair(-1, p_tmp->get_p_atoms()));
-          images.push_back(unique_ptr<VCWrapper>(p_tmp));
+          images.push_back(unique_ptr<Atoms>(p_tmp));
         } else break;
       }
     }
@@ -1047,16 +1130,17 @@ void NEB::initialize_images() {
       }
       images.push_back(unique_ptr<Atoms>(p_fs));
     } else{
-      images.push_back(make_unique<VCWrapper>(*p_is, pressure, h_ref.data()));
+      images.push_back(make_cell_filter(*p_is, pressure, h_ref.data(), remove_rotation, cell_factor));
       if (has_mid){
         for (int i=0; i<mid_name_list.size(); i++){
-          Atoms *p_tmp = new VCWrapper((mid_name_list[i]).data(), pressure, h_ref.data());
+          Atoms *p_tmp = new_cell_filter(
+            (mid_name_list[i]).data(), pressure, h_ref.data(), remove_rotation, cell_factor);
           images.push_back(unique_ptr<Atoms>(p_tmp));
           imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
           // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
         }
       }
-      images.push_back(make_unique<VCWrapper>(*p_fs, pressure, h_ref.data()));
+      images.push_back(make_cell_filter(*p_fs, pressure, h_ref.data(), remove_rotation, cell_factor));
     }
   }
   natoms_per_image = images[0]->get_natoms();
@@ -1065,13 +1149,21 @@ void NEB::initialize_images() {
   printf("optimize_factor=%f\n", optimize_factor);
 }
 
+void NEB::align_images_by_mic()
+{
+  if (images.size() < 2) return;
+  printf("Align NEB images with minimum image convention.\n");
+  for (int i = 1; i < images.size(); i++) {
+    align_image_by_mic(*images[i - 1], *images[i]);
+  }
+}
+
 void NEB::run_neb() {
   initialize_images();
   tangentmethod = get_tangent_method(tangent_method_name, k);
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
   if (peek_interval == -1) peek_interval = (max_steps - 1) / 50 + 1;
-  if (ina_cell_factor == -1.0) ina_cell_factor = pow(n_realatoms, 1.0/6);
   if (ina_force_tol_stages.empty()) {
     ina_force_tol_stages.push_back({ina_interval, 1.0});
     ina_force_tol_stages.push_back({3 * ina_interval, 3.0});
@@ -1080,8 +1172,13 @@ void NEB::run_neb() {
 
   printf("-----------------neb settings-----------------\n");
   print_setting("k", k);
-  print_setting("energy_based_k", energy_based_k);
-  if (energy_based_k) print_setting("energy_k_damping", energy_k_damping);
+  print_setting("energy_based_spacing", energy_based_spacing);
+  if (energy_based_spacing) {
+    print_setting("energy_spacing_damping", energy_spacing_damping);
+    print_setting("energy_spacing_strength", energy_spacing_strength);
+    print_setting("energy_spacing_exponent", energy_spacing_exponent);
+    print_setting("energy_spacing_dist_power", energy_spacing_dist_power);
+  }
   print_setting("variable_cell", variable_cell);
   if (variable_cell){
     printf("%-20s =", "pressure");
@@ -1097,7 +1194,6 @@ void NEB::run_neb() {
     print_setting("min_dist", min_dist);
     print_setting("max_dist", max_dist);
     print_setting("ina_k_efficient", ina_k_efficient);
-    print_setting("ina_cell_factor", ina_cell_factor);
     printf("%-20s =", "ina_force_tol");
     for (auto stage:ina_force_tol_stages) {
       printf(" %d %g", stage.first, stage.second);
@@ -1107,6 +1203,7 @@ void NEB::run_neb() {
     print_setting("trim_images", trim_images);
     if (trim_images) {
       print_setting("trim_similar_tol", trim_similar_tol);
+      print_setting("trim_etol", has_trim_etol ? trim_etol : etol);
     }
     print_setting("ina_check_coord", ina_check_coord);
     if (ina_check_coord) {
@@ -1119,6 +1216,12 @@ void NEB::run_neb() {
   print_setting("need_relax", need_relax);
   print_setting("remove_translation", remove_translation);
   print_setting("remove_rotation", remove_rotation);
+  print_setting("find_mic", find_mic);
+  if (variable_cell) {
+    print_setting("cell_filter", remove_rotation ? "rotation_free" : "deformation_gradient");
+    VCWrapper* vc_image = dynamic_cast<VCWrapper*>(images.front().get());
+    if (vc_image != nullptr) print_setting("cell_factor", vc_image->cell_factor);
+  }
   print_setting("tangent_method", tangent_method_name);
   print_setting("max_steps", max_steps);
   print_setting("dump_interval", dump_interval);
@@ -1128,6 +1231,8 @@ void NEB::run_neb() {
 
   if (inacc_num < 1) inacc_num *= n_realatoms;
   if (etol < 0) etol *= -n_realatoms;
+  if (has_trim_etol && trim_etol < 0) trim_etol *= -n_realatoms;
+  if (find_mic) align_images_by_mic();
   // printf("force id: %s, nep id: %s\n",typeid(*p_force->potentials[0]).name(), typeid(NEP3).name());
   // -----reinitialize nep to make sure that natom in it is right------
   if (typeid(*(p_force->potentials[0]))==typeid(NEP)){
@@ -1177,6 +1282,11 @@ void NEB::run_neb() {
   if (n_interpolate > 0){
     interpolate();
   }
+  klist.resize(images.size() - 1, k);
+  energy_spacing_factor.resize(klist.size(), 1.0);
+  if (images.size() <= 2 && image_number_adjustment) {
+    adjust_image_spacing(false, true);
+  }
   if (images.size() <= 2){
     printf("There should be at least one intermediate image.\n");
     exit(1);
@@ -1190,9 +1300,6 @@ void NEB::run_neb() {
   images.back()->compute();
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
-  
-  klist.resize(images.size() - 1, k);
-  energy_k_factor.resize(klist.size(), 1.0);
 
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
@@ -1202,6 +1309,7 @@ void NEB::run_neb() {
     minimizer->compute(*this);
     // printf("neb total steps: %d\n", step);
     if (ina_count != 0) write_energies();
+    if (step >= max_steps) break;
     cublasDnrm2(handle, natoms_per_image*3, forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
       // minimizer->reset_number_of_atoms((images.size()-2) * natoms_per_image);
@@ -1247,22 +1355,29 @@ void NEB::compute()
   find_min_max(etol);
   vector<double> k_effective_list(klist);
   // printf("klist: ");
-  if (energy_based_k) {
-    if (energy_k_factor.size() != klist.size()) {
-      energy_k_factor.assign(klist.size(), 1.0);
+  if (energy_based_spacing) {
+    if (energy_spacing_factor.size() != klist.size()) {
+      energy_spacing_factor.assign(klist.size(), 1.0);
     }
+    auto energy_bounds = minmax_element(image_energies.begin(), image_energies.end());
+    double energy_min = *energy_bounds.first;
+    double energy_max = *energy_bounds.second;
+    double energy_range = energy_max - energy_min;
     for (int i=0; i<nimages-1;i++){
-      int dist2imaxes=nimages;
-      for (auto x:imaxes) {
-        if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
-        if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
+      double target_factor = 1.0;
+      if (energy_range > 0.0) {
+        double spring_energy = 0.5 * (image_energies[i] + image_energies[i+1]);
+        double relative_energy = (spring_energy - energy_min) / energy_range;
+        relative_energy = max(0.0, min(1.0, relative_energy));
+        double energy_weight =
+          (relative_energy > 0.0) ? pow(relative_energy, energy_spacing_exponent) : 0.0;
+        target_factor = 1.0 - energy_spacing_strength * (1.0 - energy_weight);
       }
-      double target_factor = 1.0 / (1.0 - 0.8*pow(0.9, pow(dist2imaxes,2)));
       double log_factor =
-        (1.0 - energy_k_damping) * log(energy_k_factor[i]) +
-        energy_k_damping * log(target_factor);
-      energy_k_factor[i] = exp(log_factor);
-      k_effective_list[i] *= energy_k_factor[i];
+        (1.0 - energy_spacing_damping) * log(energy_spacing_factor[i]) +
+        energy_spacing_damping * log(target_factor);
+      energy_spacing_factor[i] = exp(log_factor);
+      k_effective_list[i] *= energy_spacing_factor[i];
       // printf("%.3f ", k_effective_list[i]);
     }
   }
@@ -1309,31 +1424,6 @@ void NEB::compute()
           forces.data() + 3*(i-1)*natoms_per_image + j*n_realatoms,
           -mean_force, n_realatoms);
       }
-    }
-    if (remove_rotation){
-      // printf("remove rot\n");
-      GPU_Vector<double> virial_real(9, Memory_Type::managed), cur_deform(18, Memory_Type::managed);
-      cur_deform.copy_from_device(positions.data() + 3*i*natoms_per_image-9, 9);
-      get_3x3_inverse(cur_deform.data(), cur_deform.data() + 9);
-      // print_gpu(cur_deform);
-      gpu_matmul(
-        positions.data() + 3*i*natoms_per_image-9,
-        forces.data() + 3*i*natoms_per_image-9,
-        virial_real.data(),
-        3, 3, 3, 1, 0);
-      GPU_CHECK_KERNEL;
-      cudaDeviceSynchronize();
-      // print_gpu(virial_real, "vr1");
-      virial_real[1] = virial_real[3] = 0.5 * (virial_real[1] + virial_real[3]);
-      virial_real[2] = virial_real[6] = 0.5 * (virial_real[2] + virial_real[6]);
-      virial_real[5] = virial_real[7] = 0.5 * (virial_real[5] + virial_real[7]);
-      // print_gpu(virial_real, "vr2");
-      gpu_matmul(
-        cur_deform.data() + 9,
-        virial_real.data(),
-        forces.data() + 3*i*natoms_per_image-9,
-        3, 3, 3, 1, 0);
-      GPU_CHECK_KERNEL;
     }
     spring1 = move(spring2);
   GPU_CHECK_KERNEL;
@@ -1385,19 +1475,31 @@ bool NEB::satisfy_ina_force_tolerence() const
   return false;
 }
 
-void NEB::adjust_image_number() {
-  // printf("adjust_image_number, natoms: %d, forces.size: %d\n", natoms, forces.size());
-  fflush(stdout);
-  if (!satisfy_ina_force_tolerence()){
-    ina_count++;
-    return;
+void NEB::adjust_image_spacing(bool allow_remove, bool bootstrap)
+{
+  if (images.size() < 2) return;
+
+  if (klist.size() != images.size() - 1) {
+    klist.resize(images.size() - 1, k);
   }
-  bool changed = false;
+  if (!energy_spacing_factor.empty() && energy_spacing_factor.size() != klist.size()) {
+    energy_spacing_factor.resize(klist.size(), 1.0);
+  }
+
   auto renormalize_klist = [&]() {
     if (ina_k && !klist.empty()) {
-      double avg_k = accumulate(klist.begin(), klist.end(), 0.0) / klist.size();
+      double avg_k = 0.0;
       for (int j=0; j<klist.size(); j++){
-        klist[j] = klist[j] / avg_k * k;
+        double factor =
+          (energy_based_spacing && energy_spacing_factor.size() == klist.size())
+          ? energy_spacing_factor[j] : 1.0;
+        avg_k += klist[j] * factor;
+      }
+      avg_k /= klist.size();
+      if (avg_k > 0.0) {
+        for (int j=0; j<klist.size(); j++){
+          klist[j] = klist[j] / avg_k * k;
+        }
       }
     }
   };
@@ -1413,18 +1515,176 @@ void NEB::adjust_image_number() {
         klist.erase(klist.end() - 1);
       }
     }
-    if (!energy_k_factor.empty()) {
-      if (spring_index < energy_k_factor.size()) {
-        energy_k_factor.erase(energy_k_factor.begin() + spring_index);
+    if (!energy_spacing_factor.empty()) {
+      if (spring_index < energy_spacing_factor.size()) {
+        energy_spacing_factor.erase(energy_spacing_factor.begin() + spring_index);
       } else {
-        energy_k_factor.clear();
+        energy_spacing_factor.clear();
+      }
+    }
+  };
+
+  GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
+  double dist;
+  int max_neighbor = 10, high_coord_atom_count;
+  GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
+  GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);
+  int i_ori = 0;
+  for (int i = 1; i < images.size(); i++)
+  {
+    double cur_min_dist(min_dist), cur_max_dist(max_dist);
+    int cur_dist_ncount(dist_ncount);
+    i_ori++;
+    if (energy_based_spacing && energy_spacing_factor.size() == klist.size()) {
+      double dist_factor = energy_spacing_factor[i-1];
+      if (dist_factor > 0.0) {
+        double dist_range_factor = pow(dist_factor, energy_spacing_dist_power);
+        cur_min_dist /= dist_range_factor;
+        cur_max_dist /= dist_range_factor;
+      }
+    }
+    if (ina_check_coord != 0.0){
+      bool small_box = false;
+      if (small_box){ // TODO
+
+      }
+      else {
+        find_neighbor(
+          0, n_realatoms, inacc_rc,
+          images[i]->get_p_atoms()->box,
+          images[i]->get_p_atoms()->type,
+          images[i]->get_p_atoms()->get_positions(),
+          cell_count, cell_count_sum, cell_contents,
+          NN, NL
+        );
+      }
+      thrust::device_ptr<int> d_ptr = thrust::device_pointer_cast(NN.data());
+      high_coord_atom_count =
+        thrust::count_if(d_ptr, d_ptr + n_realatoms, is_greater_equal(ina_check_coord));
+      if (high_coord_atom_count > inacc_num){
+        cur_dist_ncount *= 3;
+        cur_dist_ncount = (cur_dist_ncount < n_realatoms) ? cur_dist_ncount : n_realatoms;
+      }
+    };
+
+    GPU_Vector<double>& pos1 = images[i-1]->get_positions();
+    GPU_Vector<double>& pos2 = images[i]->get_positions();
+    vector_add(dpos, pos2, pos1, 1.0, -1.0);
+
+    GPU_Vector<double> r2_arr(n_realatoms), h2_arr(3);
+    gpu_sum_square_axis1<<<(n_realatoms - 1) / 128 + 1, 128>>>(r2_arr.data(), dpos.data(), n_realatoms, 3);
+    gpu_sum_square_axis1<<<1, 3>>>(h2_arr.data(), dpos.data() + 3*n_realatoms, 3, 3);
+    thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
+    thrust::sort(d_ptr, d_ptr + n_realatoms);
+    double h_sum_square = (variable_cell) ? sum(h2_arr.data(), 3) : 0;
+    double r_sum_square = sum(r2_arr.data()+n_realatoms - cur_dist_ncount, cur_dist_ncount);
+    double r_dist = sqrt(r_sum_square/cur_dist_ncount);
+    double h_dist = sqrt(h_sum_square/n_realatoms);
+    dist = r_dist + h_dist;
+
+    if (bootstrap || dist > cur_max_dist){
+      double insert_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
+      if (!bootstrap && dist > 2.0 * cur_max_dist && image_energies.size() == images.size()) {
+        if (image_energies[i] > image_energies[i - 1]) {
+          insert_ratio = 1.0 - insert_ratio;
+        }
+      }
+      vector_add(new_pos, pos1, dpos, 1.0, insert_ratio);
+      double k_old = klist[i-1];
+      double spacing_factor_old =
+        (energy_spacing_factor.size() == klist.size()) ? energy_spacing_factor[i-1] : 1.0;
+      if (variable_cell){
+        images.insert(
+          images.begin()+i,
+          make_cell_filter_from_position(images[0].get(), new_pos.data(), remove_rotation));
+      } else {
+        images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
+      }
+      klist.insert(klist.begin() + i, k_old);
+      if (!energy_spacing_factor.empty()) {
+        energy_spacing_factor.insert(energy_spacing_factor.begin() + i, spacing_factor_old);
+      }
+      if (ina_k) {
+        double k_left = k_old * ina_k_efficient * 2.0 * (1.0 - insert_ratio);
+        double k_right = k_old * ina_k_efficient * 2.0 * insert_ratio;
+        klist[i-1] = k_left;
+        klist[i] = k_right;
+      }
+      if (bootstrap) {
+        printf("add an initial image for INA, nimages: %d, dist: %.6f(r), %.6f(h), ratio: %.6f\n",
+          int(images.size()), r_dist, h_dist, insert_ratio);
+      } else {
+        printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h), ratio: %.6f\n",
+          i_ori, int(images.size()), r_dist, h_dist, insert_ratio);
+      }
+      i+=2; //skip 2 images
+      i_ori++;
+      ina_count = 0;
+    }else if (allow_remove && images.size() > 3 && dist < cur_min_dist && i != images.size()-1){
+      double k_old = klist[i-1];
+      erase_image(i);
+      if (ina_k) {
+        double k_new = k_old / ina_k_efficient;
+        if (k_new < k / 10) k_new = k_old;
+        klist[i-1] = k_new;
+      }
+      printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
+      i_ori++;
+      ina_count = 0;
+    }
+    renormalize_klist();
+  }
+}
+
+void NEB::adjust_image_number() {
+  // printf("adjust_image_number, natoms: %d, forces.size: %d\n", natoms, forces.size());
+  fflush(stdout);
+  if (!satisfy_ina_force_tolerence()){
+    ina_count++;
+    return;
+  }
+  bool changed = false;
+  auto renormalize_klist = [&]() {
+    if (ina_k && !klist.empty()) {
+      double avg_k = 0.0;
+      for (int j=0; j<klist.size(); j++){
+        double factor =
+          (energy_based_spacing && energy_spacing_factor.size() == klist.size())
+          ? energy_spacing_factor[j] : 1.0;
+        avg_k += klist[j] * factor;
+      }
+      avg_k /= klist.size();
+      if (avg_k > 0.0) {
+        for (int j=0; j<klist.size(); j++){
+          klist[j] = klist[j] / avg_k * k;
+        }
+      }
+    }
+  };
+  auto erase_image = [&](int image_index) {
+    images.erase(images.begin() + image_index);
+    size_t spring_index = 0;
+    if (!klist.empty()) {
+      if (image_index < klist.size()) {
+        spring_index = image_index;
+        klist.erase(klist.begin() + image_index);
+      } else {
+        spring_index = klist.size() - 1;
+        klist.erase(klist.end() - 1);
+      }
+    }
+    if (!energy_spacing_factor.empty()) {
+      if (spring_index < energy_spacing_factor.size()) {
+        energy_spacing_factor.erase(energy_spacing_factor.begin() + spring_index);
+      } else {
+        energy_spacing_factor.clear();
       }
     }
     changed = true;
   };
 
   if (trim_images && images.size() > 3) {
-    find_min_max(etol);
+    find_min_max(has_trim_etol ? trim_etol : etol);
     vector<int> minima;
     minima.reserve(imins.size() + 2);
     minima.push_back(0);
@@ -1472,106 +1732,7 @@ void NEB::adjust_image_number() {
     }
   }
 
-  GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
-  double dist;
-  int max_neighbor = 10, high_coord_atom_count;
-  GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
-  GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);
-  // for (auto it = images.begin()+1; it != images.end()-1; it++)
-  // printf("dist:");
-  // printf("image_dist: ");
-  int i_ori = 0;
-  for (int i = 1; i < images.size(); i++)
-  {
-    double cur_min_dist(min_dist), cur_max_dist(max_dist);
-    int cur_dist_ncount(dist_ncount);
-    i_ori++;
-    if (ina_check_coord != 0.0){
-      bool small_box = false;
-      if (small_box){ // TODO
-
-      }
-      else {
-        find_neighbor(
-          0, n_realatoms, inacc_rc,
-          images[i]->get_p_atoms()->box,
-          images[i]->get_p_atoms()->type,
-          images[i]->get_p_atoms()->get_positions(),
-          cell_count, cell_count_sum, cell_contents,
-          NN, NL
-        );
-      }
-      thrust::device_ptr<int> d_ptr = thrust::device_pointer_cast(NN.data());
-      high_coord_atom_count =
-        thrust::count_if(d_ptr, d_ptr + n_realatoms, is_greater_equal(ina_check_coord));
-      if (high_coord_atom_count > inacc_num){
-        // printf("high_coord_atom_count = %d\n", high_coord_atom_count);
-        // cur_min_dist *= 3;
-        // cur_max_dist *= 3;
-        cur_dist_ncount *= 3;
-        cur_dist_ncount = (cur_dist_ncount < n_realatoms) ? cur_dist_ncount : n_realatoms;
-      }
-    };
-
-    GPU_Vector<double>& pos1 = images[i-1]->get_positions();
-    GPU_Vector<double>& pos2 = images[i]->get_positions();
-    vector_add(dpos, pos2, pos1, 1.0, -1.0);
-
-    // only count the largest dist_ncount displacements
-    // GPU_Vector<double> temp(nl);
-    GPU_Vector<double> r2_arr(n_realatoms), h2_arr(3);
-    gpu_sum_square_axis1<<<(n_realatoms - 1) / 128 + 1, 128>>>(r2_arr.data(), dpos.data(), n_realatoms, 3);
-    gpu_sum_square_axis1<<<1, 3>>>(h2_arr.data(), dpos.data() + 3*n_realatoms, 3, 3);
-    thrust::device_ptr<double> d_ptr = thrust::device_pointer_cast(r2_arr.data());
-    thrust::sort(d_ptr, d_ptr + n_realatoms);
-    double h_sum_square = (variable_cell) ? sum(h2_arr.data(), 3) : 0;
-    double r_sum_square = sum(r2_arr.data()+n_realatoms - cur_dist_ncount, cur_dist_ncount);
-    double r_dist = sqrt(r_sum_square/cur_dist_ncount);
-    double h_dist = sqrt(h_sum_square/n_realatoms) * ina_cell_factor;
-    dist = r_dist + h_dist;
-
-    if (dist > cur_max_dist){
-      double insert_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
-      vector_add(new_pos, pos1, dpos, 1.0, insert_ratio);
-      double k_old = klist[i-1];
-      double energy_factor_old =
-        (energy_k_factor.size() == klist.size()) ? energy_k_factor[i-1] : 1.0;
-      if (variable_cell){
-        images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
-      } else {
-        images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
-      }
-      klist.insert(klist.begin() + i, k_old);
-      if (!energy_k_factor.empty()) {
-        energy_k_factor.insert(energy_k_factor.begin() + i, energy_factor_old);
-      }
-      if (ina_k) {
-        double k_left = k_old * ina_k_efficient * 2.0 * (1.0 - insert_ratio);
-        double k_right = k_old * ina_k_efficient * 2.0 * insert_ratio;
-        klist[i-1] = k_left;
-        klist[i] = k_right;
-      }
-      printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
-        i_ori, int(images.size()), r_dist, h_dist);
-      i+=2; //skip 2 images
-      i_ori++;
-      ina_count = 0;
-      changed = true;
-    }else if (dist < cur_min_dist && i != images.size()-1){
-      double k_old = klist[i-1];
-      erase_image(i);
-      if (ina_k) {
-        double k_new = k_old / ina_k_efficient;
-        if (k_new < k / 10) k_new = k_old;
-        klist[i-1] = k_new;
-      }
-      printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
-      // i doesn't change, skip 2 images
-      i_ori++;
-      ina_count = 0;
-    }
-    renormalize_klist();
-  }
+  adjust_image_spacing(true, false);
 }
 
 void NEB::write_neb_traj(const char* filename, const char* mode){
@@ -1629,7 +1790,7 @@ void NEB::interpolate() {
       if (variable_cell){
         // VCWrapper* new_vcatoms = new VCWrapper(images[0].get(), cur_pos.data());
         images.insert(images.begin()+i_keyframe[k]+i_cur,
-          make_unique<VCWrapper>(images[0].get(), cur_pos.data()));
+          make_cell_filter_from_position(images[0].get(), cur_pos.data(), remove_rotation));
       } else {
         // Atoms* new_atoms = new Atoms(*images[0].get(), cur_pos.data());
         images.insert(images.begin()+i_keyframe[k]+i_cur,

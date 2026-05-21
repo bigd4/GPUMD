@@ -45,6 +45,7 @@ void Minimize::parse_minimize(
   int minimizer_type = 0;
   int number_of_steps = 0;
   bool vc = false;
+  bool rotation_free_vc = false;
   int n = 4;
   std::vector<double> pressure = {0.0};
   double force_tolerance = 0.0;
@@ -126,12 +127,17 @@ void Minimize::parse_minimize(
     if (number_of_steps <= 0) {
       PRINT_INPUT_ERROR("Number of steps should > 0.");
     }
+    if (n >= num_param) {
+      PRINT_INPUT_ERROR("minimize vcfire should specify pressure with p, p3, or p6.");
+    }
     if (strcmp(param[n], "p") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &pressure[0])) {
         PRINT_INPUT_ERROR("p should be an real.");
       }
       n += 2;
     } else if (strcmp(param[n], "p3") == 0){
+      require_option_values(param, num_param, n, 3, "vcfire");
       pressure.resize(3);
       for (int i=0; i<3; i++){
         if (!is_valid_real(param[n+1+i], &pressure[i])) {
@@ -140,6 +146,7 @@ void Minimize::parse_minimize(
       }
       n += 4;
     } else if (strcmp(param[n], "p6") == 0){
+      require_option_values(param, num_param, n, 6, "vcfire");
       std::vector<double> press_in(6);
       pressure.resize(9);
       for (int i=0; i<6; i++){
@@ -156,6 +163,11 @@ void Minimize::parse_minimize(
       n += 7;
     } else {
       PRINT_INPUT_ERROR("Invalid input for vcfire.");
+    }
+    for (int i = n; i < num_param; ++i) {
+      if (strcmp(param[i], "rotation_free") == 0) {
+        rotation_free_vc = true;
+      }
     }
   } else {
     PRINT_INPUT_ERROR("Invalid minimizer.");
@@ -188,6 +200,7 @@ void Minimize::parse_minimize(
 
       if (vc){
         printf("variable cell is enabled.\n");
+        if (rotation_free_vc) printf("rotation-free cell filter is enabled.\n");
         std::vector<double> press={pressure};
         Atoms atoms(
           force,
@@ -203,7 +216,9 @@ void Minimize::parse_minimize(
                                                number_of_steps,
                                                force_tolerance));
         dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(param, num_param, n);
-        VCWrapper& vcatoms = *new VCWrapper(atoms, press);
+        VCWrapper& vcatoms = rotation_free_vc
+          ? static_cast<VCWrapper&>(*new RotationFreeVCWrapper(atoms, press))
+          : *new VCWrapper(atoms, press);
         vcatoms.optimize_factor = pow(atoms.get_natoms(), 1.0/4);
         printf("cell_factor = %f, optimize_factor = %f\n", vcatoms.cell_factor, vcatoms.optimize_factor);
         vcatoms.build_positions();
@@ -212,6 +227,7 @@ void Minimize::parse_minimize(
         minimizer->compute(vcatoms);
         printf("    final enthalpy = %f eV\n", vcatoms.get_energy());
         box = atoms.box;
+        atoms.get_positions().copy_to_device(atom.position_per_atom.data());
         if (atom.cpu_atom_symbol.size() > 0){
           FILE *fid = my_fopen("relaxed.xyz", "w");
           save_one_frame(fid,
