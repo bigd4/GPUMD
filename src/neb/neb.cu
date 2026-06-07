@@ -1439,7 +1439,7 @@ void NEB::compute()
             1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
     }
   }
-  if (ina_count==0){
+  if (image_number_adjustment && ina_count==0){
     if (print_k) print_arr(k_effective_list.data(), k_effective_list.size(), "k_effective_list");
     forces.fill(0);
     printf("imaxes before change: ");
