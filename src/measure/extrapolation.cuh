@@ -73,6 +73,7 @@ public:
     Force& force) override;
 
   FILE* f;
+  FILE* fb;
   std::vector<std::unique_ptr<GPU_Vector<float>>> asi_list;
   GPU_Vector<float> B;          // N x B_size
   GPU_Vector<float> gamma_full; // N x B_size
@@ -83,9 +84,12 @@ public:
   std::vector<std::vector<int>> atoms_of_type;
   std::vector<GPU_Vector<int>> atoms_of_type_gpu;
   int B_size_per_atom;
+  int n_dump = 0;
   int number_of_types;
   int check_interval = 1;
   int dump_interval = 1;
+  int max_extra_num = 1000;
+  int extra_num = 0;
   int last_dump = 0;
   double gamma_low = 0;
   double gamma_high = 1e100;
