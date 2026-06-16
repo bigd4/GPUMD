@@ -37,6 +37,8 @@ private:
   int hydrostatic_strain = 0;
 
 public:
+  using Minimizer::compute;
+
   Minimizer_FIRE_Box_Change(
     const int number_of_atoms, const int number_of_steps, const double force_tolerance)
     : Minimizer(-1, 0, number_of_atoms, number_of_steps, force_tolerance)

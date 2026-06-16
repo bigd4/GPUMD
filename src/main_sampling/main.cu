@@ -52,7 +52,8 @@ int main(int argc, char* argv[])
 
   Gpumd_Options options = parse_options(argc, argv);
   GSRun run(options.model_filename, options.run_filename);
-
+  run.execute();
+  
   #ifndef USE_GAS
     cudaDeviceSynchronize();
   #else

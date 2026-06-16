@@ -77,7 +77,7 @@ void gpu_sampling_dump_restart(Box& box, std::vector<Group>& group, Atom& atom)
       atom.cpu_velocity_per_atom[n + number_of_atoms] * natural_to_A_per_fs,
       atom.cpu_velocity_per_atom[n + 2 * number_of_atoms] * natural_to_A_per_fs);
 
-    for (int m = 0; m < int(group.size()); ++m) {
+    for (size_t m = 0; m < group.size(); ++m) {
       fprintf(fid, "%d ", group[m].cpu_label[n]);
     }
 
@@ -167,10 +167,7 @@ GSRun::GSRun() : GSRun("model.xyz", "run.in") {}
 GSRun::GSRun(const std::string& model_filename) : GSRun(model_filename, "run.in") {}
 
 GSRun::GSRun(const std::string& model_filename, const std::string& run_filename)
-  : Run(model_filename, run_filename, false)
-{
-  execute_run_in();
-}
+  : Run(model_filename, run_filename){}
 
 void GSRun::perform_a_run()
 {

@@ -19,6 +19,8 @@
 class Minimizer_SD : public Minimizer
 {
 public:
+  using Minimizer::compute;
+
   Minimizer_SD(
     const int fixed_group,
     const int fixed_grouping_method,

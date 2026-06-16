@@ -145,7 +145,7 @@ void set_run_input_filename(const std::string& filename)
   run_input_filename = filename;
 }
 
-static bool need_triclinic()
+static bool __attribute__((unused)) need_triclinic()
 {
   std::ifstream input_run(run_input_filename);
   if (!input_run.is_open()) {

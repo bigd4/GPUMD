@@ -13,6 +13,7 @@
 #include <deque>
 #include <list>
 #include <map>
+#include <utility>
 #include <cstring>
 #include <cmath>
 #include <cusolverDn.h>
@@ -115,7 +116,7 @@ class NEB: public BaseAtoms
 private:
   // compute setting
   double k = 0.1;
-  bool auto_k = false;
+  bool energy_based_spacing = false;
   std::vector<double> pressure = {0.0};
   bool has_mid = false;
   int n_interpolate = 0;
@@ -123,21 +124,31 @@ private:
   bool climb = false;
   bool find_min = false;
   double etol = 0.0;
+  double trim_etol = 0.0;
+  bool has_trim_etol = false;
+  double energy_spacing_damping = 0.1;
+  double energy_spacing_strength = 0.8;
+  double energy_spacing_exponent = 1;
+  double energy_spacing_dist_power = 0.5;
   bool remove_translation = true;
   bool remove_rotation = true;
   bool variable_cell = true;
+  bool find_mic = false;
 
-  bool var_image_number = true;
-  bool vi_k = false;
-  double vi_k_efficient = 1.8;
-  int vi_check_coord = 0; //  0: no check
-  double vicc_num = 0.0; // >0 & <1: percent, >=1: number
-  double vicc_rc = 1.7; 
-  int vi_interval = 20;
-  double vi_cell_factor = -1.0;
-  double vi_force_tol = 1;
+  bool image_number_adjustment = true;
+  bool trim_images = false;
+  double trim_similar_tol = 0.01;
+  bool ina_k = false;
+  double ina_k_efficient = 1.8;
+  int ina_check_coord = 0; //  0: no check
+  double inacc_num = 0.0; // >0 & <1: percent, >=1: number
+  double inacc_rc = 1.7;
+  int ina_interval = 20;
+  double cell_factor = -1.0;
+  std::vector<std::pair<int, double>> ina_force_tol_stages;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
+  bool print_k = false;
   int print_interval = 1;
   int dump_interval = -1;
   int peek_interval = -1;
@@ -153,6 +164,8 @@ private:
   // private variables
   // cublasHandle_t handle;
   std::vector<double> klist;
+  std::vector<double> energy_spacing_factor;
+  std::vector<double> kori_list;
   std::unique_ptr<Minimizer> minimizer;
   std::vector<const char *> optimizer_opt;
   int imax;
@@ -164,7 +177,7 @@ private:
   std::vector<double> h_ref{9};
   double first_energy = 0.0;
   double last_energy = 0.0;
-  int vi_count = 0;
+  int ina_count = 0;
   int step = 0;
   bool count_force_calc = false;
   int n_force_calc = 0;
@@ -177,9 +190,15 @@ private:
 
   void initialize_images();
 
+  void align_images_by_mic();
+
   void initialize_compute();
 
-  void check_dist();
+  bool satisfy_ina_force_tolerence() const;
+
+  void adjust_image_spacing(bool allow_remove, bool bootstrap);
+
+  void adjust_image_number();
 
   void print_info();
 

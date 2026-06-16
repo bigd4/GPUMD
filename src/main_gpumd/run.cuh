@@ -46,13 +46,7 @@ public:
   Run();
   Run(const std::string& model_filename);
   Run(const std::string& model_filename, const std::string& run_filename);
-  virtual ~Run() = default;
-
-protected:
-  Run(
-    const std::string& model_filename,
-    const std::string& run_filename,
-    bool execute_run_input);
+  void execute();
 
   void execute_run_in();
   virtual void perform_a_run();

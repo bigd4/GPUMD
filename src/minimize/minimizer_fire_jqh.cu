@@ -105,10 +105,11 @@ void vector_add(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>
 cublasHandle_t handle;
 double max_abs(int size, double* vec)
 {
-  int index;
+  int index1;
   double result;
-  cublasIdamax(handle, size, vec, 1, &index);
-  cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
+  cublasIdamax(handle, size, vec, 1, &index1);
+  int index0 = index1 - 1;
+  cudaMemcpy(&result, vec + index0, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
 } // namespace
@@ -125,11 +126,13 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   printflag = printflag0;
   for (int n=nstart; n<num_param; n++){
     if (strcmp(param[n], "max_move") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &max_move)) {
         PRINT_INPUT_ERROR("max_move should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "dt_max") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_max;
       if (!is_valid_real(param[n+1], &tmp_dt_max)) {
         PRINT_INPUT_ERROR("dt_max should be a number.");
@@ -137,6 +140,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt_max = tmp_dt_max / TIME_UNIT_CONVERSION;
       n++;
     } else if (strcmp(param[n], "dt_min") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_min;
       if (!is_valid_real(param[n+1], &tmp_dt_min)) {
         PRINT_INPUT_ERROR("dt_min should be a number.");
@@ -144,6 +148,7 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt_min = tmp_dt_min / TIME_UNIT_CONVERSION;
       n++;
     } else if (strcmp(param[n], "dt_0") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       double tmp_dt_0;
       if (!is_valid_real(param[n+1], &tmp_dt_0)) {
         PRINT_INPUT_ERROR("dt_0 should be a number.");
@@ -152,25 +157,31 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       dt = dt_0;
       n++;
     } else if (strcmp(param[n], "f_inc") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &f_inc)) {
         PRINT_INPUT_ERROR("f_inc should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "alpha_start") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &alpha_start)) {
         PRINT_INPUT_ERROR("alpha_start should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "f_alpha") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &f_alpha)) {
         PRINT_INPUT_ERROR("f_alpha should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "N_min") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_int(param[n+1], &N_min)) {
         PRINT_INPUT_ERROR("N_min should be an int.");
       }
       n++;
+    } else if (strcmp(param[n], "rotation_free") == 0){
+      ;
     } else {
     string text="Invalid option for vcfire: ";
     text += param[n];
@@ -190,7 +201,7 @@ void Minimizer_FIRE_JQH::print_para(){
   printf("%12s = %g\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "f_inc", f_inc);
   printf("%12s = %g\n", "alpha_start", alpha_start);
-  printf("%12s = %g\n", "f_alphat", f_alpha);
+  printf("%12s = %g\n", "f_alpha", f_alpha);
   printf("%12s = %d\n", "N_min", N_min);
   printf("----------------------------------------\n");
 }

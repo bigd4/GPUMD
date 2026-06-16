@@ -1295,12 +1295,12 @@ static __global__ void collect_properties(
   if (n_local < N2) {
     int n_global = cell_contents[n_local - N1 + M1];
     for (int d = 0; d < 3; ++d) {
-      g_force_global[n_global + d * num_atoms_global] =
+      g_force_global[n_global + d * num_atoms_global] +=
         g_force_local[n_local + d * num_atoms_local];
     }
-    g_potential_global[n_global] = g_potential_local[n_local];
+    g_potential_global[n_global] += g_potential_local[n_local];
     for (int d = 0; d < 9; ++d) {
-      g_virial_global[n_global + d * num_atoms_global] =
+      g_virial_global[n_global + d * num_atoms_global] +=
         g_virial_local[n_local + d * num_atoms_local];
     }
   }

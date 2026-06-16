@@ -6,8 +6,6 @@ using namespace std;
 
 static __global__ void get_dpos_target(
   const int natoms,
-  const int N1,
-  const int N2,
   const Box box,
   const int* NN,
   const int* NL,
@@ -44,8 +42,6 @@ static __global__ void get_dpos_target(
 // notice that virial_per_atom is not meaningful here, only total virial is guarenteed.
 static __global__ void calc_spring_force(
   const int natoms,
-  const int N1,
-  const int N2,
   const Box box,
   const int* NN,
   const int* NL,
@@ -178,36 +174,45 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
 
   for (int n=1; n<num_param; n++){
     if (strcmp(param[n], "k_end") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &k_end)) {
         PRINT_INPUT_ERROR("k_end should be a number.");
       }
       n++;
     } else if (strcmp(param[n], "tau") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_int(param[n+1], &tau)) {
         PRINT_INPUT_ERROR("Number of steps should be an integer.");
       }
       n++;
     } else if (strcmp(param[n], "rc") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &rc)) {
         PRINT_INPUT_ERROR("rc should be a real.");
       }
       n++;
     } else if (strcmp(param[n], "vert_part") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_real(param[n+1], &vert_part)) {
         PRINT_INPUT_ERROR("vert_part should be a real.");
       }
       n++;
     } else if (strcmp(param[n], "target") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       target_name = param[n+1];
       n++;
     } else if (strcmp(param[n], "target_list") == 0){
-    for (int i=n+1; i<num_param; i++){
-      target_list.push_back(string(param[i]));
-      n++;
-      if (strcmp(param[n], "target_list_end") == 0) break;
-    }
-    n++;
-  } else if (strcmp(param[n], "max_neighbor") == 0) {
+      int i = n + 1;
+      for (; i<num_param; i++){
+        if (strcmp(param[i], "target_list_end") == 0) break;
+        target_list.push_back(string(param[i]));
+      }
+      if (target_list.empty()) {
+        PRINT_INPUT_ERROR("target_list should contain at least one filename.");
+      }
+      n = i;
+    } else if (strcmp(param[n], "max_neighbor") == 0) {
+      require_option_values(param, num_param, n, 1, "target_opt");
       if (!is_valid_int(param[n+1], &max_neighbor)) {
         PRINT_INPUT_ERROR("max_neighbor should be an integer.");
       }
@@ -296,8 +301,6 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
       // print_gpu(NL_target, "NL_target");
       get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
         natoms,
-        0,
-        natoms,
         tmp_box,
         cur_target.NN.data(),
         cur_target.NL.data(),
@@ -314,8 +317,8 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
       GPU_CHECK_KERNEL;
 
     }
-    printf("targets size: %d\n", targets.size());
-    printf("target NL: %d\n", cur_target.NL.size());
+    printf("targets size: %zu\n", targets.size());
+    printf("target NL: %zu\n", cur_target.NL.size());
   }
 
 
@@ -379,9 +382,6 @@ void TargetOpt::compute(
   GPU_Vector<double>& force_per_atom,
   GPU_Vector<double>& virial_per_atom)
 {
-  int N1 = 0;
-  int N2 = type.size();
-
   if (type.size() != natoms)
     PRINT_INPUT_ERROR("natoms in model.xyz and target does not match");
 
@@ -396,15 +396,13 @@ void TargetOpt::compute(
 
     }
     else {
-      for (int i=0; i<target.i_pick_list.size(); i++){
+      for (size_t i=0; i<target.i_pick_list.size(); i++){
         auto& i_pick = target.i_pick_list[i];
         auto& dpos_target = target.dpos_target_list[i];
         int n_pick = i_pick.size();
         if (n_pick==0) continue;
         calc_spring_force<<<(n_pick-1)/128+1, 128>>>(
           natoms,
-          N1,
-          N2,
           box,
           target.NN.data(),
           target.NL.data(),
