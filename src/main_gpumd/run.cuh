@@ -48,10 +48,9 @@ public:
   Run(const std::string& model_filename, const std::string& run_filename);
   void execute();
 
-private:
   void execute_run_in();
-  void perform_a_run();
-  void parse_one_keyword(std::vector<std::string>& tokens);
+  virtual void perform_a_run();
+  virtual void parse_one_keyword(std::vector<std::string>& tokens);
   std::string get_initial_structure_filename();
 
   // keyword parsing functions

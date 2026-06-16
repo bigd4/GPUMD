@@ -1,6 +1,7 @@
 // #ifdef USE_GAS
 #include "gas-metad.cuh"
 #include "model/read_xyz.cuh"
+#include <chrono>
 
 namespace{
   std::vector<std::vector<double>> readFileToVector(const std::string& filename) {
@@ -47,6 +48,35 @@ torch::Tensor vectorToTensor(const std::vector<std::vector<double>>& data) {
     torch::Tensor tensor = torch::from_blob(flat_data.data(), {(long)m, (long)n}, torch::kFloat64);
 
     return tensor.clone();  // 返回一个副本，确保数据不受外部修改的影响
+}
+
+Config load_gas_config_with_defaults(const std::string& cfg_path, int n_atoms)
+{
+    Config base_config;
+    base_config.n_atoms = n_atoms;
+    Config effective_config = base_config;
+
+    try {
+        effective_config = Config::fromFile(cfg_path, base_config);
+        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[GAS-Warn] Failed to load GASConfig from " << cfg_path
+                  << ", using defaults. Details: " << e.what() << std::endl;
+    }
+
+    std::cout << "[GAS-Info] Effective GASConfig:" << std::endl;
+    effective_config.print();
+    return effective_config;
+}
+
+torch::jit::script::Module load_gas_torchscript_model_for_inference(
+  const std::string& model_path)
+{
+    torch::jit::setGraphExecutorOptimize(true);
+    auto loaded_model = torch::jit::load(model_path, torch::kCUDA);
+    loaded_model.eval();
+
+    return loaded_model;
 }
 
 }
@@ -240,24 +270,14 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
+        model = load_gas_torchscript_model_for_inference(model_path);
         std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
     } catch (const c10::Error& e) {
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
         throw e;
     }
-    // 接受 GASConfig 参数
-    try {
-        config = Config::fromFile(cfg_path);
-        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
-        throw e;
-    }
+    // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
+    config = load_gas_config_with_defaults(cfg_path, n_atoms_);
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -270,6 +290,7 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
     torch_now_cvs = torch::empty({config.cv_size},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
     torch_delta_cv_save = torch::empty({config.cv_size},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
     torch_bias = torch::empty({},  torch::dtype(torch::kFloat64).device(torch::kCUDA));
+    debug_interval = config.debug_interval;
 
     cpu_b_vector = std::vector<double>(9); // Box
     // gpu_v_vector.resize(6);
@@ -282,24 +303,14 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string g
     this->n_atoms_ = n_atoms;
     // 读取文件，设定参数
     try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
+        model = load_gas_torchscript_model_for_inference(model_path);
         std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
     } catch (const c10::Error& e) {
         std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
         throw e;
     }
-    // 接受 GASConfig 参数
-    try {
-        config = Config::fromFile(cfg_path);
-        std::cout << "[GAS-Info] GASConfig loaded successfully from " << cfg_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
-        throw e;
-    }
+    // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
+    config = load_gas_config_with_defaults(cfg_path, n_atoms_);
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -336,8 +347,22 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string g
 torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
     const torch::Dict<std::string, torch::Tensor>& inputs) {
     // try {
+        const bool profile_predict = (config.debug_interval != 0);
+        std::chrono::high_resolution_clock::time_point t0;
+        if (profile_predict) {
+          torch::cuda::synchronize();
+          t0 = std::chrono::high_resolution_clock::now();
+        }
         // 将输入传递给模型
         auto result = model.forward({inputs}).toGenericDict();
+        if (profile_predict && now_step%debug_interval==0) {
+          torch::cuda::synchronize();
+          const auto t1 = std::chrono::high_resolution_clock::now();
+          const double elapsed_ms =
+            std::chrono::duration<double, std::milli>(t1 - t0).count();
+          std::cout << "[GAS-Debug] predict() time = " << elapsed_ms
+                    << " ms at step " << now_step << std::endl;
+        }
         // 要花括号吗？
         // 转换返回值为 torch::Dict
         torch::Dict<std::string, torch::Tensor> outputs;
@@ -346,7 +371,7 @@ torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
             auto value = item.value().toTensor();
             // #ifdef USE_GAS_DEBUG
             if (config.debug_interval!=0){
-              if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout<<key<<value<<std::endl;}
+              if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout << "[GAS-Debug] " << key << ": " << value << std::endl;}
             }
             // #endif
             outputs.insert(key, value);

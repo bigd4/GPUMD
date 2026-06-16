@@ -157,6 +157,31 @@ namespace
       }
   }
 
+  void get_cholesky_3x3(double* m, double* l)
+  {
+    double a[9];
+    for (int i = 0; i < 9; ++i) a[i] = m[i];
+    for (int i = 0; i < 9; ++i) l[i] = 0.0;
+
+    for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        double s = a[i + j * 3];
+        for (int k = 0; k < j; ++k) {
+          s -= l[i + k * 3] * l[j + k * 3];
+        }
+        if (i == j) {
+          if (s <= 1.0e-14) {
+            fprintf(stderr, "RotationFreeVCWrapper: strain matrix is not positive definite.\n");
+            exit(1);
+          }
+          l[i + j * 3] = sqrt(s);
+        } else {
+          l[i + j * 3] = s / l[j + j * 3];
+        }
+      }
+    }
+  }
+
   void __attribute__((unused)) matmul_3x3(double* dst, double* a, double* b, int m=3, int n=3)
   {
     memset(dst, 0, sizeof(double));
@@ -383,7 +408,7 @@ void Atoms::compute()
 double Atoms::get_energy() { return sum(potential_per_atom);}
 
 
-void VCWrapper::build_VCWrapper(vector<double> p, double* h_ref0)
+void VCWrapper::build_VCWrapper(vector<double> p, double* h_ref0, double cell_factor0)
 {
   #ifdef DEBUG
   printf("-----VCWrapper from atoms constructor-----\n");
@@ -393,6 +418,7 @@ void VCWrapper::build_VCWrapper(vector<double> p, double* h_ref0)
   CHECK(cudaMemcpy(h_ref, h_ref0, 9 * sizeof(double), cudaMemcpyHostToDevice));
   get_3x3_inverse(h_ref, h_ref+9);
   cell_factor = pow(det_3x3(h_ref), 1.0 / 3.0) * pow(natoms, 1.0 / 6.0);
+  if (cell_factor0 > 0.0) cell_factor = cell_factor0;
   #ifdef DEBUG
   printf("cell factor: %f\n", cell_factor);
   // print_arr(h_ref, 18, "h_ref");
@@ -423,37 +449,37 @@ void VCWrapper::build_VCWrapper(vector<double> p, double* h_ref0)
 }
 
 // atoms should be alive with this wrapper.
-VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* h_ref0)
+VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double* h_ref0, double cell_factor0)
 {
   p_atoms.reset(&atoms);
-  build_VCWrapper(p, h_ref0);
+  build_VCWrapper(p, h_ref0, cell_factor0);
 }
 
-VCWrapper::VCWrapper(Atoms& atoms, vector<double> p)
+VCWrapper::VCWrapper(Atoms& atoms, vector<double> p, double cell_factor0)
 {
   p_atoms.reset(&atoms);
-  build_VCWrapper(p, atoms.box.cpu_h);
+  build_VCWrapper(p, atoms.box.cpu_h, cell_factor0);
 }
 
-VCWrapper::VCWrapper(const char* filename, vector<double> p, double* h_ref0)
+VCWrapper::VCWrapper(const char* filename, vector<double> p, double* h_ref0, double cell_factor0)
 {
   p_atoms = make_unique<Atoms>(filename);
-  build_VCWrapper(p, h_ref0);
+  build_VCWrapper(p, h_ref0, cell_factor0);
 }
 
-VCWrapper::VCWrapper(ifstream& input, bool& success, vector<double> p, double* h_ref0)
+VCWrapper::VCWrapper(ifstream& input, bool& success, vector<double> p, double* h_ref0, double cell_factor0)
 {
   p_atoms = make_unique<Atoms>(input, success);
   if (success){
-    build_VCWrapper(p, h_ref0);
+    build_VCWrapper(p, h_ref0, cell_factor0);
   }
 }
 
-VCWrapper::VCWrapper(ifstream& input, bool& success, vector<double> p)
+VCWrapper::VCWrapper(ifstream& input, bool& success, vector<double> p, double cell_factor0)
 {
   p_atoms = make_unique<Atoms>(input, success);
   if (success){
-    build_VCWrapper(p, p_atoms->box.cpu_h);
+    build_VCWrapper(p, p_atoms->box.cpu_h, cell_factor0);
   }
 }
 
@@ -620,6 +646,139 @@ void VCWrapper::compute_deform()
   get_3x3_inverse(deform, deform + 9);
   // print_arr(deform, 18, "deform");
   // printf("compute_deform get_inverse finish\n");
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(Atoms& atoms, vector<double> p, double* h_ref0, double cell_factor0)
+  :VCWrapper(atoms, p, h_ref0, cell_factor0)
+{
+  build_positions();
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(Atoms& atoms, vector<double> p, double cell_factor0)
+  :VCWrapper(atoms, p, cell_factor0)
+{
+  build_positions();
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(const char* filename, vector<double> p, double* h_ref0, double cell_factor0)
+  :VCWrapper(filename, p, h_ref0, cell_factor0)
+{
+  build_positions();
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(
+  ifstream& input, bool& success, vector<double> p, double* h_ref0, double cell_factor0)
+  :VCWrapper(input, success, p, h_ref0, cell_factor0)
+{
+  if (success) build_positions();
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(
+  ifstream& input, bool& success, vector<double> p, double cell_factor0)
+  :VCWrapper(input, success, p, cell_factor0)
+{
+  if (success) build_positions();
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(
+  const RotationFreeVCWrapper& vcatoms0, double* new_position)
+{
+  #ifdef DEBUG
+  printf("RotationFreeVCWrapper copy from atoms0 constructor %p\n", this);
+  #endif
+  if (!handle) cublasCreate(&handle);
+  natoms = vcatoms0.natoms;
+  p_atoms.reset(new Atoms(*vcatoms0.p_atoms));
+  cudaDeviceSynchronize();
+  CHECK(cudaMallocManaged(&h_ref, 18 * sizeof(double)));
+  CHECK(cudaMallocManaged(&deform, 18 * sizeof(double)));
+  CHECK(cudaMallocManaged(&virial, 9 * sizeof(double)));
+  cudaMemcpy(h_ref, vcatoms0.h_ref, 18 * sizeof(double), cudaMemcpyDeviceToDevice);
+  GPU_CHECK_KERNEL;
+
+  d_h = vcatoms0.d_h;
+  cell_factor = vcatoms0.cell_factor;
+  optimize_factor = vcatoms0.optimize_factor;
+  pressure = vcatoms0.pressure;
+  p_force = vcatoms0.p_force;
+  cpu_atom_symbol = vcatoms0.cpu_atom_symbol;
+  type = vcatoms0.type;
+  group = vcatoms0.group;
+  virials = vcatoms0.virials;
+  forces.resize(natoms*3);
+  positions.resize(natoms*3);
+  positions.copy_from_device(new_position);
+  set_positions();
+  #ifdef DEBUG
+  printf("RotationFreeVCWrapper copy from atoms0 constructor finish %p\n", this);
+  #endif
+}
+
+RotationFreeVCWrapper::RotationFreeVCWrapper(Atoms* p_atoms0, double* new_position)
+  :RotationFreeVCWrapper(*dynamic_cast<RotationFreeVCWrapper*>(p_atoms0), new_position)
+{
+}
+
+void RotationFreeVCWrapper::compute()
+{
+  set_positions();
+  p_atoms->compute();
+
+  double tmp[9];
+  int virial_reorder[]={0,6,7,3,1,8,4,5,2};
+  sum2d(p_atoms->virials, tmp, 9);
+  double volume = p_atoms->box.get_volume();
+  for (int i=0;i<9;i++) virial[i] = tmp[virial_reorder[i]] - volume * pressure[i];
+
+  gpu_matmul(p_atoms->get_forces().data(), deform, forces.data(), natoms-3, 3, 3, 0, 1);
+
+  GPU_Vector<double> cell_force_tmp(9, Memory_Type::managed);
+  gpu_matmul(&deform[9], virial, cell_force_tmp.data(), 3, 3, 3, 1, 0);
+  gpu_matmul(
+    cell_force_tmp.data(),
+    &deform[9],
+    &forces[natoms*3-9],
+    3, 3, 3, 0, 0, 1/cell_factor/optimize_factor);
+}
+
+GPU_Vector<double>& RotationFreeVCWrapper::build_positions()
+{
+  d_h.copy_from_host(p_atoms -> box.cpu_h);
+  compute_deform();
+  gpu_matmul(p_atoms->get_positions().data(), &deform[9], positions.data(), natoms-3, 3, 3);
+  gpu_matmul(
+    deform,
+    deform,
+    &positions[natoms * 3 - 9],
+    3, 3, 3, 0, 1, cell_factor / optimize_factor);
+  GPU_CHECK_KERNEL;
+  return positions;
+}
+
+void RotationFreeVCWrapper::set_positions()
+{
+  gpu_multiply<<<1, 9>>>(
+    9,
+    1/cell_factor*optimize_factor,
+    &positions[natoms * 3 - 9],
+    deform);
+  cudaDeviceSynchronize();
+  GPU_CHECK_KERNEL;
+
+  double metric[9];
+  for (int i = 0; i < 9; ++i) metric[i] = deform[i];
+  for (int col = 0; col < 3; ++col) {
+    for (int row = 0; row < 3; ++row) {
+      deform[row + col * 3] = 0.5 * (metric[row + col * 3] + metric[col + row * 3]);
+    }
+  }
+  get_cholesky_3x3(deform, deform);
+  get_3x3_inverse(deform, deform + 9);
+
+  gpu_matmul(positions.data(), deform, p_atoms->get_positions().data(), natoms-3, 3, 3);
+  gpu_matmul(h_ref, deform, d_h.data(), 3, 3, 3);
+  GPU_CHECK_KERNEL;
+  p_atoms->set_box(d_h, 9);
 }
 
 void save_one_frame(

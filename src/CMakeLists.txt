@@ -75,7 +75,7 @@ file(GLOB SOURCES_GPUSAMP
 
 # Add GPUMD run files except the standalone entry point.
 file(GLOB SOURCES_GPUMD_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/main_gpumd/*.cu")
-list(FILTER SOURCES_GPUMD_EXTRA EXCLUDE REGEX "main_gpumd/(run|main)\\.cu$")
+list(FILTER SOURCES_GPUMD_EXTRA EXCLUDE REGEX "main_gpumd/(main)\\.cu$")
 list(APPEND SOURCES_GPUSAMP ${SOURCES_GPUMD_EXTRA})
 
 add_executable(gpumd ${SOURCES_GPUMD})

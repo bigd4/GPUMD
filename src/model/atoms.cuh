@@ -42,6 +42,7 @@ void print_gpu(double* a, int size, const char* name="");
 class BaseAtoms;
 class Atoms;
 class VCWrapper;
+class RotationFreeVCWrapper;
 
 
 class BaseAtoms
@@ -79,6 +80,7 @@ public:
 class Atoms: public BaseAtoms
 {
 friend class VCWrapper;
+friend class RotationFreeVCWrapper;
 
 public:
   Box box;
@@ -158,27 +160,30 @@ public:
 
 class VCWrapper: public Atoms
 {
-private:
-  double* virial; // size: 9, managed memory
+protected:
+  VCWrapper() = default;
 
-  void build_VCWrapper(std::vector<double> p, double* h_ref0);
+  double* virial = nullptr; // size: 9, managed memory
+
+private:
+  void build_VCWrapper(std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
 
 public:
   double cell_factor = 1.0;
   double optimize_factor = 1.0;
   std::vector<double> pressure = std::vector<double>(9,0.0);
-  double* h_ref; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
+  double* h_ref = nullptr; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
   std::unique_ptr<Atoms> p_atoms;
-  double* deform; // size: 18, managed memory. first 9 are deform, last 9 are the inverse.
+  double* deform = nullptr; // size: 18, managed memory. first 9 are deform, last 9 are the inverse.
   GPU_Vector<double> d_h; // size: 18, device memory
 
 
-  VCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0);
-  VCWrapper(Atoms& atoms, std::vector<double> p);
+  VCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  VCWrapper(Atoms& atoms, std::vector<double> p, double cell_factor0=-1.0);
 
-  VCWrapper(const char* filename, std::vector<double> p, double* h_ref0);
-  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double* h_ref0);
-  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p);
+  VCWrapper(const char* filename, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  VCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double cell_factor0=-1.0);
 
   VCWrapper(const VCWrapper& atoms0, double* new_position);
   VCWrapper(Atoms* p_atoms0, double* new_position);
@@ -207,6 +212,26 @@ public:
 
   void compute_deform();
 
+};
+
+class RotationFreeVCWrapper: public VCWrapper
+{
+public:
+  RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double cell_factor0=-1.0);
+
+  RotationFreeVCWrapper(const char* filename, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  RotationFreeVCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
+  RotationFreeVCWrapper(std::ifstream& input, bool& success, std::vector<double> p, double cell_factor0=-1.0);
+
+  RotationFreeVCWrapper(const RotationFreeVCWrapper& atoms0, double* new_position);
+  RotationFreeVCWrapper(Atoms* p_atoms0, double* new_position);
+
+  void compute();
+
+  GPU_Vector<double>& build_positions();
+
+  void set_positions();
 };
 
 void save_one_frame(

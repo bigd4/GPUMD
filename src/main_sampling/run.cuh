@@ -15,77 +15,25 @@
 
 #pragma once
 
-class Force;
-class Integrate;
-class Measure;
-
-#include "main_gpumd/add_efield.cuh"
-#include "main_gpumd/add_force.cuh"
-#include "main_gpumd/add_spring.cuh"
-#include "main_gpumd/add_random_force.cuh"
-#include "main_gpumd/electron_stop.cuh"
-#include "force/force.cuh"
-#include "integrate/integrate.cuh"
-#include "mc/mc.cuh"
-#include "measure/measure.cuh"
-#include "model/atom.cuh"
-#include "model/atoms.cuh"
-#include "model/box.cuh"
-#include "model/group.cuh"
-#include "utilities/common.cuh"
-#include "utilities/gpu_vector.cuh"
-#include "main_gpumd/velocity.cuh"
-#include "neb/neb.cuh"
-#include <vector>
-#include <deque>
-#include "gas-metad.cuh"
+#include "main_gpumd/run.cuh"
 #include "gas-monitor.cuh"
-class Run
+#include <memory>
+#include <string>
+#include <vector>
+
+class GSRun : public Run
 {
 public:
-  Run();
+  GSRun();
+  GSRun(const std::string& model_filename);
+  GSRun(const std::string& model_filename, const std::string& run_filename);
+
+protected:
+  void perform_a_run() override;
+  void parse_one_keyword(std::vector<std::string>& tokens) override;
 
 private:
-  void execute_run_in();
-  void perform_a_run();
-  void parse_one_keyword(std::vector<std::string>& tokens);
-
-  // keyword parsing functions
-  void parse_neighbor(const char** param, int num_param);
-  void parse_velocity(const char** param, int num_param);
-  void parse_change_box(const char** param, int num_param);
-  void parse_correct_velocity(const char** param, int num_param, const std::vector<Group>& group);
-  void parse_time_step(const char** param, int num_param);
-  void parse_run(const char** param, int num_param);
-
-  int number_of_types; // number of atom types
-  int has_velocity_in_xyz = 0;
-  int number_of_steps;        // number of steps in a specific run
-  double global_time = 0.0;   // run time of entire simulation (fs)
-  double initial_temperature; // initial temperature for velocity
-  double time_step = 1.0 / TIME_UNIT_CONVERSION;
-  double max_distance_per_step = -1.0;
-  Atom atom;
-  GPU_Vector<double> thermo; // some thermodynamic quantities
-  Velocity velocity;
-  Box box;
-  std::vector<Group> group;
-
-  Force force;
-  Integrate integrate;
-  MC mc;
-  Measure measure;
-  NEB neb;
-  Electron_Stop electron_stop;
-  Add_Force add_force;
-  Add_Spring add_spring;
-  Add_Random_Force add_random_force;
-  Add_Efield add_efield;
   std::unique_ptr<TorchMonitor> p_gasps;
   bool is_pathsampling = false;
   bool is_ffs = false;
-  // #ifdef USE_GAS
-  // std::unique_ptr<TorchPathSampling> p_gasps;
-  // bool is_pathsampling = false;
-  // #endif
 };

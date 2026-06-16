@@ -17,5 +17,6 @@
 
 int is_valid_int(const char*, int*);
 int is_valid_real(const char*, double*);
+void require_option_values(const char** param, int num_param, int n, int count, const char* context);
 bool check_is_nep_charge();
 bool check_need_peratom_virial();
