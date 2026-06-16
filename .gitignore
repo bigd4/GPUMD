@@ -30,3 +30,6 @@ __pycache__/
 */__pycache__/
 README.gnep.md
 push-to-both.sh
+
+/build/
+/libtorch/
