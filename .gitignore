@@ -1,7 +1,7 @@
 \.cproject
 \.project
 core
-
+.claude/
 src/.vscode/*
 src/.codex
 src/.test
