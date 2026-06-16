@@ -117,7 +117,8 @@ namespace
       result[n] = a[n] + alpha;
   }
     // <vec> result = <vec> a + <scalar> alpha
-  void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+  void __attribute__((unused)) vector_add_scalar(
+    GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
   {
     int size = a.size();
     gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
@@ -130,7 +131,6 @@ namespace
   {
     int lda = (transa != CUBLAS_OP_T)? M: K;
     int ldb = (transb != CUBLAS_OP_T)? K: N;
-    cublasStatus_t stat;
     // printf("lda: %d, ldb: %d\n",lda, ldb);
     cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
       M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
@@ -157,7 +157,7 @@ namespace
       }
   }
 
-  void matmul_3x3(double* dst, double* a, double* b, int m=3, int n=3)
+  void __attribute__((unused)) matmul_3x3(double* dst, double* a, double* b, int m=3, int n=3)
   {
     memset(dst, 0, sizeof(double));
     for (int i=0; i<m; i++){
@@ -289,7 +289,6 @@ Atoms::Atoms(
 Atoms::Atoms(const char* filename)
 {
   printf("--------------file %s to atoms-------------------\n", filename);
-  bool triclinic = true;
   int has_velocity;
   int number_of_types;
   Atom atom;
@@ -302,7 +301,6 @@ Atoms::Atoms(const char* filename)
 
 Atoms::Atoms(ifstream& input, bool& success)
 {
-  bool triclinic = true;
   int has_velocity;
   int number_of_types;
   Atom atom;

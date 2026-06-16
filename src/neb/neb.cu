@@ -2,6 +2,7 @@
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
+#include <numeric>
 using namespace std;
 
 void print_mem(const char* tag) {
@@ -47,7 +48,8 @@ namespace
   }
 
   // vec result = vec a + scalar alpha
-  void vector_add_scalar(GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
+  void __attribute__((unused)) vector_add_scalar(
+    GPU_Vector<double>& result, GPU_Vector<double>& a, double& alpha)
   {
     int size = a.size();
     gpu_vector_add_scalar<<<(size - 1) / 128 + 1, 128>>>
@@ -123,7 +125,6 @@ namespace
   {
     int lda = (transa != CUBLAS_OP_T)? M: K;
     int ldb = (transb != CUBLAS_OP_T)? K: N;
-    cublasStatus_t stat;
     // printf("lda: %d, ldb: %d\n",lda, ldb);
     cublasDgemm(handle, cublasOperation_t(transa), cublasOperation_t(transb),
       M, N, K, &alpha, mA, lda, mB, ldb, &beta, mC, M);
@@ -232,7 +233,7 @@ namespace
   // 1) use SVD to validate positive-semidefinite-ness;
   // 2) build the strict lower-triangular Cholesky factor L by standard recursion.
   // Input A and output L are both n x n column-major matrices on device/managed memory.
-  void get_cholesky(double* A, double* L, int n)
+  void __attribute__((unused)) get_cholesky(double* A, double* L, int n)
   {
     if (A == nullptr || L == nullptr) {
       PRINT_INPUT_ERROR("get_cholesky: A and L must be preallocated and non-null.");
@@ -357,7 +358,7 @@ namespace
     d_result.copy_to_host(result);
   }
 
-  double dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
+  double __attribute__((unused)) dot(GPU_Vector<double>& a, GPU_Vector<double>& b)
   {
     GPU_Vector<double> temp(a.size());
     pairwise_product(a, b, temp);
@@ -383,7 +384,8 @@ namespace
   }
 
 
-  GPU_Vector<double> sum_square_axis1(GPU_Vector<double>& a, const int ncol)
+  GPU_Vector<double> __attribute__((unused)) sum_square_axis1(
+    GPU_Vector<double>& a, const int ncol)
   {
     int nl = a.size()/ncol;
     GPU_Vector<double> temp(nl);
@@ -391,7 +393,7 @@ namespace
     return temp;
   }
 
-  double max_abs(int size, double* vec)
+  double __attribute__((unused)) max_abs(int size, double* vec)
   {
     int index;
     double result;
@@ -407,7 +409,7 @@ namespace
     double result;
     cublasIdamax(handle, size, vec, 1, &index);
     if (printflag){
-      printf("i_fmax: %d", index);
+      printf("i_fmax: %d:%d", index/nsingle, (index%nsingle)%int(nsingle/3));
       if ((index+9) % nsingle < 9) {printf("(D), ");} else {printf("(R), ");}
     }
     cudaMemcpy(&result, vec + index - 1, sizeof(double), cudaMemcpyDeviceToHost);
@@ -429,7 +431,7 @@ namespace
   void print_setting(const char* name, double value){
     printf("%-20s = %g\n", name, value);
   }
-  void print_setting(const char* name, const char* value){
+  void __attribute__((unused)) print_setting(const char* name, const char* value){
     printf("%-20s = %s\n", name, value);
   }
   void print_setting(const char* name, string value){
@@ -854,7 +856,7 @@ std::unique_ptr<BaseTangentMethod> get_tangent_method(string tangent_method_name
 }
 
 void cell_best_match(double* cell_ref, double* cell, double* new_cell){
-  double *H, HTH, *rot;
+  double *H, *rot;
   cudaMalloc(&H, 9*sizeof(double));
   cudaMalloc(&rot, 9*sizeof(double));
   // gpu_matmul(cell_ref, cell, H, 3, 3, 3, 1, 0);
@@ -1106,6 +1108,7 @@ void NEB::compute()
   }
 
   find_min_max(etol);
+  vector<double> k_effective_list(klist);
   // printf("klist: ");
   if (auto_k) {
     for (int i=0; i<nimages-1;i++){
@@ -1114,11 +1117,9 @@ void NEB::compute()
         if (abs(i-x) < dist2imaxes) dist2imaxes = abs(i-x);
         if (abs(i+1-x) < dist2imaxes) dist2imaxes = abs(i+1-x);
       }
-      double k_target = k / (1 - 0.8*pow(0.9, pow(dist2imaxes,2)));
-      if (abs(klist[i]-k_target) < 0.1*(k_target - k)) klist[i] = k_target;
-      else if (klist[i]<k_target) klist[i] += 0.1*(k_target - k);
-      else klist[i] -= 0.1*(k_target - k);
-      // printf("%.3f ", klist[i]);
+      double auto_k_factor = 1.0 / (1.0 - 0.8*pow(0.9, pow(dist2imaxes,2)));
+      k_effective_list[i] *= auto_k_factor;
+      // printf("%.3f ", k_effective_list[i]);
     }
   }
   // printf("\n"); 
@@ -1129,11 +1130,11 @@ void NEB::compute()
   GPU_Vector<double> t2(natoms_per_image*3);
   GPU_Vector<double> spring_force(natoms_per_image*3);
   vector_substract(t1, images[1]->get_positions(), images[0]->get_positions());
-  Spring spring1{klist[0], image_energies[1] - image_energies[0], t1};
+  Spring spring1{k_effective_list[0], image_energies[1] - image_energies[0], t1};
   
   for (int i=1; i < nimages - 1; i++){
     vector_substract(t2, images[i+1]->get_positions(), images[i]->get_positions());
-    Spring spring2{klist[i], image_energies[i+1] - image_energies[i], t2};
+    Spring spring2{k_effective_list[i], image_energies[i+1] - image_energies[i], t2};
     // print_gpu(t1, "t1");
     GPU_Vector<double> tangent = tangentmethod->compute_tangent(spring1, spring2);
     // print_gpu(tangent, "t");
@@ -1204,6 +1205,13 @@ void NEB::compute()
             1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
     }
   }
+  if (vi_count==0){
+    print_arr(k_effective_list.data(), k_effective_list.size(), "k_effective_list");
+    forces.fill(0);
+    printf("imaxes before change: ");
+    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
+    printf("\n");
+  }
   step++;
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
@@ -1233,7 +1241,7 @@ void NEB::check_dist() {
     return;
   }
   GPU_Vector<double> dpos(natoms_per_image*3), new_pos(natoms_per_image*3);
-  double nrm2, dist;
+  double dist;
   int max_neighbor = 10, n_sp3;
   GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
   GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);
@@ -1291,17 +1299,18 @@ void NEB::check_dist() {
 
     if (dist > cur_max_dist){
       vector_add(new_pos, pos1, pos2, 0.5, 0.5);
-      double ori_k = klist[i-1];
+      double k_old = klist[i-1];
       if (variable_cell){
         images.insert(images.begin()+i, make_unique<VCWrapper>(images[0].get(), new_pos.data()));
       } else {
         images.insert(images.begin()+i, make_unique<Atoms>(images[0].get(), new_pos.data()));
       }
-      klist.insert(klist.begin() + i, ori_k);
+      klist.insert(klist.begin() + i, k_old);
       if (vi_k) {
-        double new_k = ori_k / vi_k_efficient;
-        klist[i-1] = new_k;
-        klist[i] = new_k;
+        double k_new = k_old * vi_k_efficient;
+        if (k_new > k * 10) k_new = k_old;
+        klist[i-1] = k_new;
+        klist[i] = k_new;
       }
       printf("add an image: %d, nimages: %d, dist: %.6f(r), %.6f(h)\n",
         i_ori, int(images.size()), r_dist, h_dist);
@@ -1309,25 +1318,25 @@ void NEB::check_dist() {
       i_ori++;
       vi_count = 0;
     }else if (dist < cur_min_dist && i != images.size()-1){
-      double ori_k = klist[i-1];
+      double k_old = klist[i-1];
       images.erase(images.begin()+i);
       klist.erase(klist.begin()+i);
       if (vi_k) {
-        double new_k = ori_k * vi_k_efficient;
-        klist[i-1] = new_k;
+        double k_new = k_old / vi_k_efficient;
+        if (k_new < k / 10) k_new = k_old;
+        klist[i-1] = k_new;
       }
       printf("remove an image: %d , nimages: %d\n", i_ori, int(images.size()));
       // i doesn't change, skip 2 images
       i_ori++;
       vi_count = 0;
     }
-  }
-  
-  if (vi_count==0){
-    forces.fill(0);
-    printf("imaxes before change: ");
-    for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
-    printf("\n");
+    if (vi_k) { //renomalize klist
+      double avg_k = accumulate(klist.begin(), klist.end(), 0.0) / klist.size();
+      for (int j=0; j<klist.size(); j++){
+        klist[j] = klist[j] / avg_k * k;
+      }
+    }
   }
 }
 

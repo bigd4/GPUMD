@@ -36,6 +36,7 @@ class Measure;
 #include "utilities/gpu_vector.cuh"
 #include "velocity.cuh"
 #include "neb/neb.cuh"
+#include <string>
 #include <vector>
 #include <deque>
 
@@ -43,11 +44,15 @@ class Run
 {
 public:
   Run();
+  Run(const std::string& model_filename);
+  Run(const std::string& model_filename, const std::string& run_filename);
+  void execute();
 
 private:
   void execute_run_in();
   void perform_a_run();
   void parse_one_keyword(std::vector<std::string>& tokens);
+  std::string get_initial_structure_filename();
 
   // keyword parsing functions
   void parse_neighbor(const char** param, int num_param);
@@ -64,6 +69,8 @@ private:
   double initial_temperature; // initial temperature for velocity
   double time_step = 1.0 / TIME_UNIT_CONVERSION;
   double max_distance_per_step = -1.0;
+  std::string model_filename = "model.xyz";
+  std::string run_filename = "run.in";
   Atom atom;
   GPU_Vector<double> thermo; // some thermodynamic quantities
   Velocity velocity;

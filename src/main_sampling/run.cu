@@ -137,7 +137,7 @@ namespace{
       atom.cpu_velocity_per_atom[n + number_of_atoms] * natural_to_A_per_fs,
       atom.cpu_velocity_per_atom[n + 2 * number_of_atoms] * natural_to_A_per_fs);
 
-    for (int m = 0; m < group.size(); ++m) {
+    for (size_t m = 0; m < group.size(); ++m) {
       fprintf(fid, "%d ", group[m].cpu_label[n]);
     }
 
@@ -739,7 +739,7 @@ void Run::parse_correct_velocity(const char** param, int num_param, const std::v
     if (velocity.velocity_correction_group_method < 0) {
       PRINT_INPUT_ERROR("grouping method should >= 0.\n");
     }
-    if (velocity.velocity_correction_group_method >= group.size()) {
+    if (static_cast<size_t>(velocity.velocity_correction_group_method) >= group.size()) {
       PRINT_INPUT_ERROR("grouping method should < maximum number of grouping methods.\n");
     }
   }

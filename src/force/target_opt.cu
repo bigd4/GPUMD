@@ -6,8 +6,6 @@ using namespace std;
 
 static __global__ void get_dpos_target(
   const int natoms,
-  const int N1,
-  const int N2,
   const Box box,
   const int* NN,
   const int* NL,
@@ -44,8 +42,6 @@ static __global__ void get_dpos_target(
 // notice that virial_per_atom is not meaningful here, only total virial is guarenteed.
 static __global__ void calc_spring_force(
   const int natoms,
-  const int N1,
-  const int N2,
   const Box box,
   const int* NN,
   const int* NL,
@@ -296,8 +292,6 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
       // print_gpu(NL_target, "NL_target");
       get_dpos_target<<<(n_pick - 1)/128 + 1, 128>>>(
         natoms,
-        0,
-        natoms,
         tmp_box,
         cur_target.NN.data(),
         cur_target.NL.data(),
@@ -314,8 +308,8 @@ void TargetOpt::parse_target_opt(const char** param, int num_param, Force& force
       GPU_CHECK_KERNEL;
 
     }
-    printf("targets size: %d\n", targets.size());
-    printf("target NL: %d\n", cur_target.NL.size());
+    printf("targets size: %zu\n", targets.size());
+    printf("target NL: %zu\n", cur_target.NL.size());
   }
 
 
@@ -379,9 +373,6 @@ void TargetOpt::compute(
   GPU_Vector<double>& force_per_atom,
   GPU_Vector<double>& virial_per_atom)
 {
-  int N1 = 0;
-  int N2 = type.size();
-
   if (type.size() != natoms)
     PRINT_INPUT_ERROR("natoms in model.xyz and target does not match");
 
@@ -396,15 +387,13 @@ void TargetOpt::compute(
 
     }
     else {
-      for (int i=0; i<target.i_pick_list.size(); i++){
+      for (size_t i=0; i<target.i_pick_list.size(); i++){
         auto& i_pick = target.i_pick_list[i];
         auto& dpos_target = target.dpos_target_list[i];
         int n_pick = i_pick.size();
         if (n_pick==0) continue;
         calc_spring_force<<<(n_pick-1)/128+1, 128>>>(
           natoms,
-          N1,
-          N2,
           box,
           target.NN.data(),
           target.NL.data(),

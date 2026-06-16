@@ -153,6 +153,7 @@ private:
   // private variables
   // cublasHandle_t handle;
   std::vector<double> klist;
+  std::vector<double> kori_list;
   std::unique_ptr<Minimizer> minimizer;
   std::vector<const char *> optimizer_opt;
   int imax;
