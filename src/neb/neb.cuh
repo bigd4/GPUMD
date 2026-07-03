@@ -133,6 +133,7 @@ private:
   bool remove_translation = true;
   bool remove_rotation = true;
   bool variable_cell = true;
+  bool match_cell_to_initial = false;
   bool find_mic = false;
 
   bool image_number_adjustment = true;
@@ -140,6 +141,7 @@ private:
   double trim_similar_tol = 0.01;
   bool ina_k = false;
   double ina_k_efficient = 1.8;
+  double ina_insert_midpoint_weight = 0.0;
   int ina_check_coord = 0; //  0: no check
   double inacc_num = 0.0; // >0 & <1: percent, >=1: number
   double inacc_rc = 1.7;
@@ -184,11 +186,12 @@ private:
   double force_tolerance;
   int minimizer_type;
   int nimages, natoms_per_image, n_realatoms;
-  double optimize_factor;
 
   void find_min_max(double etol=0.0);
 
   void initialize_images();
+
+  void prepare_fixed_cell_images();
 
   void align_images_by_mic();
 

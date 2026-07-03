@@ -509,6 +509,51 @@ namespace
     printf("%-20s = %s\n", name, value.data());
   }
 
+  bool same_fixed_cell(const Atoms& atoms, const Atoms& ref_atoms, double tolerance)
+  {
+    if (atoms.box.pbc_x != ref_atoms.box.pbc_x ||
+        atoms.box.pbc_y != ref_atoms.box.pbc_y ||
+        atoms.box.pbc_z != ref_atoms.box.pbc_z) {
+      return false;
+    }
+    for (int i = 0; i < 9; i++) {
+      if (abs(atoms.box.cpu_h[i] - ref_atoms.box.cpu_h[i]) > tolerance) return false;
+    }
+    return true;
+  }
+
+  void match_cell_preserve_fractional(Atoms& atoms, const Atoms& ref_atoms)
+  {
+    const int n_atoms = atoms.get_natoms();
+    vector<double> positions(n_atoms * 3);
+    atoms.get_positions().copy_to_host(positions.data());
+
+    double old_h[18];
+    memcpy(old_h, atoms.box.cpu_h, 18 * sizeof(double));
+    for (int i = 0; i < n_atoms; i++) {
+      const double x = positions[i];
+      const double y = positions[i + n_atoms];
+      const double z = positions[i + 2 * n_atoms];
+
+      const double sx = old_h[9] * x + old_h[10] * y + old_h[11] * z;
+      const double sy = old_h[12] * x + old_h[13] * y + old_h[14] * z;
+      const double sz = old_h[15] * x + old_h[16] * y + old_h[17] * z;
+
+      positions[i] =
+        ref_atoms.box.cpu_h[0] * sx + ref_atoms.box.cpu_h[1] * sy + ref_atoms.box.cpu_h[2] * sz;
+      positions[i + n_atoms] =
+        ref_atoms.box.cpu_h[3] * sx + ref_atoms.box.cpu_h[4] * sy + ref_atoms.box.cpu_h[5] * sz;
+      positions[i + 2 * n_atoms] =
+        ref_atoms.box.cpu_h[6] * sx + ref_atoms.box.cpu_h[7] * sy + ref_atoms.box.cpu_h[8] * sz;
+    }
+
+    atoms.get_positions().copy_from_host(positions.data());
+    atoms.box.pbc_x = ref_atoms.box.pbc_x;
+    atoms.box.pbc_y = ref_atoms.box.pbc_y;
+    atoms.box.pbc_z = ref_atoms.box.pbc_z;
+    atoms.set_box(const_cast<double*>(ref_atoms.box.cpu_h), 9);
+  }
+
   struct is_greater_equal
   {
     int n_;
@@ -750,6 +795,9 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   // System Settings: cell degrees of freedom, pressure, rigid-body cleanup, and image spacing.
   } else if (strcmp(param[n], "no_vc") == 0){
     variable_cell = false;
+  } else if (strcmp(param[n], "match_cell_to_initial") == 0 ||
+             strcmp(param[n], "use_initial_cell") == 0){
+    match_cell_to_initial = true;
   } else if (strcmp(param[n], "p") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     double press_scalar;
@@ -894,6 +942,15 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("ina_k_efficient should be a real.");
     }
     if (ina_k_efficient <= 1.0) PRINT_INPUT_ERROR("ina_k_efficient should > 1.");
+    n++;
+  } else if (strcmp(param[n], "ina_insert_midpoint_weight") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &ina_insert_midpoint_weight)) {
+      PRINT_INPUT_ERROR("ina_insert_midpoint_weight should be a real.");
+    }
+    if (ina_insert_midpoint_weight < 0.0 || ina_insert_midpoint_weight > 1.0) {
+      PRINT_INPUT_ERROR("ina_insert_midpoint_weight should be in [0, 1].");
+    }
     n++;
   } else if (strcmp(param[n], "cell_factor") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
@@ -1145,8 +1202,43 @@ void NEB::initialize_images() {
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
-  optimize_factor = pow(n_realatoms, 1.0/4);
-  printf("optimize_factor=%f\n", optimize_factor);
+}
+
+void NEB::prepare_fixed_cell_images()
+{
+  if (variable_cell || images.empty()) return;
+
+  const double tolerance = 1.0e-4;
+  Atoms& ref_atoms = *images.front()->get_p_atoms();
+  bool all_match = true;
+  for (int i = 1; i < images.size(); i++) {
+    Atoms& atoms = *images[i]->get_p_atoms();
+    if (!same_fixed_cell(atoms, ref_atoms, tolerance)) {
+      all_match = false;
+      printf(
+        "no_vc cell mismatch: image %d does not use the initial cell.\n",
+        i);
+      printf("    initial h[0:9]:");
+      for (int j = 0; j < 9; j++) printf(" %.10e", ref_atoms.box.cpu_h[j]);
+      printf("\n");
+      printf("    image   h[0:9]:");
+      for (int j = 0; j < 9; j++) printf(" %.10e", atoms.box.cpu_h[j]);
+      printf("\n");
+      if (match_cell_to_initial) {
+        match_cell_preserve_fractional(atoms, ref_atoms);
+        printf(
+          "    remapped image %d to the initial cell while preserving fractional coordinates.\n",
+          i);
+      }
+    }
+  }
+
+  if (!all_match && !match_cell_to_initial) {
+    printf(
+      "ERROR: no_vc requires all input images to use the same cell. "
+      "Add 'match_cell_to_initial' or 'use_initial_cell' to remap them to the initial cell.\n");
+    exit(1);
+  }
 }
 
 void NEB::align_images_by_mic()
@@ -1160,6 +1252,7 @@ void NEB::align_images_by_mic()
 
 void NEB::run_neb() {
   initialize_images();
+  prepare_fixed_cell_images();
   tangentmethod = get_tangent_method(tangent_method_name, k);
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
@@ -1184,6 +1277,8 @@ void NEB::run_neb() {
     printf("%-20s =", "pressure");
     for (auto x:pressure) printf(" %.4f", x);
     printf("\n");
+  } else {
+    print_setting("match_cell_to_initial", match_cell_to_initial);
   }
   print_setting("climb", climb);
   print_setting("find_min", find_min);
@@ -1194,6 +1289,7 @@ void NEB::run_neb() {
     print_setting("min_dist", min_dist);
     print_setting("max_dist", max_dist);
     print_setting("ina_k_efficient", ina_k_efficient);
+    print_setting("ina_insert_midpoint_weight", ina_insert_midpoint_weight);
     printf("%-20s =", "ina_force_tol");
     for (auto stage:ina_force_tol_stages) {
       printf(" %d %g", stage.first, stage.second);
@@ -1316,6 +1412,7 @@ void NEB::run_neb() {
       break;
     }
   }
+  write_energies();
   write_neb_traj("final_traj.xyz", "w");
 }
 
@@ -1324,13 +1421,6 @@ void NEB::compute()
 {
   // printf("neb compute\n");
   // compute original forces
-  if (variable_cell){
-    for (int i=1; i < nimages - 1; i++){
-      // &forces[(i-1) * natoms_per_image*3]
-      gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
-            optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
-    }
-  }
   set_positions();
   for (int i=1; i < nimages - 1; i++){
     // printf("image %d\n", i);
@@ -1338,19 +1428,10 @@ void NEB::compute()
     images[i]->get_forces().copy_to_device(
       &forces[(i-1) * natoms_per_image*3],
       natoms_per_image*3);
-    gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
-          optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
     // image_energies[i] = sum(images[i]->get_potential_per_atom());
     image_energies[i] = images[i]->get_energy();
   }
   n_force_calc += nimages - 2;
-
-  if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
-  
-  if (step % peek_interval == 0 && step != 0){
-    write_neb_traj("peek_traj.xyz", "w");
-    write_energies();
-  }
 
   find_min_max(etol);
   vector<double> k_effective_list(klist);
@@ -1429,16 +1510,14 @@ void NEB::compute()
   GPU_CHECK_KERNEL;
   }
   print_info();
-  if (image_number_adjustment) adjust_image_number();
-  if (variable_cell){
-    for (int i=1; i < nimages - 1; i++){
-      // &forces[(i-1) * natoms_per_image*3]
-      gpu_multiply<<<1, 9>>>(forces.data() + i*natoms_per_image*3 - 9,
-            1/optimize_factor, forces.data() + i*natoms_per_image*3 - 9, 9);
-      gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
-            1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
-    }
+  if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
+
+  if (step % peek_interval == 0 && step != 0){
+    write_neb_traj("peek_traj.xyz", "w");
+    write_energies();
   }
+
+  if (image_number_adjustment) adjust_image_number();
   if (image_number_adjustment && ina_count==0){
     if (print_k) print_arr(k_effective_list.data(), k_effective_list.size(), "k_effective_list");
     forces.fill(0);
@@ -1583,7 +1662,9 @@ void NEB::adjust_image_spacing(bool allow_remove, bool bootstrap)
     dist = r_dist + h_dist;
 
     if (bootstrap || dist > cur_max_dist){
-      double insert_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
+      double max_dist_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
+      double insert_ratio =
+        max_dist_ratio + ina_insert_midpoint_weight * (0.5 - max_dist_ratio);
       if (!bootstrap && dist > 2.0 * cur_max_dist && image_energies.size() == images.size()) {
         if (image_energies[i] > image_energies[i - 1]) {
           insert_ratio = 1.0 - insert_ratio;
@@ -1887,10 +1968,6 @@ GPU_Vector<double>& NEB::build_positions()
     images[i]->get_positions().copy_to_device(
       &positions[(i-1) * natoms_per_image*3],
       natoms_per_image*3);
-  }
-  for (int i=1; i < nimages - 1; i++){
-    gpu_multiply<<<1, 9>>>(positions.data() + i*natoms_per_image*3 - 9,
-          1/optimize_factor, positions.data() + i*natoms_per_image*3 - 9, 9);
   }
   return positions;
 }

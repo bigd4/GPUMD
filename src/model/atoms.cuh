@@ -54,6 +54,7 @@ protected:
   GPU_Vector<double> forces; // size: (natoms, 3)
 
 public:
+  bool is_cell_filter = false;
   Force* p_force;
   virtual void compute() = 0;
 
@@ -83,6 +84,7 @@ friend class VCWrapper;
 friend class RotationFreeVCWrapper;
 
 public:
+  bool is_cell_filter = false;
   Box box;
   // std::vector<int> cpu_type;
   std::vector<std::string> cpu_atom_symbol; // symbol strings
@@ -169,8 +171,8 @@ private:
   void build_VCWrapper(std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
 
 public:
+  bool is_cell_filter = true;
   double cell_factor = 1.0;
-  double optimize_factor = 1.0;
   std::vector<double> pressure = std::vector<double>(9,0.0);
   double* h_ref = nullptr; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
   std::unique_ptr<Atoms> p_atoms;
@@ -216,7 +218,9 @@ public:
 
 class RotationFreeVCWrapper: public VCWrapper
 {
+// the cell part coordinates are defined as 1/2*D D^T, the according forces are D^(-T) V D^(-1)
 public:
+  bool is_cell_filter = true;
   RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
   RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double cell_factor0=-1.0);
 

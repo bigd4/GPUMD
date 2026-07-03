@@ -15,6 +15,7 @@ src/CMakeLists.txt
 
 .history
 .vscode
+.agent
 .DS_Store
 *~
 local
