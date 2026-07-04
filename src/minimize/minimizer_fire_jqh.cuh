@@ -36,6 +36,7 @@ private:
   int N_neg = 0;
   double P;
   double max_move = 0.2;
+  double cell_metric_scale = 1.0;
   bool printflag = true;
 
 public:
@@ -45,6 +46,8 @@ public:
     const double force_tolerance);
 
   void parse_FIRE(const char** param, int num_param, int nstart, bool printflag=true);
+
+  void set_cell_metric_scale(double scale);
 
   void print_para();
 

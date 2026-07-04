@@ -140,16 +140,6 @@ namespace
     return new VCWrapper(filename, pressure, h_ref, cell_factor);
   }
 
-  Atoms* new_cell_filter(
-    ifstream& input, bool& success, const vector<double>& pressure,
-    double* h_ref, bool rotation_free, double cell_factor)
-  {
-    if (rotation_free) {
-      return new RotationFreeVCWrapper(input, success, pressure, h_ref, cell_factor);
-    }
-    return new VCWrapper(input, success, pressure, h_ref, cell_factor);
-  }
-
   void align_image_by_mic(Atoms& ref_image, Atoms& image)
   {
     Atoms& ref_atoms = *ref_image.get_p_atoms();
@@ -177,6 +167,38 @@ namespace
     atoms.get_positions().copy_from_host(pos.data());
     VCWrapper* vc_image = dynamic_cast<VCWrapper*>(&image);
     if (vc_image != nullptr) vc_image->build_positions();
+  }
+
+  void matmul_3x3(const double* a, const double* b, double* c)
+  {
+    for (int col = 0; col < 3; col++) {
+      for (int row = 0; row < 3; row++) {
+        c[row + col * 3] = 0.0;
+        for (int k = 0; k < 3; k++) {
+          c[row + col * 3] += a[row + k * 3] * b[k + col * 3];
+        }
+      }
+    }
+  }
+
+  void get_reference_cell_transform(
+    const Box& reference_box, const Box& box, double* transform)
+  {
+    matmul_3x3(box.cpu_h + 9, reference_box.cpu_h, transform);
+  }
+
+  void transform_position_to_reference_cell(
+    const double* transform,
+    double x,
+    double y,
+    double z,
+    double& xr,
+    double& yr,
+    double& zr)
+  {
+    xr = x * transform[0] + y * transform[1] + z * transform[2];
+    yr = x * transform[3] + y * transform[4] + z * transform[5];
+    zr = x * transform[6] + y * transform[7] + z * transform[8];
   }
 
   __global__ void gpu_pairwise_product(double* c, double* a, double* b, const int size, double alpha=1.0)
@@ -472,7 +494,7 @@ namespace
     return abs(result);
   }
 
-  double max_abs(int size, double* vec, int nsingle, bool printflag=false)
+  double __attribute__((unused)) max_abs(int size, double* vec, int nsingle, bool printflag=false)
   {
     int index1;
     double result;
@@ -952,13 +974,6 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("ina_insert_midpoint_weight should be in [0, 1].");
     }
     n++;
-  } else if (strcmp(param[n], "cell_factor") == 0){
-    require_option_values(param, num_param, n, 1, "neb_set");
-    if (!is_valid_real(param[n+1], &cell_factor)) {
-      PRINT_INPUT_ERROR("cell_factor should be a real.");
-    }
-    if (cell_factor <= 0.0) PRINT_INPUT_ERROR("cell_factor should > 0.");
-    n++;
   } else if (strcmp(param[n], "ina_force_tol") == 0){
     ina_force_tol_stages.clear();
     int previous_stage = 0;
@@ -1006,6 +1021,22 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("inacc_rc should be a real.");
     }
     if (inacc_rc <= 0) PRINT_INPUT_ERROR("inacc_rc should > 0");
+    n++;
+  } else if (strcmp(param[n], "cell_factor") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &cell_factor)) {
+      PRINT_INPUT_ERROR("cell_factor should be a real.");
+    }
+    if (cell_factor <= 0.0) PRINT_INPUT_ERROR("cell_factor should > 0.");
+    n++;
+  } else if (strcmp(param[n], "active_atom_threshold") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &cell_metric_active_threshold)) {
+      PRINT_INPUT_ERROR("active_atom_threshold should be a real.");
+    }
+    if (cell_metric_active_threshold <= 0.0) {
+      PRINT_INPUT_ERROR("active_atom_threshold should > 0.");
+    }
     n++;
 
   // Output Settings: trajectory/energy snapshots and progress reporting.
@@ -1084,16 +1115,19 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
   
 }
 
-void NEB::reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance) {
+void NEB::reset_minimizer(
+  int number_of_atoms, int max_steps, double force_tolerance, bool print_flag) {
   switch (minimizer_type) {
-  case 1:
+  case 1: {
     printf("----------------------------------------\n");
     printf("New minimization, maximally %d steps.\n", max_steps);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps, force_tolerance));
-    dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer).parse_FIRE(
-      optimizer_opt.data(), optimizer_opt.size(), 0, true?step==0:false);
+    auto& fire = dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer);
+    fire.set_cell_metric_scale(cell_metric_scale_default);
+    fire.parse_FIRE(optimizer_opt.data(), optimizer_opt.size(), 0, print_flag);
     break;
+  }
   default:
     PRINT_INPUT_ERROR("Invalid minimizer.");
     break;
@@ -1140,21 +1174,32 @@ void NEB::initialize_images() {
       }
     }
     else {
-      Atoms* p_is = new Atoms(input, read_success);
-      if (read_success) {
-        images.push_back(make_cell_filter(*p_is, pressure, remove_rotation, cell_factor));
-      } else {
+      vector<Atoms*> raw_images;
+      while (true) {
+        Atoms* p_tmp = new Atoms(input, read_success);
+        if (read_success) {
+          raw_images.push_back(p_tmp);
+        } else {
+          delete p_tmp;
+          break;
+        }
+      }
+      if (raw_images.empty()) {
         printf("read traj failed\n");
         exit(-1);
       }
-      h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
-      while (true){
-        Atoms* p_tmp = new_cell_filter(
-          input, read_success, pressure, h_ref.data(), remove_rotation, cell_factor);
-        if (read_success) {
-          // mid_list.push_back(make_pair(-1, p_tmp->get_p_atoms()));
-          images.push_back(unique_ptr<Atoms>(p_tmp));
-        } else break;
+      h_ref.assign(raw_images.front()->box.cpu_h, raw_images.front()->box.cpu_h+9);
+      if (cell_factor <= 0.0) {
+        cell_factor = estimate_active_atom_scale(*raw_images.front(), *raw_images.back()) *
+          pow(raw_images.front()->box.get_volume() / raw_images.front()->get_natoms(), 1.0 / 3.0);
+      }
+      for (int i = 0; i < raw_images.size(); i++) {
+        if (i == 0) {
+          images.push_back(make_cell_filter(*raw_images[i], pressure, remove_rotation, cell_factor));
+        } else {
+          images.push_back(make_cell_filter(*raw_images[i], pressure, h_ref.data(), remove_rotation, cell_factor));
+          // mid_list.push_back(make_pair(-1, raw_images[i]));
+        }
       }
     }
     imid_list.push_back(-1);
@@ -1187,6 +1232,10 @@ void NEB::initialize_images() {
       }
       images.push_back(unique_ptr<Atoms>(p_fs));
     } else{
+      if (cell_factor <= 0.0) {
+        cell_factor = estimate_active_atom_scale(*p_is, *p_fs) *
+          pow(p_is->box.get_volume() / p_is->get_natoms(), 1.0 / 3.0);
+      }
       images.push_back(make_cell_filter(*p_is, pressure, h_ref.data(), remove_rotation, cell_factor));
       if (has_mid){
         for (int i=0; i<mid_name_list.size(); i++){
@@ -1250,9 +1299,67 @@ void NEB::align_images_by_mic()
   }
 }
 
+double NEB::estimate_active_atom_scale(Atoms& initial_atoms, Atoms& final_atoms)
+{
+  const int number_of_atoms = initial_atoms.get_natoms();
+  if (number_of_atoms <= 0) return 1.0;
+  if (final_atoms.get_natoms() != number_of_atoms) {
+    PRINT_INPUT_ERROR("cell active atom estimate requires the same atom count in endpoint images.");
+  }
+
+  vector<double> initial_positions(initial_atoms.get_positions().size());
+  vector<double> final_positions(final_atoms.get_positions().size());
+  initial_atoms.get_positions().copy_to_host(initial_positions.data());
+  final_atoms.get_positions().copy_to_host(final_positions.data());
+
+  double initial_transform[9];
+  double final_transform[9];
+  get_reference_cell_transform(initial_atoms.box, initial_atoms.box, initial_transform);
+  get_reference_cell_transform(initial_atoms.box, final_atoms.box, final_transform);
+
+  int n_active = 0;
+  for (int n = 0; n < number_of_atoms; n++) {
+    // Match the cell-filter coordinate: positions transformed back to the reference cell.
+    double x_initial, y_initial, z_initial;
+    double x_final, y_final, z_final;
+    transform_position_to_reference_cell(
+      initial_transform,
+      initial_positions[n],
+      initial_positions[n + number_of_atoms],
+      initial_positions[n + 2 * number_of_atoms],
+      x_initial,
+      y_initial,
+      z_initial);
+    transform_position_to_reference_cell(
+      final_transform,
+      final_positions[n],
+      final_positions[n + number_of_atoms],
+      final_positions[n + 2 * number_of_atoms],
+      x_final,
+      y_final,
+      z_final);
+    double dx = x_final - x_initial;
+    double dy = y_final - y_initial;
+    double dz = z_final - z_initial;
+    if (find_mic) apply_mic(initial_atoms.box, dx, dy, dz);
+    const double dr = sqrt(dx * dx + dy * dy + dz * dz);
+    if (dr > cell_metric_active_threshold) n_active++;
+  }
+
+  cell_metric_active_atoms = n_active;
+  return sqrt(double(max(n_active, 1)));
+}
+
+double NEB::estimate_cell_metric_scale()
+{
+  if (!variable_cell || n_realatoms <= 0) return 1.0;
+  return estimate_active_atom_scale(*images.front()->get_p_atoms(), *images.back()->get_p_atoms());
+}
+
 void NEB::run_neb() {
   initialize_images();
   prepare_fixed_cell_images();
+  cell_metric_scale_default = estimate_cell_metric_scale();
   tangentmethod = get_tangent_method(tangent_method_name, k);
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
@@ -1265,13 +1372,6 @@ void NEB::run_neb() {
 
   printf("-----------------neb settings-----------------\n");
   print_setting("k", k);
-  print_setting("energy_based_spacing", energy_based_spacing);
-  if (energy_based_spacing) {
-    print_setting("energy_spacing_damping", energy_spacing_damping);
-    print_setting("energy_spacing_strength", energy_spacing_strength);
-    print_setting("energy_spacing_exponent", energy_spacing_exponent);
-    print_setting("energy_spacing_dist_power", energy_spacing_dist_power);
-  }
   print_setting("variable_cell", variable_cell);
   if (variable_cell){
     printf("%-20s =", "pressure");
@@ -1307,6 +1407,13 @@ void NEB::run_neb() {
       print_setting("inacc_rc", inacc_rc);
     }
   }
+  print_setting("energy_based_spacing", energy_based_spacing);
+  if (energy_based_spacing) {
+    print_setting("energy_spacing_damping", energy_spacing_damping);
+    print_setting("energy_spacing_strength", energy_spacing_strength);
+    print_setting("energy_spacing_exponent", energy_spacing_exponent);
+    print_setting("energy_spacing_dist_power", energy_spacing_dist_power);
+  }
   print_setting("has_mid", has_mid);
   if (has_mid) print_setting("n_interpolate", n_interpolate);
   print_setting("need_relax", need_relax);
@@ -1316,6 +1423,8 @@ void NEB::run_neb() {
   if (variable_cell) {
     print_setting("cell_filter", remove_rotation ? "rotation_free" : "deformation_gradient");
     VCWrapper* vc_image = dynamic_cast<VCWrapper*>(images.front().get());
+    print_setting("cell_metric_active_atoms", cell_metric_active_atoms);
+    print_setting("active_atom_threshold", cell_metric_active_threshold);
     if (vc_image != nullptr) print_setting("cell_factor", vc_image->cell_factor);
   }
   print_setting("tangent_method", tangent_method_name);
@@ -1339,9 +1448,9 @@ void NEB::run_neb() {
   if (need_relax){
     printf("--------------relax-------------\n");
     double relax_tol=min(0.001, force_tolerance);
-    reset_minimizer(natoms_per_image, 10000, relax_tol);
+    reset_minimizer(natoms_per_image, 10000, relax_tol, true);
     minimizer->compute(*images.front());
-    reset_minimizer(natoms_per_image, 10000, relax_tol);
+    reset_minimizer(natoms_per_image, 10000, relax_tol, true);
     minimizer->compute(*images.back());
     printf("-----------relax finish---------\n");
     FILE* fid=fopen("relaxed_is_fs.xyz", "w");
@@ -1434,7 +1543,7 @@ void NEB::compute()
   n_force_calc += nimages - 2;
 
   find_min_max(etol);
-  vector<double> k_effective_list(klist);
+  k_effective_list = klist;
   // printf("klist: ");
   if (energy_based_spacing) {
     if (energy_spacing_factor.size() != klist.size()) {
@@ -1509,7 +1618,14 @@ void NEB::compute()
     spring1 = move(spring2);
   GPU_CHECK_KERNEL;
   }
-  print_info();
+  // print_gpu(forces, "neb forces");
+  // print_gpu(positions, "neb pos");
+}
+
+bool NEB::update_minimizer_force_max(double force_max)
+{
+  bool stop_minimizer = false;
+  print_info(force_max);
   if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
 
   if (step % peek_interval == 0 && step != 0){
@@ -1524,24 +1640,22 @@ void NEB::compute()
     printf("imaxes before change: ");
     for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
     printf("\n");
+    stop_minimizer = true;
   }
   step++;
-  // print_gpu(forces, "neb forces");
-  // print_gpu(positions, "neb pos");
+  return stop_minimizer;
 }
 
-void NEB::print_info(){
+void NEB::print_info(double force_max){
   auto it_max_energy = max_element(image_energies.begin(), image_energies.end());
   cudaDeviceSynchronize();
   potential_per_atom[0] = *it_max_energy - first_energy;
+  fmax = force_max;
   if (step % print_interval == 0){
     printf("step: %d, ", step);
-    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, true);
     printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
     printf("fmax=%f\n",fmax);
     if (count_force_calc) printf("INA info: %d\t%d\t%d\t%f\n", step, nimages, n_force_calc, fmax);
-  } else {
-    fmax = max_abs(natoms*3, forces.data(), natoms_per_image*3, false);
   }
 }
 

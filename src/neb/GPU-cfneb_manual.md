@@ -55,6 +55,7 @@ All input structure files should be in extended XYZ format.
 - ina_k: flag, adjust spring constants when inserting or removing images.
   - When energy_based_spacing is enabled, ina_k renormalizes the average effective spring constant (`klist * energy_spacing_factor`) to k.
 - ina_k_efficient: key 1, factor used to increase or decrease spring constants during image number adjustment. default value: 1.8
+- ina_insert_midpoint_weight: key 1, weight in [0, 1] used to place an inserted image between the max_dist position and the midpoint. 0 keeps the max_dist position, 1 uses the midpoint. default value: 0
 - ina_force_tol: key variable, staged force residual thresholds for image number adjustment. Values are pairs of stage and residual, where stage is the number of NEB steps since the previous image number adjustment and residual is a positive real. Use a very large residual for an unconditional final stage. If other options follow on the same line, end this option with **ina_force_tol_end**. default value: ina_interval 1 3*ina_interval 3 10*ina_interval 1e100
 - trim_images: flag, remove repeated local-minimum sections before the usual image insertion/removal checks.
 - trim_similar_tol: key 1, position tolerance used by trim_images to judge whether two local minima are the same. default value: 0.001

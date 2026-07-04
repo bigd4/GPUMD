@@ -45,6 +45,22 @@ __global__ void gpu_pairwise_product(const int size, double* a, double* b, doubl
     c[n] = a[n] * b[n];
 }
 
+__global__ void gpu_cell_metric_copy(
+  const int size,
+  const int atoms_per_block,
+  const int real_atoms_per_block,
+  const double cell_metric_scale,
+  const double* src,
+  double* dst)
+{
+  int n = blockDim.x * blockIdx.x + threadIdx.x;
+  if (n < size) {
+    int block_size = atoms_per_block * 3;
+    int local = n % block_size;
+    dst[n] = (local >= real_atoms_per_block * 3) ? src[n] / cell_metric_scale : src[n];
+  }
+}
+
 void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
 {
   int size = a.size();
@@ -112,6 +128,29 @@ double max_abs(int size, double* vec)
   cudaMemcpy(&result, vec + index0, sizeof(double), cudaMemcpyDeviceToHost);
   return abs(result);
 }
+
+double metric_max_abs(BaseAtoms& atoms, GPU_Vector<double>& vec, GPU_Vector<double>& metric_vec, double cell_metric_scale)
+{
+  const int size = vec.size();
+  if (!atoms.has_cell_degrees_of_freedom()) {
+    return max_abs(size, vec.data());
+  }
+  const int atoms_per_block = atoms.get_atoms_per_block();
+  const int real_atoms_per_block = atoms.get_real_atom_count_per_block();
+  if (atoms_per_block <= real_atoms_per_block || real_atoms_per_block <= 0 || cell_metric_scale == 1.0) {
+    return max_abs(size, vec.data());
+  }
+  metric_vec.resize(size);
+  gpu_cell_metric_copy<<<(size - 1) / 128 + 1, 128>>>(
+    size,
+    atoms_per_block,
+    real_atoms_per_block,
+    cell_metric_scale,
+    vec.data(),
+    metric_vec.data());
+  GPU_CHECK_KERNEL;
+  return max_abs(size, metric_vec.data());
+}
 } // namespace
 
 Minimizer_FIRE_JQH::Minimizer_FIRE_JQH(
@@ -129,6 +168,15 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
       require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_real(param[n+1], &max_move)) {
         PRINT_INPUT_ERROR("max_move should be a number.");
+      }
+      n++;
+    } else if (strcmp(param[n], "cell_metric_scale") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
+      if (!is_valid_real(param[n+1], &cell_metric_scale)) {
+        PRINT_INPUT_ERROR("cell_metric_scale should be a number.");
+      }
+      if (cell_metric_scale <= 0.0) {
+        PRINT_INPUT_ERROR("cell_metric_scale should > 0.");
       }
       n++;
     } else if (strcmp(param[n], "dt_max") == 0){
@@ -193,9 +241,18 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   }
 }
 
+void Minimizer_FIRE_JQH::set_cell_metric_scale(double scale)
+{
+  if (scale <= 0.0) {
+    PRINT_INPUT_ERROR("cell_metric_scale should > 0.");
+  }
+  cell_metric_scale = scale;
+}
+
 void Minimizer_FIRE_JQH::print_para(){
   printf("----------vcfire settings---------------\n");
   printf("%12s = %g\n", "max_move", max_move);
+  printf("%12s = %g\n", "cell_metric_scale", cell_metric_scale);
   printf("%12s = %g\n", "dt_max", dt_max * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "dt_min", dt_min * TIME_UNIT_CONVERSION);
   printf("%12s = %g\n", "dt_0", dt_0 * TIME_UNIT_CONVERSION);
@@ -293,6 +350,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
   GPU_Vector<double> v(size, 0);
   GPU_Vector<double> temp1(size);
   GPU_Vector<double> temp2(size);
+  GPU_Vector<double> metric_temp(size);
 
   // GPU_Vector<double>* p_pos;
   // p_pos = &atoms.get_positions();
@@ -314,18 +372,18 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     // print_gpu(force_per_atom, "minimizer forces");
     // atoms.p_force->compute(
     //   box, position_per_atom, type, group, potential_per_atom, force_per_atom, virial_per_atom);
-    calculate_force_square_max(force_per_atom);
-    const double force_max = sqrt(cpu_force_square_max_[0]);
+    const double force_max = metric_max_abs(atoms, force_per_atom, metric_temp, cell_metric_scale);
+    const bool stop_after_force_max = atoms.update_minimizer_force_max(force_max);
     calculate_total_potential(potential_per_atom);
 
-    if (step % base == 0 || force_max < force_tolerance_) {
+    if (step % base == 0 || force_max < force_tolerance_ || stop_after_force_max) {
       if (printflag) printf(
         "    step %d: total_energy = %.10f eV, f_max = %.10f eV/A.\n",
         step,
         atoms.get_energy(),
         force_max);
       fflush(stdout);
-      if (force_max < force_tolerance_)
+      if (force_max < force_tolerance_ || stop_after_force_max)
         break;
     }
 
@@ -363,7 +421,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     vector_add(temp1, temp2, v);
     // dx = v*dt
     scalar_multiply(dt, v, temp1);  // temp1 = dr
-    double dr_max = max_abs(size, temp1.data());
+    double dr_max = metric_max_abs(atoms, temp1, metric_temp, cell_metric_scale);
     if (dr_max > max_move) scalar_multiply(max_move/dr_max, temp1, temp1);
     vector_add(position_per_atom, temp1, position_per_atom);
     GPU_CHECK_KERNEL;

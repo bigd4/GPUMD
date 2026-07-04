@@ -142,6 +142,7 @@ private:
   bool ina_k = false;
   double ina_k_efficient = 1.8;
   double ina_insert_midpoint_weight = 0.0;
+  double cell_metric_active_threshold = 0.1;
   int ina_check_coord = 0; //  0: no check
   double inacc_num = 0.0; // >0 & <1: percent, >=1: number
   double inacc_rc = 1.7;
@@ -167,6 +168,7 @@ private:
   // cublasHandle_t handle;
   std::vector<double> klist;
   std::vector<double> energy_spacing_factor;
+  std::vector<double> k_effective_list;
   std::vector<double> kori_list;
   std::unique_ptr<Minimizer> minimizer;
   std::vector<const char *> optimizer_opt;
@@ -184,6 +186,8 @@ private:
   bool count_force_calc = false;
   int n_force_calc = 0;
   double force_tolerance;
+  double cell_metric_scale_default = 1.0;
+  int cell_metric_active_atoms = 0;
   int minimizer_type;
   int nimages, natoms_per_image, n_realatoms;
 
@@ -195,6 +199,10 @@ private:
 
   void align_images_by_mic();
 
+  double estimate_active_atom_scale(Atoms& initial_atoms, Atoms& final_atoms);
+
+  double estimate_cell_metric_scale();
+
   void initialize_compute();
 
   bool satisfy_ina_force_tolerence() const;
@@ -203,7 +211,9 @@ private:
 
   void adjust_image_number();
 
-  void print_info();
+  bool update_minimizer_force_max(double force_max) override;
+
+  void print_info(double force_max);
 
 public:
   std::vector<std::unique_ptr<Atoms>> images;
@@ -223,13 +233,23 @@ public:
 
   void parse_neb(const char** param, int num_param, Force& force);
 
-  void reset_minimizer(int number_of_atoms, int max_steps, double force_tolerance);
+  void reset_minimizer(
+    int number_of_atoms, int max_steps, double force_tolerance, bool print_flag=false);
 
   void compute() override;
 
   GPU_Vector<double>& build_positions();
 
   void set_positions();
+
+  bool has_cell_degrees_of_freedom() const override { return variable_cell; }
+
+  int get_real_atom_count_per_block() const override
+  {
+    return variable_cell ? n_realatoms : natoms_per_image;
+  }
+
+  int get_atoms_per_block() const override { return natoms_per_image; }
 
   // GPU_Vector<double>& get_forces();
 

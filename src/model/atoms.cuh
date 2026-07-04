@@ -70,6 +70,14 @@ public:
     return forces;
   }
 
+  virtual bool has_cell_degrees_of_freedom() const { return false; }
+
+  virtual int get_real_atom_count_per_block() const { return natoms; }
+
+  virtual int get_atoms_per_block() const { return natoms; }
+
+  virtual bool update_minimizer_force_max(double force_max) { return false; }
+
   // virtual void set_box(GPU_Vector<double> h0);
 
   virtual void set_calc(Force& force){
@@ -203,7 +211,7 @@ public:
   GPU_Vector<double>& get_potential_per_atom();
 
   // from positions and box of atoms to build vcwrapper positions
-  GPU_Vector<double>& build_positions();
+  virtual GPU_Vector<double>& build_positions();
 
   // use updated vcwrapper positions to reset atoms positions and box
   void set_positions();
@@ -213,6 +221,12 @@ public:
   // void set_box(Box& box0);
 
   void compute_deform();
+
+  bool has_cell_degrees_of_freedom() const override { return true; }
+
+  int get_real_atom_count_per_block() const override { return natoms - 3; }
+
+  int get_atoms_per_block() const override { return natoms; }
 
 };
 
@@ -233,7 +247,7 @@ public:
 
   void compute();
 
-  GPU_Vector<double>& build_positions();
+  GPU_Vector<double>& build_positions() override;
 
   void set_positions();
 };
