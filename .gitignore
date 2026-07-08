@@ -33,3 +33,7 @@ push-to-both.sh
 
 /build/
 /libtorch/
+
+libtorch/
+FFS_src/ffs-test
+torchnep-example/
