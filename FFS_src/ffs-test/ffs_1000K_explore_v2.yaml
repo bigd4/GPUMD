@@ -1,0 +1,39 @@
+run:
+  executable: ../../src/build/gpu-sampling
+  base_model: GaNB4-2048.xyz
+  run_template: run.in
+  gas_model: GaN-CN-2048-CVONLY.pt
+  gas_config: GAScfg.yaml
+  overwrite_work_dir: true
+  resume: false
+  state_file: driver_state.json
+  work_dir: FFS_1000K_explore_v2_runs
+  cuda_visible_devices: 0
+  extra_files:
+    - nep.txt
+
+md:
+  timestep_fs: 1.0
+  temperature_K: 1000
+  resample_velocities: true
+  cv_log_interval: 10
+
+ffs:
+  # Coordination-number CV, B4 around 4 and B1 around 6. This is a workflow
+  # exploration config, not production statistics.
+  interfaces: [4.10, 4.20, 4.30, 4.40, 4.55, 4.70, 4.85, 5.00, 5.15, 5.30, 5.45, 5.60, 5.75, 5.90]
+  direction: 1
+  cv_index: 0
+  fail_interface: 3.90
+
+  flux_max_steps: 3000
+  interface_max_steps: [3000, 3000, 4000, 4000, 5000, 5000, 6000, 6000, 8000, 8000, 10000, 12000, 12000]
+  replicas_per_crossing: 1
+  flux_min_crossings: 1
+  flux_max_runs: 8
+  min_trials_per_interface: 1
+  max_trials_per_interface: 20
+  min_successes_per_interface: 1
+  max_successes_per_interface: 1
+  keep_failed: false
+  random_seed: 20260702

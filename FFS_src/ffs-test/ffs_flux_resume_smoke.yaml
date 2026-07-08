@@ -1,0 +1,38 @@
+run:
+  executable: ../../src/build/gpu-sampling
+  base_model: GaNB4-2048.xyz
+  run_template: run.in
+  gas_model: GaN-CN-2048-CVONLY.pt
+  gas_config: GAScfg.yaml
+  overwrite_work_dir: true
+  resume: false
+  state_file: driver_state.json
+  work_dir: FFS_flux_resume_smoke_runs
+  cuda_visible_devices: 0
+  extra_files:
+    - nep.txt
+
+md:
+  timestep_fs: 1.0
+  temperature_K: 300
+  resample_velocities: true
+  cv_log_interval: 10
+
+ffs:
+  interfaces: [3.9, 4.0]
+  direction: 1
+  cv_index: 0
+  fail_interface: 3.8
+  replicas_per_crossing: 1
+
+  # If omitted, both limits fall back to the first run N in run_template.
+  flux_max_steps: 12
+  interface_max_steps: 34
+  flux_min_crossings: 2
+  flux_max_runs: 2
+  min_trials_per_interface: 1
+  max_trials_per_interface: 1
+  min_successes_per_interface: 1
+  max_successes_per_interface: 1
+  keep_failed: true
+  random_seed: 20260701

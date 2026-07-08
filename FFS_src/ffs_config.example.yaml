@@ -1,0 +1,69 @@
+# Example configuration for the serial gpu-sampling FFS driver.
+# Paths are resolved relative to this yaml file.
+run:
+  executable: ../src/build/gpu-sampling
+  base_model: ../model.xyz
+  # Optional list for independent A-state starts; falls back to base_model.
+  # initial_models: [../model_000.xyz, ../model_001.xyz]
+  run_template: ../run.in
+  gas_model: ../GASCVModel.pt
+  gas_config: ../GAScfg.yaml
+  overwrite_work_dir: true
+  resume: false
+  state_file: driver_state.json
+  work_dir: ../FFS_runs
+  cuda_visible_devices: 0
+  command_prefix: []
+  extra_files: []
+
+md:
+  timestep_fs: 1.0
+  temperature_K: 300
+  resample_velocities: true
+  # For a reliable flux estimate, keep GAScfg.yaml cv_log_interval at 1,
+  # or set this to the effective monitor logging interval.
+  cv_log_interval: 1
+
+ffs:
+  # lambda_0, lambda_1, ..., lambda_B along the selected CV.
+  interfaces: [0.10, 0.20, 0.30, 0.40]
+  direction: 1
+  cv_index: 0
+  fail_interface: 0.10
+
+  # Number of child trajectories launched from each stored crossing state.
+  replicas_per_crossing: 4
+
+  # If omitted, both limits fall back to the first run N in run_template.
+  flux_max_steps: 200000
+  interface_max_steps: [20000, 20000, 20000]
+
+  # Flux stage: collect first crossings of lambda_0 from state A.
+  flux_min_crossings: 20
+  flux_max_runs: 200
+
+  # Interface stages: stop when both minimums are met, or when a maximum is hit.
+  min_trials_per_interface: 40
+  max_trials_per_interface: 400
+  min_successes_per_interface: 20
+  max_successes_per_interface: 200
+
+  # Failed trial directories are deleted after events.jsonl records the count.
+  keep_failed: false
+  random_seed: 20260630
+
+# Optional adaptive interface refinement. Disabled by default.
+adaptive:
+  enabled: false
+  min_interval_width: 0.02
+  max_refinements: 8
+  strategy: midpoint
+
+# Failure recovery after a layer cannot reach the next interface.
+# Modes: stop, previous_interface, initial_state.
+# max_rounds_per_interface is the hard per-interface refill limit.
+recovery:
+  mode: stop
+  max_rounds_per_interface: 0
+  refill_successes: 4
+  refill_max_trials: 80

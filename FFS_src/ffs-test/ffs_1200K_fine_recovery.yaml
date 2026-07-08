@@ -1,0 +1,50 @@
+run:
+  executable: ../../src/build/gpu-sampling
+  base_model: GaNB4-2048.xyz
+  run_template: run.in
+  gas_model: GaN-CN-2048-CVONLY.pt
+  gas_config: GAScfg.yaml
+  overwrite_work_dir: true
+  resume: false
+  state_file: driver_state.json
+  work_dir: FFS_1200K_fine_recovery_runs
+  cuda_visible_devices: 0
+  extra_files:
+    - nep.txt
+
+md:
+  timestep_fs: 1.0
+  temperature_K: 1200
+  resample_velocities: true
+  cv_log_interval: 10
+
+ffs:
+  # Coordination-number CV, B4 around 4 and B1 around 6. Workflow validation only.
+  interfaces: [4.10, 4.20, 4.30, 4.40, 4.50, 4.60, 4.70, 4.80, 4.90, 5.00, 5.10, 5.20, 5.35, 5.50, 5.65, 5.80, 5.95]
+  direction: 1
+  cv_index: 0
+  fail_interface: 3.90
+
+  flux_max_steps: 4000
+  interface_max_steps: [3000, 3000, 4000, 5000, 6000, 6000, 8000, 8000, 10000, 10000, 12000, 12000, 15000, 15000, 18000, 18000]
+  replicas_per_crossing: 1
+  flux_min_crossings: 1
+  flux_max_runs: 8
+  min_trials_per_interface: 1
+  max_trials_per_interface: 16
+  min_successes_per_interface: 1
+  max_successes_per_interface: 1
+  keep_failed: false
+  random_seed: 20260706
+
+adaptive:
+  enabled: true
+  min_interval_width: 0.025
+  max_refinements: 8
+  strategy: midpoint
+
+recovery:
+  mode: previous_interface
+  max_rounds_per_interface: 3
+  refill_successes: 1
+  refill_max_trials: 16

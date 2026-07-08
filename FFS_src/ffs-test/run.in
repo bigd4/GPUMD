@@ -1,0 +1,8 @@
+potential nep.txt
+time_step 1
+velocity 300
+MetaD GaN-CN-2048-CVONLY.pt GAScfg.yaml
+ensemble npt_mttk temp 300 300 tri 50 50
+dump_exyz 200
+dump_thermo 100
+run 100
