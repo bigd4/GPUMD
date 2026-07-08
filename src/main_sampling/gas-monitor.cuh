@@ -13,6 +13,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 // 定义一个结构体用于存储配置数据
 struct PSConfig {
@@ -28,6 +30,12 @@ struct PSConfig {
     bool is_obs_=0;
     int debug_interval=0;
     int target_stage = 1;
+    bool ffs_enabled = false;
+    bool ffs_stop_on_fail = false;
+    int ffs_cv_index = 0;
+    int ffs_direction = 1;
+    double ffs_target_interface = 0.0;
+    double ffs_fail_interface = 0.0;
     
 
     // 打印结构体内容
@@ -68,6 +76,11 @@ struct PSConfig {
             std::string key = line.substr(0, colon_pos);
             std::string value = line.substr(colon_pos + 1);
 
+            size_t comment_pos = value.find('#');
+            if (comment_pos != std::string::npos) {
+                value = value.substr(0, comment_pos);
+            }
+
             // 修剪键和值的空白字符
             key.erase(0, key.find_first_not_of(" \t"));
             key.erase(key.find_last_not_of(" \t") + 1);
@@ -82,6 +95,12 @@ struct PSConfig {
 
         // 创建并初始化结构体实例
         PSConfig config;
+        auto parse_bool = [](std::string value) {
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return value == "1" || value == "true" || value == "yes" || value == "on";
+        };
         try {
             // values
             config.max_cv_nums = std::stoi(configMap.at("max_cv_nums"));
@@ -95,6 +114,28 @@ struct PSConfig {
             config.debug_interval = std::stoi(configMap.at("debug_interval"));
             if(configMap.find("MetaCell")!=configMap.end()){
                 config.target_stage = std::stoi(configMap.at("target_stage"));
+            }
+            if(configMap.find("target_stage")!=configMap.end()){
+                config.target_stage = std::stoi(configMap.at("target_stage"));
+            }
+            if(configMap.find("ffs_enabled")!=configMap.end()){
+                config.ffs_enabled = parse_bool(configMap.at("ffs_enabled"));
+            }
+            if(configMap.find("ffs_stop_on_fail")!=configMap.end()){
+                config.ffs_stop_on_fail = parse_bool(configMap.at("ffs_stop_on_fail"));
+            }
+            if(configMap.find("ffs_cv_index")!=configMap.end()){
+                config.ffs_cv_index = std::stoi(configMap.at("ffs_cv_index"));
+            }
+            if(configMap.find("ffs_direction")!=configMap.end()){
+                const std::string direction = configMap.at("ffs_direction");
+                config.ffs_direction = (direction == "-1" || direction == "reverse" || direction == "down") ? -1 : 1;
+            }
+            if(configMap.find("ffs_target_interface")!=configMap.end()){
+                config.ffs_target_interface = std::stod(configMap.at("ffs_target_interface"));
+            }
+            if(configMap.find("ffs_fail_interface")!=configMap.end()){
+                config.ffs_fail_interface = std::stod(configMap.at("ffs_fail_interface"));
             }
 
             // flag
@@ -140,6 +181,9 @@ public:
 
     torch::Dict<std::string, torch::Tensor> predict(const torch::Dict<std::string, torch::Tensor>& inputs);
     torch::Tensor _FromCudaMemory(double* d_array, int size);
+    torch::Tensor select_cv_output(const torch::Dict<std::string, torch::Tensor>& outputs);
+    int evaluate_ffs_event(const torch::Tensor& cvs);
+    bool should_stop_from_outputs(const torch::Dict<std::string, torch::Tensor>& outputs, int legacy_target_stage);
     void box_to_tri(Box& box);
     void logCV_runtime(void);
     void logCV_runtime(std::string& path);
