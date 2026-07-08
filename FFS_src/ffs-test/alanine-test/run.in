@@ -1,8 +1,0 @@
-potential nep-new.txt
-time_step 1
-velocity 300
-MetaD Alanine-psi-cvonly.pt GAScfg.yaml #GASGaussian.txt
-ensemble nvt_bdp 300 300 100
-dump_exyz 200 1 1 
-#dump_position 100
-run 100
