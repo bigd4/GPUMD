@@ -11,7 +11,13 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_ARCHITECTURES "80" CACHE STRING "CUDA architectures")
 
 get_filename_component(GPUMD_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-set(LIBTORCH_ROOT "${GPUMD_ROOT}/libtorch" CACHE PATH "Path to libtorch; expected next to the src directory")
+set(DEFAULT_LIBTORCH_ROOT "${GPUMD_ROOT}/libtorch")
+set(LIBTORCH_ROOT "" CACHE PATH "Manual path to libtorch. Leave empty to use GPUMD/libtorch.")
+if(LIBTORCH_ROOT)
+  get_filename_component(LIBTORCH_ROOT "${LIBTORCH_ROOT}" ABSOLUTE)
+else()
+  set(LIBTORCH_ROOT "${DEFAULT_LIBTORCH_ROOT}")
+endif()
 
 find_package(CUDAToolkit REQUIRED)
 
@@ -19,7 +25,7 @@ set(TORCH_CONFIG "${LIBTORCH_ROOT}/share/cmake/Torch/TorchConfig.cmake")
 if(NOT EXISTS "${TORCH_CONFIG}")
   message(FATAL_ERROR
     "libtorch was not found at ${LIBTORCH_ROOT}. "
-    "Please place libtorch next to the src directory, e.g. ${GPUMD_ROOT}/libtorch, "
+    "Please place libtorch at ${DEFAULT_LIBTORCH_ROOT}, "
     "or configure with -DLIBTORCH_ROOT=/path/to/libtorch."
   )
 endif()
