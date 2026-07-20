@@ -1,0 +1,8 @@
+potential ./nep.txt
+
+neb_set is_name is.xyz fs_name fs.xyz mid_name mid.xyz has_mid interpolate 5
+neb_set need_relax find_mic
+neb_set dist_range 0.03 0.8 dist_ncount 20 ina_interval 20 etol 0.5
+neb_set energy_based_spacing k 0.1 p 30 tangent modified
+neb_set dump_interval 5000 peek_interval 300
+neb_run fire 0.01 5000 dt_max 0.5 dt_min 0.01 max_move 0.1

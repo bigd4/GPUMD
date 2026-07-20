@@ -1,0 +1,5 @@
+potential ./nep.txt
+
+neb_set is_name is.xyz fs_name fs.xyz interpolate 5 no_ina
+neb_set p 30
+neb_run fire 0.01 1000
