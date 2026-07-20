@@ -123,6 +123,10 @@ private:
   bool need_relax = false;
   bool climb = false;
   bool find_min = false;
+  bool dynamic_relaxation = false;
+  double scale_fmax = 0.0;
+  double dyneb_energy_exponent = 1.0;
+  double dyneb_peak_width = 0.1;
   double etol = 0.0;
   double trim_etol = 0.0;
   bool has_trim_etol = false;
@@ -187,9 +191,13 @@ private:
   int n_force_calc = 0;
   double force_tolerance;
   double cell_metric_scale_default = 1.0;
+  double minimizer_cell_metric_scale = 1.0;
   int cell_metric_active_atoms = 0;
   int minimizer_type;
   int nimages, natoms_per_image, n_realatoms;
+  std::vector<char> dyneb_active;
+  GPU_Vector<double> dyneb_force_max;
+  GPU_Vector<double> dyneb_position_delta;
 
   void find_min_max(double etol=0.0);
 
@@ -204,6 +212,8 @@ private:
   double estimate_cell_metric_scale();
 
   void initialize_compute();
+
+  void apply_dynamic_relaxation();
 
   bool satisfy_ina_force_tolerence() const;
 

@@ -46,6 +46,10 @@ All input structure files should be in extended XYZ format.
 	- modified: doubly nudged version of improved tangent
 - climb: flag, climbing image feature
 - find_min: flag, fully using real force to relax the minimum images
+- dyneb: flag, enable dynamic relaxation. Intermediate images whose NEB force is below their local convergence threshold are frozen and reuse their previous potential-energy/force result. They are reactivated if changes in neighboring images move them above the threshold. `dynamic_relaxation` is accepted as an alias. default value: false
+- scale_fmax: key 1, nonnegative maximum relative increase of the DYNEB local convergence threshold. The threshold factor is `1 + scale_fmax * (1 - strictness_weight)`, so it is bounded by `1 + scale_fmax`. The strictness weight is the maximum of the normalized-energy weight and Gaussian proximity to any local energy maximum. This option requires `dyneb`. default value: 0
+- dyneb_energy_exponent: key 1, positive exponent applied to the normalized image energy when constructing the DYNEB strictness weight. default value: 1
+- dyneb_peak_width: key 1, Gaussian width in normalized cumulative path coordinate around every local energy maximum. Images close to a maximum retain a convergence threshold near the original `force_tolerance`. Range: `(0, 1]`. default value: 0.1
 - etol: key 1, the energy tolerance that judges if the image is maximum or minimum.
 
 ### Image Number Adjustment

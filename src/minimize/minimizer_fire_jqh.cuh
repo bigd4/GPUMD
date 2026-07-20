@@ -49,6 +49,8 @@ public:
 
   void set_cell_metric_scale(double scale);
 
+  double get_cell_metric_scale() const { return cell_metric_scale; }
+
   void print_para();
 
   void compute(
