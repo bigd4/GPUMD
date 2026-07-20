@@ -138,7 +138,7 @@ public:
 
   Atoms(const char* filename);
 
-  Atoms(std::ifstream& input, bool& success);
+  Atoms(std::ifstream& input, bool& success, bool print_flag = true);
 
   ~Atoms();
 

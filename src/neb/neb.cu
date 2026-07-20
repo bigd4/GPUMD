@@ -1228,7 +1228,7 @@ void NEB::initialize_images() {
     bool read_success;
     if (!variable_cell){
       while (true){
-        Atoms* p_tmp = new Atoms(input, read_success);
+        Atoms* p_tmp = new Atoms(input, read_success, false);
         if (read_success) {
           // mid_list.push_back(make_pair(-1, p_tmp));
           images.emplace_back(unique_ptr<Atoms>(p_tmp));
@@ -1238,7 +1238,7 @@ void NEB::initialize_images() {
     else {
       vector<Atoms*> raw_images;
       while (true) {
-        Atoms* p_tmp = new Atoms(input, read_success);
+        Atoms* p_tmp = new Atoms(input, read_success, false);
         if (read_success) {
           raw_images.push_back(p_tmp);
         } else {

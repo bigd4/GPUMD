@@ -324,14 +324,15 @@ Atoms::Atoms(const char* filename)
 }
 
 
-Atoms::Atoms(ifstream& input, bool& success)
+Atoms::Atoms(ifstream& input, bool& success, bool print_flag)
 {
   int has_velocity;
   int number_of_types;
   Atom atom;
-  success = initialize_position(input, has_velocity, number_of_types, box, group, atom);
+  success = initialize_position(
+    input, has_velocity, number_of_types, box, group, atom, print_flag);
   if (success){
-    printf("read one frame of the traj\n");
+    if (print_flag) printf("read one frame of the traj\n");
     initialize(atom);
   }
 }
