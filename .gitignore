@@ -2,7 +2,7 @@
 \.project
 core
 
-src/.*
+src/**/.*
 src/*/*.obj
 src/*/*.o
 src/gpumd*

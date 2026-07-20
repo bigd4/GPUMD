@@ -515,20 +515,21 @@ namespace
     else return false;
   }
 
-  void print_setting(const char* name, int value){
-    printf("%-20s = %d\n", name, value);
+  void print_setting(const char* name, int value, int indent=0){
+    printf("%*s%-*s = %d\n", indent, "", 20-indent, name, value);
   }
-  void print_setting(const char* name, bool value){
-    printf("%-20s = %s\n", name, value?"true":"false");
+  void print_setting(const char* name, bool value, int indent=0){
+    printf("%*s%-*s = %s\n", indent, "", 20-indent, name, value?"true":"false");
   }
-  void print_setting(const char* name, double value){
-    printf("%-20s = %g\n", name, value);
+  void print_setting(const char* name, double value, int indent=0){
+    printf("%*s%-*s = %g\n", indent, "", 20-indent, name, value);
   }
-  void __attribute__((unused)) print_setting(const char* name, const char* value){
-    printf("%-20s = %s\n", name, value);
+  void __attribute__((unused)) print_setting(
+    const char* name, const char* value, int indent=0){
+    printf("%*s%-*s = %s\n", indent, "", 20-indent, name, value);
   }
-  void print_setting(const char* name, string value){
-    printf("%-20s = %s\n", name, value.data());
+  void print_setting(const char* name, string value, int indent=0){
+    printf("%*s%-*s = %s\n", indent, "", 20-indent, name, value.data());
   }
 
   bool same_fixed_cell(const Atoms& atoms, const Atoms& ref_atoms, double tolerance)
@@ -1357,6 +1358,14 @@ double NEB::estimate_cell_metric_scale()
 }
 
 void NEB::run_neb() {
+  printf("\n**************************************************************\n");
+  printf("*                            [o]                             *\n");
+  printf("*                           /   \\                            *\n");
+  printf("*                  o---o---o     o---o---o                   *\n");
+  printf("*                         GPU-CFNEB                          *\n");
+  printf("*                  ENTERING NEB CALCULATION                  *\n");
+  printf("**************************************************************\n\n");
+
   initialize_images();
   prepare_fixed_cell_images();
   cell_metric_scale_default = estimate_cell_metric_scale();
@@ -1374,58 +1383,59 @@ void NEB::run_neb() {
   print_setting("k", k);
   print_setting("variable_cell", variable_cell);
   if (variable_cell){
-    printf("%-20s =", "pressure");
+    printf("    %-16s =", "pressure");
     for (auto x:pressure) printf(" %.4f", x);
     printf("\n");
   } else {
-    print_setting("match_cell_to_initial", match_cell_to_initial);
+    print_setting("match_cell_to_initial", match_cell_to_initial, 4);
   }
   print_setting("climb", climb);
   print_setting("find_min", find_min);
-  if (climb) print_setting("etol", etol);
-    print_setting("image_number_adjustment", image_number_adjustment);
+  if (climb) print_setting("etol", etol, 4);
+  print_setting("image_number_adjustment", image_number_adjustment);
   if (image_number_adjustment) {
-    print_setting("ina_interval", ina_interval);
-    print_setting("min_dist", min_dist);
-    print_setting("max_dist", max_dist);
-    print_setting("ina_k_efficient", ina_k_efficient);
-    print_setting("ina_insert_midpoint_weight", ina_insert_midpoint_weight);
-    printf("%-20s =", "ina_force_tol");
+    print_setting("ina_interval", ina_interval, 4);
+    print_setting("min_dist", min_dist, 4);
+    print_setting("max_dist", max_dist, 4);
+    print_setting("ina_k_efficient", ina_k_efficient, 4);
+    print_setting("ina_insert_midpoint_weight", ina_insert_midpoint_weight, 4);
+    printf("    %-16s =", "ina_force_tol");
     for (auto stage:ina_force_tol_stages) {
       printf(" %d %g", stage.first, stage.second);
     }
     printf("\n");
-    print_setting("dist_ncount", dist_ncount);
-    print_setting("trim_images", trim_images);
+    print_setting("dist_ncount", dist_ncount, 4);
+    print_setting("trim_images", trim_images, 4);
     if (trim_images) {
-      print_setting("trim_similar_tol", trim_similar_tol);
-      print_setting("trim_etol", has_trim_etol ? trim_etol : etol);
+      print_setting("trim_similar_tol", trim_similar_tol, 8);
+      print_setting("trim_etol", has_trim_etol ? trim_etol : etol, 8);
     }
-    print_setting("ina_check_coord", ina_check_coord);
+    print_setting("ina_check_coord", ina_check_coord, 4);
     if (ina_check_coord) {
-      print_setting("inacc_num", inacc_num);
-      print_setting("inacc_rc", inacc_rc);
+      print_setting("inacc_num", inacc_num, 8);
+      print_setting("inacc_rc", inacc_rc, 8);
     }
   }
   print_setting("energy_based_spacing", energy_based_spacing);
   if (energy_based_spacing) {
-    print_setting("energy_spacing_damping", energy_spacing_damping);
-    print_setting("energy_spacing_strength", energy_spacing_strength);
-    print_setting("energy_spacing_exponent", energy_spacing_exponent);
-    print_setting("energy_spacing_dist_power", energy_spacing_dist_power);
+    print_setting("energy_spacing_damping", energy_spacing_damping, 4);
+    print_setting("energy_spacing_strength", energy_spacing_strength, 4);
+    print_setting("energy_spacing_exponent", energy_spacing_exponent, 4);
+    print_setting("energy_spacing_dist_power", energy_spacing_dist_power, 4);
   }
   print_setting("has_mid", has_mid);
-  if (has_mid) print_setting("n_interpolate", n_interpolate);
+  if (has_mid) print_setting("n_interpolate", n_interpolate, 4);
   print_setting("need_relax", need_relax);
   print_setting("remove_translation", remove_translation);
   print_setting("remove_rotation", remove_rotation);
   print_setting("find_mic", find_mic);
   if (variable_cell) {
-    print_setting("cell_filter", remove_rotation ? "rotation_free" : "deformation_gradient");
+    print_setting(
+      "cell_filter", remove_rotation ? "rotation_free" : "deformation_gradient", 4);
     VCWrapper* vc_image = dynamic_cast<VCWrapper*>(images.front().get());
-    print_setting("cell_metric_active_atoms", cell_metric_active_atoms);
-    print_setting("active_atom_threshold", cell_metric_active_threshold);
-    if (vc_image != nullptr) print_setting("cell_factor", vc_image->cell_factor);
+    print_setting("cell_metric_active_atoms", cell_metric_active_atoms, 4);
+    print_setting("active_atom_threshold", cell_metric_active_threshold, 4);
+    if (vc_image != nullptr) print_setting("cell_factor", vc_image->cell_factor, 4);
   }
   print_setting("tangent_method", tangent_method_name);
   print_setting("max_steps", max_steps);
