@@ -388,6 +388,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     }
 
     P = dot(v, force_per_atom);
+    bool fire_reset = false;
 
     if (P > 0) {
       if (N_neg > N_min) {
@@ -398,6 +399,7 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
       }
       N_neg++;
     } else {
+      fire_reset = true;
       next_dt = dt * f_dec;
       if (next_dt > dt_min)
         dt = next_dt;
@@ -408,6 +410,9 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
       v.fill(0);
       N_neg = 0;
     }
+
+    atoms.report_minimizer_state(
+      dt * TIME_UNIT_CONVERSION, P, alpha, N_neg, fire_reset);
 
     // md step
     // implicit Euler integration

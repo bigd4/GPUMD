@@ -78,6 +78,11 @@ public:
 
   virtual bool update_minimizer_force_max(double force_max) { return false; }
 
+  virtual void report_minimizer_state(
+    double dt, double power, double alpha, int n_positive, bool reset)
+  {
+  }
+
   // virtual void set_box(GPU_Vector<double> h0);
 
   virtual void set_calc(Force& force){

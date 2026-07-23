@@ -151,12 +151,15 @@ private:
   double inacc_num = 0.0; // >0 & <1: percent, >=1: number
   double inacc_rc = 1.7;
   int ina_interval = 20;
+  int ina_local_relax_steps = 0;
+  int ina_local_relax_neighbors = 1;
   double cell_factor = -1.0;
   std::vector<std::pair<int, double>> ina_force_tol_stages;
   double min_dist = 0.01, max_dist = 0.1;
   int dist_ncount = 10;
   bool print_k = false;
   int print_interval = 1;
+  int diagnostic_interval = 0;
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;
@@ -198,6 +201,10 @@ private:
   std::vector<char> dyneb_active;
   GPU_Vector<double> dyneb_force_max;
   GPU_Vector<double> dyneb_position_delta;
+  int ina_local_relax_remaining = 0;
+  bool ina_local_tracking = false;
+  bool ina_local_changed = false;
+  std::vector<char> ina_local_active;
 
   void find_min_max(double etol=0.0);
 
@@ -215,6 +222,18 @@ private:
 
   void apply_dynamic_relaxation();
 
+  void apply_ina_local_relaxation();
+
+  void begin_ina_local_tracking();
+
+  void mark_ina_local_region(int image_index);
+
+  void notify_ina_image_inserted(int image_index);
+
+  void notify_ina_image_erased(int image_index);
+
+  void finish_ina_local_tracking();
+
   bool satisfy_ina_force_tolerence() const;
 
   void adjust_image_spacing(bool allow_remove, bool bootstrap);
@@ -224,6 +243,9 @@ private:
   bool update_minimizer_force_max(double force_max) override;
 
   void print_info(double force_max);
+
+  void report_minimizer_state(
+    double dt, double power, double alpha, int n_positive, bool reset) override;
 
 public:
   std::vector<std::unique_ptr<Atoms>> images;

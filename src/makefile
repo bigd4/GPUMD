@@ -24,6 +24,7 @@ endif
 INC = -I./
 LDFLAGS = 
 LIBS = -lcublas -lcusolver -lcufft
+GPUMD_EXEC ?= gpumd
 
 
 ###########################################################
@@ -83,11 +84,11 @@ HEADERS =                         \
 ###########################################################
 # executables
 ###########################################################
-all: gpumd nep 
-gpumd: $(OBJ_GPUMD)
+all: $(GPUMD_EXEC) nep
+$(GPUMD_EXEC): $(OBJ_GPUMD)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
 	@echo =================================================
-	@echo The gpumd executable is successfully compiled!
+	@echo The $@ executable is successfully compiled!
 	@echo =================================================
 nep: $(OBJ_NEP)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
@@ -164,6 +165,5 @@ clean:
 ifdef OS
 	del /s *.obj *.exp *.lib *.exe
 else
-	rm -f */*.o gpumd nep gnep
+	rm -f */*.o gpumd $(GPUMD_EXEC) nep gnep
 endif
-
