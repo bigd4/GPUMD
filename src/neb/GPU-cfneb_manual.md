@@ -24,7 +24,7 @@ All input structure files should be in extended XYZ format.
 - remove_rotation: flag, remove rotation from the input images. default value: true
 - find_mic: flag, align each input image to the previous image using the minimum image convention before relaxation, translation removal, and interpolation. default value: false
 - cell_factor: key 1, weight factor used by the variable-cell filter to scale cell degrees of freedom. If unset, it is estimated from the reference cell volume and number of atoms.
-- dist_range: key 2, the min and max distance when checking the image intervals. If the distance is smaller than min_dist, the image will be removed. If the distance is larger than max_dist, a new image will be inserted between the two images. default value: 0.01 0.1
+- dist_range: key 2, the min and max distance when checking the image intervals. If the distance is smaller than min_dist, the image will be removed. If the distance is larger than max_dist, a new image will be inserted between the two images. default value: 0.01 0.5
   - When energy_based_spacing is enabled, the interval-specific dist_range is divided by the current energy-based spacing multiplier.
 - dist_ncount: key 1, count how many largest displacements when computing the distance. Detailed formulation can be found in the supplementary material of my paper.
 

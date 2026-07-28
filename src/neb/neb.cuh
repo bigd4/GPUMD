@@ -154,7 +154,7 @@ private:
   int ina_local_relax_neighbors = 1;
   double cell_factor = -1.0;
   std::vector<std::pair<int, double>> ina_force_tol_stages;
-  double min_dist = 0.01, max_dist = 0.1;
+  double min_dist = 0.01, max_dist = 0.5;
   int dist_ncount = 10;
   bool print_k = false;
   int print_interval = 1;
