@@ -219,8 +219,7 @@ void Minimize::parse_minimize(
         VCWrapper& vcatoms = rotation_free_vc
           ? static_cast<VCWrapper&>(*new RotationFreeVCWrapper(atoms, press))
           : *new VCWrapper(atoms, press);
-        vcatoms.optimize_factor = pow(atoms.get_natoms(), 1.0/4);
-        printf("cell_factor = %f, optimize_factor = %f\n", vcatoms.cell_factor, vcatoms.optimize_factor);
+        printf("cell_factor = %f\n", vcatoms.cell_factor);
         vcatoms.build_positions();
         // vcatoms.compute();
         // printf("    initial enthalpy = %f eV\n", vcatoms.get_energy());

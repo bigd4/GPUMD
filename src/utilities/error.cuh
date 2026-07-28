@@ -20,15 +20,42 @@
 #include <string>
 #include <vector>
 
+inline void print_gpumd_error(FILE* output, const char* kind, const char* file, int line, const char* text)
+{
+  fprintf(output, "%s:\n", kind);
+  fprintf(output, "    File:       %s\n", file);
+  fprintf(output, "    Line:       %d\n", line);
+  fprintf(output, "    Error text: %s\n", text);
+  fflush(output);
+}
+
+inline void print_gpumd_error(const char* kind, const char* file, int line, const char* text)
+{
+  print_gpumd_error(stderr, kind, file, line, text);
+  print_gpumd_error(stdout, kind, file, line, text);
+}
+
+inline void print_gpumd_cuda_error(FILE* output, const char* file, int line, int code, const char* text)
+{
+  fprintf(output, "CUDA Error:\n");
+  fprintf(output, "    File:       %s\n", file);
+  fprintf(output, "    Line:       %d\n", line);
+  fprintf(output, "    Error code: %d\n", code);
+  fprintf(output, "    Error text: %s\n", text);
+  fflush(output);
+}
+
+inline void print_gpumd_cuda_error(const char* file, int line, int code, const char* text)
+{
+  print_gpumd_cuda_error(stderr, file, line, code, text);
+  print_gpumd_cuda_error(stdout, file, line, code, text);
+}
+
 #define CHECK(call)                                                                                \
   do {                                                                                             \
     const gpuError_t error_code = call;                                                            \
     if (error_code != gpuSuccess) {                                                                \
-      fprintf(stderr, "CUDA Error:\n");                                                            \
-      fprintf(stderr, "    File:       %s\n", __FILE__);                                           \
-      fprintf(stderr, "    Line:       %d\n", __LINE__);                                           \
-      fprintf(stderr, "    Error code: %d\n", error_code);                                         \
-      fprintf(stderr, "    Error text: %s\n", gpuGetErrorString(error_code));                      \
+      print_gpumd_cuda_error(__FILE__, __LINE__, error_code, gpuGetErrorString(error_code));        \
       exit(1);                                                                                     \
     }                                                                                              \
   } while (0)
@@ -36,29 +63,21 @@
 #define PRINT_SCANF_ERROR(count, n, text)                                                          \
   do {                                                                                             \
     if (count != n) {                                                                              \
-      fprintf(stderr, "Input Error:\n");                                                           \
-      fprintf(stderr, "    File:       %s\n", __FILE__);                                           \
-      fprintf(stderr, "    Line:       %d\n", __LINE__);                                           \
-      fprintf(stderr, "    Error text: %s\n", text);                                               \
+      print_gpumd_error("Input Error", __FILE__, __LINE__, text);                                  \
       exit(1);                                                                                     \
     }                                                                                              \
   } while (0)
 
 #define PRINT_INPUT_ERROR(text)                                                                    \
   do {                                                                                             \
-    fprintf(stderr, "Input Error:\n");                                                             \
-    fprintf(stderr, "    File:       %s\n", __FILE__);                                             \
-    fprintf(stderr, "    Line:       %d\n", __LINE__);                                             \
-    fprintf(stderr, "    Error text: %s\n", text);                                                 \
+    print_gpumd_error("Input Error", __FILE__, __LINE__, text);                                    \
     exit(1);                                                                                       \
   } while (0)
 
 #define PRINT_KEYWORD_ERROR(keyword)                                                               \
   do {                                                                                             \
-    fprintf(stderr, "Input Error:\n");                                                             \
-    fprintf(stderr, "    File:       %s\n", __FILE__);                                             \
-    fprintf(stderr, "    Line:       %d\n", __LINE__);                                             \
-    fprintf(stderr, "    Error text: '%s' is an invalid keyword.\n", keyword);                     \
+    std::string keyword_error = "'" + std::string(keyword) + "' is an invalid keyword.";            \
+    print_gpumd_error("Input Error", __FILE__, __LINE__, keyword_error.c_str());                   \
     exit(1);                                                                                       \
   } while (0)
 

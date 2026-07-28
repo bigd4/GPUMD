@@ -197,7 +197,8 @@ static void read_xyz_line_2(
   bool& has_charge,
   int& num_columns,
   int* property_offset,
-  std::vector<Group>& group)
+  std::vector<Group>& group,
+  const bool print_flag = true)
 {
   std::vector<std::string> tokens = get_tokens_without_unwanted_spaces(input);
   for (auto& token : tokens) {
@@ -232,9 +233,11 @@ static void read_xyz_line_2(
       }
     }
   }
-  printf("Use %s boundary conditions along x.\n", (box.pbc_x == 1) ? "periodic" : "free");
-  printf("Use %s boundary conditions along y.\n", (box.pbc_y == 1) ? "periodic" : "free");
-  printf("Use %s boundary conditions along z.\n", (box.pbc_z == 1) ? "periodic" : "free");
+  if (print_flag) {
+    printf("Use %s boundary conditions along x.\n", (box.pbc_x == 1) ? "periodic" : "free");
+    printf("Use %s boundary conditions along y.\n", (box.pbc_y == 1) ? "periodic" : "free");
+    printf("Use %s boundary conditions along z.\n", (box.pbc_z == 1) ? "periodic" : "free");
+  }
 
   // box matrix
   bool has_lattice_in_exyz = false;
@@ -255,7 +258,9 @@ static void read_xyz_line_2(
   }
   if (!has_lattice_in_exyz) {
     PRINT_INPUT_ERROR("'lattice' is missing in the second line of the model file.");
-  } else {
+  }
+  box.get_inverse();
+  if (print_flag) {
     printf("Box matrix h = [a, b, c] is\n");
     for (int d1 = 0; d1 < 3; ++d1) {
       for (int d2 = 0; d2 < 3; ++d2) {
@@ -263,9 +268,6 @@ static void read_xyz_line_2(
       }
       printf("\n");
     }
-
-    box.get_inverse();
-
     printf("Inverse box matrix g = inv(h) is\n");
     for (int d1 = 0; d1 < 3; ++d1) {
       for (int d2 = 0; d2 < 3; ++d2) {
@@ -300,20 +302,20 @@ static void read_xyz_line_2(
 
       if (property_position[4] < 0) {
         has_velocity_in_xyz = 0;
-        printf("Do not specify initial velocities here.\n");
+        if (print_flag) printf("Do not specify initial velocities here.\n");
       } else {
         has_velocity_in_xyz = 1;
-        printf("Specify initial velocities here.\n");
+        if (print_flag) printf("Specify initial velocities here.\n");
       }
 
       if (property_position[5] < 0) {
         group.resize(0);
-        printf("Have no grouping method.\n");
+        if (print_flag) printf("Have no grouping method.\n");
       } else {
         int num_of_grouping_methods =
           get_int_from_token(sub_tokens[property_position[5] * 3 + 2], __FILE__, __LINE__);
         group.resize(num_of_grouping_methods);
-        printf("Have %d grouping method(s).\n", num_of_grouping_methods);
+        if (print_flag) printf("Have %d grouping method(s).\n", num_of_grouping_methods);
       }
 
       for (int k = 0; k < sub_tokens.size() / 3; ++k) {
@@ -440,14 +442,17 @@ void find_type_size(
   const int N,
   const int number_of_types,
   const std::vector<int>& cpu_type,
-  std::vector<int>& cpu_type_size)
+  std::vector<int>& cpu_type_size,
+  const bool print_flag = true)
 {
   cpu_type_size.resize(number_of_types);
 
-  if (number_of_types == 1) {
-    printf("There is only one atom type.\n");
-  } else {
-    printf("There are %d atom types.\n", number_of_types);
+  if (print_flag) {
+    if (number_of_types == 1) {
+      printf("There is only one atom type.\n");
+    } else {
+      printf("There are %d atom types.\n", number_of_types);
+    }
   }
 
   for (int m = 0; m < number_of_types; m++) {
@@ -456,8 +461,10 @@ void find_type_size(
   for (int n = 0; n < N; n++) {
     cpu_type_size[cpu_type[n]]++;
   }
-  for (int m = 0; m < number_of_types; m++) {
-    printf("    %d atoms of type %d.\n", cpu_type_size[m], m);
+  if (print_flag) {
+    for (int m = 0; m < number_of_types; m++) {
+      printf("    %d atoms of type %d.\n", cpu_type_size[m], m);
+    }
   }
 }
 
@@ -639,7 +646,7 @@ void initialize_position(
 
 bool initialize_position(
   std::ifstream& input, int& has_velocity_in_xyz, int& number_of_types,
-   Box& box, std::vector<Group>& group, Atom& atom)
+   Box& box, std::vector<Group>& group, Atom& atom, bool print_flag)
 {
   // std::string filename(xyzname);
   // std::ifstream input(filename);
@@ -663,7 +670,7 @@ bool initialize_position(
   N = get_int_from_token(tokens[0], __FILE__, __LINE__);
   if (N < 2) {
     PRINT_INPUT_ERROR("Number of atoms should >= 2.");
-  } else {
+  } else if (print_flag) {
     printf("Number of atoms is %d.\n", N);
   }
   
@@ -674,7 +681,15 @@ bool initialize_position(
   bool has_mass = true;
   bool has_charge = true;
   read_xyz_line_2(
-    input, box, has_velocity_in_xyz, has_mass, has_charge, num_columns, property_offset, group);
+    input,
+    box,
+    has_velocity_in_xyz,
+    has_mass,
+    has_charge,
+    num_columns,
+    property_offset,
+    group,
+    print_flag);
 
   read_xyz_in_line_3(
     input,
@@ -697,11 +712,12 @@ bool initialize_position(
   // input.close();
 
   for (int m = 0; m < group.size(); ++m) {
-    group[m].find_size(atom.number_of_atoms, m);
+    group[m].find_size(atom.number_of_atoms, m, print_flag);
     group[m].find_contents(atom.number_of_atoms);
   }
 
-  find_type_size(atom.number_of_atoms, number_of_types, atom.cpu_type, atom.cpu_type_size);
+  find_type_size(
+    atom.number_of_atoms, number_of_types, atom.cpu_type, atom.cpu_type_size, print_flag);
 
   return true;
 }
