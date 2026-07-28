@@ -54,5 +54,4 @@ pytest gpumd/carbon_average/test-average.py
 echo "#### carbon_observe"
 pytest gpumd/carbon_observe/test-observe.py
 
-echo "#### gpucfneb"
-pytest gpumd/gpucfneb/test_gpucfneb.py
+

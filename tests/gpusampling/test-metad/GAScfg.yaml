@@ -1,0 +1,11 @@
+cv_log_interval: 10
+cv_storage_interval: 500
+cv_size: 2
+neighbor_rc: 5.5
+max_neighbors: 22
+max_cv_nums: 4000
+cv_change_interval: 1
+neighbor_1: 0
+neighbor_2: -1
+n_atoms: 22
+debug_interval: 0

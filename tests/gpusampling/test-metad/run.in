@@ -1,0 +1,8 @@
+# run.in
+velocity 300
+potential nep-alanine.txt
+time_step 1
+velocity 300
+MetaD Alanine-torsion-pd-02.pt GAScfg.yaml #GASGaussian.txt
+ensemble nvt_bdp 300 300 100
+run 100
