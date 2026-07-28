@@ -54,6 +54,7 @@ protected:
   GPU_Vector<double> forces; // size: (natoms, 3)
 
 public:
+  bool is_cell_filter = false;
   Force* p_force;
   virtual void compute() = 0;
 
@@ -67,6 +68,28 @@ public:
   
   virtual GPU_Vector<double>& get_forces() {
     return forces;
+  }
+
+  virtual bool has_cell_degrees_of_freedom() const { return false; }
+
+  virtual int get_real_atom_count_per_block() const { return natoms; }
+
+  virtual int get_atoms_per_block() const { return natoms; }
+
+  virtual bool update_minimizer_force_max(double force_max) { return false; }
+
+  virtual void report_minimizer_state(
+    double dt, double power, double alpha, int n_positive, bool reset)
+  {
+  }
+
+  virtual void report_imagewise_minimizer_state(
+    const std::vector<double>& dt,
+    const std::vector<double>& power,
+    const std::vector<double>& alpha,
+    const std::vector<int>& n_positive,
+    const std::vector<int>& reset)
+  {
   }
 
   // virtual void set_box(GPU_Vector<double> h0);
@@ -83,6 +106,7 @@ friend class VCWrapper;
 friend class RotationFreeVCWrapper;
 
 public:
+  bool is_cell_filter = false;
   Box box;
   // std::vector<int> cpu_type;
   std::vector<std::string> cpu_atom_symbol; // symbol strings
@@ -128,7 +152,7 @@ public:
 
   Atoms(const char* filename);
 
-  Atoms(std::ifstream& input, bool& success);
+  Atoms(std::ifstream& input, bool& success, bool print_flag = true);
 
   ~Atoms();
 
@@ -169,8 +193,8 @@ private:
   void build_VCWrapper(std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
 
 public:
+  bool is_cell_filter = true;
   double cell_factor = 1.0;
-  double optimize_factor = 1.0;
   std::vector<double> pressure = std::vector<double>(9,0.0);
   double* h_ref = nullptr; // size: 18, managed memory. first 9 are reference cell, last 9 are the inverse.
   std::unique_ptr<Atoms> p_atoms;
@@ -201,7 +225,7 @@ public:
   GPU_Vector<double>& get_potential_per_atom();
 
   // from positions and box of atoms to build vcwrapper positions
-  GPU_Vector<double>& build_positions();
+  virtual GPU_Vector<double>& build_positions();
 
   // use updated vcwrapper positions to reset atoms positions and box
   void set_positions();
@@ -212,11 +236,19 @@ public:
 
   void compute_deform();
 
+  bool has_cell_degrees_of_freedom() const override { return true; }
+
+  int get_real_atom_count_per_block() const override { return natoms - 3; }
+
+  int get_atoms_per_block() const override { return natoms; }
+
 };
 
 class RotationFreeVCWrapper: public VCWrapper
 {
+// the cell part coordinates are defined as 1/2*D D^T, the according forces are D^(-T) V D^(-1)
 public:
+  bool is_cell_filter = true;
   RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double* h_ref0, double cell_factor0=-1.0);
   RotationFreeVCWrapper(Atoms& atoms, std::vector<double> p, double cell_factor0=-1.0);
 
@@ -229,7 +261,7 @@ public:
 
   void compute();
 
-  GPU_Vector<double>& build_positions();
+  GPU_Vector<double>& build_positions() override;
 
   void set_positions();
 };

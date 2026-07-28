@@ -32,6 +32,6 @@ public:
   std::vector<int> cpu_size_sum;
   std::vector<int> cpu_contents;
 
-  void find_size(const int N, const int k);
+  void find_size(const int N, const int k, const bool print_flag = true);
   void find_contents(const int N);
 };

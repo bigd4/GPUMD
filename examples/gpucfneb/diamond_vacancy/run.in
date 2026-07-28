@@ -1,0 +1,7 @@
+potential ./nep.txt                 # Load the NEP potential from nep.txt.
+neb_set is_name is.xyz              # Use is.xyz as the initial-state structure.
+neb_set fs_name fs.xyz              # Use fs.xyz as the final-state structure.
+neb_set interpolate 5               # Insert five linearly interpolated images between the endpoint states.
+neb_set p 30                        # Apply a hydrostatic pressure of 30 GPa.
+neb_set no_ina                      # Disable automatic image insertion and removal.
+neb_run fire 0.01 1000              # Run FIRE until the force tolerance reaches 0.01 eV/A or 1000 steps are completed.

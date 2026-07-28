@@ -26,6 +26,7 @@ private:
   double f_dec = 0.5;
   double alpha_start = 0.25;
   double f_alpha = 0.99;
+  double alpha_min = 0.0;
   double dt_0 = 1 / TIME_UNIT_CONVERSION; // Time step of 1 fs.
   double dt_max = 1 * dt_0;
   double dt_min = 0.02 * dt_0;
@@ -36,7 +37,12 @@ private:
   int N_neg = 0;
   double P;
   double max_move = 0.2;
+  double cell_metric_scale = 1.0;
+  double min_alignment_cosine = 0.0;
   bool printflag = true;
+  bool imagewise = false;
+
+  void compute_imagewise(BaseAtoms& atoms);
 
 public:
   Minimizer_FIRE_JQH(
@@ -45,6 +51,10 @@ public:
     const double force_tolerance);
 
   void parse_FIRE(const char** param, int num_param, int nstart, bool printflag=true);
+
+  void set_cell_metric_scale(double scale);
+
+  double get_cell_metric_scale() const { return cell_metric_scale; }
 
   void print_para();
 

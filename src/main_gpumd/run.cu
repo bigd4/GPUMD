@@ -240,10 +240,6 @@ std::string Run::get_initial_structure_filename()
             n + 1 < int(tokens_without_comments.size())) {
           neb_initial_structure = tokens_without_comments[n + 1];
           ++n;
-        } else if (tokens_without_comments[n] == "suffix" &&
-                   n + 1 < int(tokens_without_comments.size())) {
-          neb_initial_structure = "is_" + tokens_without_comments[n + 1] + ".xyz";
-          ++n;
         } else if (tokens_without_comments[n] == "traj_name" &&
                    n + 1 < int(tokens_without_comments.size())) {
           neb_initial_structure = tokens_without_comments[n + 1];

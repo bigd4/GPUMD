@@ -1,0 +1,18 @@
+potential ./nep.txt                 # Load the NEP potential from nep.txt.
+neb_set is_name is.xyz              # Use is.xyz as the initial-state structure.
+neb_set fs_name fs.xyz              # Use fs.xyz as the final-state structure.
+neb_set mid_name mid.xyz            # Use mid.xyz as the intermediate-state structure.
+neb_set interpolate 5               # Insert five linearly interpolated images across the input-state segments.
+neb_set need_relax                  # Relax the initial and final states before the NEB optimization.
+neb_set find_mic                    # Align each input image to the previous one using the minimum-image convention.
+neb_set p 30                        # Apply a hydrostatic pressure of 30 GPa.
+neb_set k 0.1                       # Set the base NEB spring constant to 0.1.
+neb_set energy_based_spacing        # Adjust spring constants and spacing thresholds according to relative image energies.
+neb_set tangent modified            # Use the doubly nudged modified tangent method.
+neb_set etol 0.5                    # Use 0.5 eV as the tolerance for identifying local energy extrema.
+neb_set dist_range 0.03 0.8         # Remove or insert images when path intervals fall below 0.03 or exceed 0.8.
+neb_set dist_ncount 20              # Use the 20 largest atomic displacements to evaluate each path interval.
+neb_set ina_interval 20             # Allow image-number adjustment no more often than every 20 NEB steps.
+neb_set peek_interval 300           # Overwrite peek_traj.xyz and neb_energies.out every 300 NEB steps.
+neb_set dump_interval 5000          # Append the NEB trajectory to dump_traj.xyz every 5000 NEB steps.
+neb_run fire 0.01 5000 dt_max 0.5 dt_min 0.01 max_move 0.1 # Run FIRE with a 0.01 eV/A tolerance, at most 5000 steps, a 0.01-0.5 fs time-step range, and a 0.1 A movement limit.

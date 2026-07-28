@@ -22,16 +22,18 @@ The class defining the grouping methods
 #include <vector>
 #include <cstring>
 
-void Group::find_size(const int N, const int k)
+void Group::find_size(const int N, const int k, const bool print_flag)
 {
   cpu_size.resize(number);
   cpu_size_sum.resize(number);
   cpu_contents.resize(N);
 
-  if (number == 1) {
-    printf("There is only one group of atoms in grouping method %d.\n", k);
-  } else {
-    printf("There are %d groups of atoms in grouping method %d.\n", number, k);
+  if (print_flag) {
+    if (number == 1) {
+      printf("There is only one group of atoms in grouping method %d.\n", k);
+    } else {
+      printf("There are %d groups of atoms in grouping method %d.\n", number, k);
+    }
   }
 
   for (int m = 0; m < number; m++) {
@@ -43,8 +45,10 @@ void Group::find_size(const int N, const int k)
     cpu_size[cpu_label[n]]++;
   }
 
-  for (int m = 0; m < number; m++) {
-    printf("    %d atoms in group %d.\n", cpu_size[m], m);
+  if (print_flag) {
+    for (int m = 0; m < number; m++) {
+      printf("    %d atoms in group %d.\n", cpu_size[m], m);
+    }
   }
 
   for (int m = 1; m < number; m++) {

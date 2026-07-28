@@ -9,10 +9,8 @@ There can be several **neb_set** lines, but there should be only one **neb_run**
 All input structure files should be in extended XYZ format.
 - is_name: key 1, initial state input file name. default value: is.xyz
 - fs_name: key 1, final state input file name. default value: fs.xyz
-- has_mid: flag, if the intermediate states are needed.
-- mid_name: key 1, intermediate state input file name. default value: mid.xyz
-- mid_name_list: key variable, several intermediate state input file names.
-- suffix: key 1, set is_name, fs_name and mid_name to is\_{suffix}.xyz, fs\_{suffix}.xyz and mid\_{suffix}.xyz
+- mid_name: key 1, intermediate state input file name. Specifying this key enables the intermediate state.
+- mid_name_list: key variable, several intermediate state input file names. Specifying this key enables all listed intermediate states.
 - traj_name: key 1, whole initial trajectory. If this parameter is set, images are read from the trajectory instead of from is_name, fs_name, and mid_name.
 - interpolate: key 1, number of images inserted between input states. If several initial states are set, the inserted images are distributed evenly.
 - need_relax: flag, relax the initial and final states before the NEB run.
@@ -26,7 +24,7 @@ All input structure files should be in extended XYZ format.
 - remove_rotation: flag, remove rotation from the input images. default value: true
 - find_mic: flag, align each input image to the previous image using the minimum image convention before relaxation, translation removal, and interpolation. default value: false
 - cell_factor: key 1, weight factor used by the variable-cell filter to scale cell degrees of freedom. If unset, it is estimated from the reference cell volume and number of atoms.
-- dist_range: key 2, the min and max distance when checking the image intervals. If the distance is smaller than min_dist, the image will be removed. If the distance is larger than max_dist, a new image will be inserted between the two images. default value: 0.01 0.1
+- dist_range: key 2, the min and max distance when checking the image intervals. If the distance is smaller than min_dist, the image will be removed. If the distance is larger than max_dist, a new image will be inserted between the two images. default value: 0.01 0.5
   - When energy_based_spacing is enabled, the interval-specific dist_range is divided by the current energy-based spacing multiplier.
 - dist_ncount: key 1, count how many largest displacements when computing the distance. Detailed formulation can be found in the supplementary material of my paper.
 
@@ -46,15 +44,22 @@ All input structure files should be in extended XYZ format.
 	- modified: doubly nudged version of improved tangent
 - climb: flag, climbing image feature
 - find_min: flag, fully using real force to relax the minimum images
+- dyneb: flag, enable dynamic relaxation. Intermediate images whose NEB force is below their local convergence threshold are frozen and reuse their previous potential-energy/force result. They are reactivated if changes in neighboring images move them above the threshold. `dynamic_relaxation` is accepted as an alias. default value: false
+- scale_fmax: key 1, nonnegative maximum relative increase of the DYNEB local convergence threshold. The threshold factor is `1 + scale_fmax * (1 - strictness_weight)`, so it is bounded by `1 + scale_fmax`. The strictness weight is the maximum of the normalized-energy weight and Gaussian proximity to any local energy maximum. This option requires `dyneb`. default value: 0
+- dyneb_energy_exponent: key 1, positive exponent applied to the normalized image energy when constructing the DYNEB strictness weight. default value: 1
+- dyneb_peak_width: key 1, Gaussian width in normalized cumulative path coordinate around every local energy maximum. Images close to a maximum retain a convergence threshold near the original `force_tolerance`. Range: `(0, 1]`. default value: 0.1
 - etol: key 1, the energy tolerance that judges if the image is maximum or minimum.
 
 ### Image Number Adjustment
 - no_ina: flag, do not use the image number adjustment feature.
 - If image number adjustment is enabled and only initial/final states are provided, one initial intermediate image is inserted automatically.
 - ina_interval: key 1, the minimal neb steps interval between two image number adjustment operations. default value: 20
+- ina_local_relax_steps: key 1, number of additional local NEB steps performed after an INA insertion or removal. During these steps, only changed images and their selected neighbors are optimized; all other images remain fixed. These local steps do not consume the `max_steps` specified by `neb_run` and are reported separately as `INA local step`; the regular `step` counter remains unchanged during local relaxation. `0` disables this stage. default value: 0
+- ina_local_relax_neighbors: key 1, number of neighboring images on each side included around every inserted image or changed adjacency during INA local relaxation. This option is used when `ina_local_relax_steps > 0`. default value: 1
 - ina_k: flag, adjust spring constants when inserting or removing images.
   - When energy_based_spacing is enabled, ina_k renormalizes the average effective spring constant (`klist * energy_spacing_factor`) to k.
 - ina_k_efficient: key 1, factor used to increase or decrease spring constants during image number adjustment. default value: 1.8
+- ina_insert_midpoint_weight: key 1, weight in [0, 1] used to place an inserted image between the max_dist position and the midpoint. 0 keeps the max_dist position, 1 uses the midpoint. default value: 0
 - ina_force_tol: key variable, staged force residual thresholds for image number adjustment. Values are pairs of stage and residual, where stage is the number of NEB steps since the previous image number adjustment and residual is a positive real. Use a very large residual for an unconditional final stage. If other options follow on the same line, end this option with **ina_force_tol_end**. default value: ina_interval 1 3*ina_interval 3 10*ina_interval 1e100
 - trim_images: flag, remove repeated local-minimum sections before the usual image insertion/removal checks.
 - trim_similar_tol: key 1, position tolerance used by trim_images to judge whether two local minima are the same. default value: 0.001
@@ -81,4 +86,7 @@ The following parameters are optional. For the detail meaning of each parameter,
 - f_inc: key 1. default value: 1.1
 - alpha_start: key 1. default value: 0.25
 - f_alpha: key 1. default value: 0.99
+- alpha_min: key 1, lower bound for the FIRE mixing parameter after multiplication by `f_alpha`. It applies to both global and imagewise FIRE. `0` preserves the original unrestricted decay. Range: `[0, alpha_start]`. default value: 0
 - N_min: key 1. default value: 20
+- imagewise: flag, use independent FIRE time step, mixing parameter, positive-power counter, velocity norm, and force norm for every movable NEB image. NEB forces remain coupled through the tangent and springs, while optimizer state and FIRE resets are image-local. Images with zero force are frozen until they become active again. This option is intended for NEB calculations using the BaseAtoms block interface. default value: false
+- min_alignment_cosine: key 1, minimum allowed cosine between the velocity and force vectors of each image. The image enters the positive-power FIRE branch only when `v dot F - min_alignment_cosine * |v| * |F| > 0`; otherwise only that image is reset. `0` exactly recovers the original power-sign criterion. This option requires `imagewise`. Range: `[0, 1)`. default value: 0
