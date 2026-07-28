@@ -334,6 +334,76 @@ torch::Dict<std::string, torch::Tensor> TorchMonitor::predict(
     // }
 }
 
+torch::Tensor TorchMonitor::select_cv_output(const torch::Dict<std::string, torch::Tensor>& outputs) {
+    torch::Tensor cvs;
+    if (outputs.contains("cv_now")) {
+        cvs = outputs.at("cv_now");
+    } else if (outputs.contains("cv")) {
+        cvs = outputs.at("cv");
+    } else if (outputs.contains("commitor")) {
+        cvs = outputs.at("commitor");
+    } else {
+        throw std::runtime_error("GAS monitor model output must contain cv_now, cv, or commitor.");
+    }
+    cvs = cvs.reshape({-1}).to(torch::kFloat64);
+    if (!cvs.is_cuda()) {
+        cvs = cvs.to(torch::kCUDA);
+    }
+    return cvs;
+}
+
+int TorchMonitor::evaluate_ffs_event(const torch::Tensor& cvs) {
+    torch::Tensor cpu_cvs = cvs.reshape({-1}).to(torch::kCPU).to(torch::kFloat64);
+    const int cv_count = static_cast<int>(cpu_cvs.size(0));
+    if (config.ffs_cv_index < 0 || config.ffs_cv_index >= cv_count) {
+        throw std::runtime_error("ffs_cv_index is out of bounds for GAS monitor CV output.");
+    }
+    const double cv = cpu_cvs[config.ffs_cv_index].item<double>();
+    if (config.ffs_direction >= 0) {
+        if (cv >= config.ffs_target_interface) {
+            return 1;
+        }
+        if (config.ffs_stop_on_fail && cv <= config.ffs_fail_interface) {
+            return -1;
+        }
+    } else {
+        if (cv <= config.ffs_target_interface) {
+            return 1;
+        }
+        if (config.ffs_stop_on_fail && cv >= config.ffs_fail_interface) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+bool TorchMonitor::should_stop_from_outputs(
+    const torch::Dict<std::string, torch::Tensor>& outputs,
+    int legacy_target_stage) {
+    torch_now_cvs = select_cv_output(outputs);
+
+    int event_status = 0;
+    if (config.ffs_enabled) {
+        event_status = evaluate_ffs_event(torch_now_cvs);
+    } else if (outputs.contains("status")) {
+        const int status = outputs.at("status").to(torch::kCPU).item<int>();
+        if (legacy_target_stage <= 1) {
+            event_status = (status == 0) ? 0 : 1;
+        } else if (status >= legacy_target_stage) {
+            event_status = 1;
+        } else if (status == 0) {
+            event_status = -1;
+        }
+    } else {
+        throw std::runtime_error("GAS monitor needs either a model status output or ffs_enabled YAML fields.");
+    }
+
+    torch_bias = torch::tensor(
+        {static_cast<double>(event_status)},
+        torch::TensorOptions().dtype(torch::kFloat64).device(torch::kCUDA));
+    return event_status != 0;
+}
+
 bool TorchMonitor::process(
     Box& box,
     const GPU_Vector<double>& positions,
@@ -360,15 +430,18 @@ bool TorchMonitor::process(
     //计算和取出输出
     auto output_dict = this->predict(inputs);
     torch::cuda::synchronize();
-    torch_now_cvs = output_dict.at("commitor");
-    torch_bias = output_dict.at("status");
+    const bool should_stop = this->should_stop_from_outputs(output_dict, target_stage);
     torch::cuda::synchronize();
     if(now_step%config.cv_log_interval==0){
       this->logCV_runtime();
     }
     now_step++;
 
-    if(torch_bias.item<int>() == 0){return false;}else{this->logCV_runtime();return true;}
+    if(should_stop){
+      this->logCV_runtime();
+      return true;
+    }
+    return false;
     }
 
 bool TorchMonitor::process(
@@ -396,33 +469,18 @@ bool TorchMonitor::process(
     //计算和取出输出
     auto output_dict = this->predict(inputs);
     torch::cuda::synchronize();
-    torch_now_cvs = output_dict.at("commitor");
-    torch_bias = output_dict.at("status");
+    const bool should_stop = this->should_stop_from_outputs(output_dict, target_stage);
     torch::cuda::synchronize();
     if(now_step%config.cv_log_interval==0){
       this->logCV_runtime();
     }
     now_step++;
-    if(target_stage==1){
-      if(torch_bias.item<int>() ==0){
-        return false;
-      }
-      else{
-        this->logCV_runtime();
-        return true;
-      }
+
+    if(should_stop){
+      this->logCV_runtime();
+      return true;
     }
-    else{
-      if(torch_bias.item<int>() >=target_stage){
-        this->logCV_runtime();
-        return true;
-      }
-      else if(torch_bias.item<int>() ==0){
-        this->logCV_runtime();
-        return true;
-      }
-    }
-    
+    return false;
     }
 
 
