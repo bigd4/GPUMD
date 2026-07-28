@@ -118,7 +118,6 @@ private:
   double k = 0.1;
   bool energy_based_spacing = false;
   std::vector<double> pressure = {0.0};
-  bool has_mid = false;
   int n_interpolate = 0;
   bool need_relax = false;
   bool climb = false;
@@ -165,7 +164,7 @@ private:
   int max_steps = 0;
   std::string istate_name = "is.xyz";
   std::string fstate_name = "fs.xyz";
-  std::string mid_name = "mid.xyz";
+  std::string mid_name;
   std::string traj_name = "";
   std::vector<std::string> mid_name_list;
   std::string tangent_method_name = "improved";

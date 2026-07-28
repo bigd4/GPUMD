@@ -2,7 +2,6 @@ potential ./nep.txt                 # Load the NEP potential from nep.txt.
 neb_set is_name is.xyz              # Use is.xyz as the initial-state structure.
 neb_set fs_name fs.xyz              # Use fs.xyz as the final-state structure.
 neb_set mid_name mid.xyz            # Use mid.xyz as the intermediate-state structure.
-neb_set has_mid                     # Include the specified intermediate state in the initial path.
 neb_set interpolate 5               # Insert five linearly interpolated images across the input-state segments.
 neb_set need_relax                  # Relax the initial and final states before the NEB optimization.
 neb_set find_mic                    # Align each input image to the previous one using the minimum-image convention.

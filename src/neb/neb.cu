@@ -811,8 +811,6 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     require_option_values(param, num_param, n, 1, "neb_set");
     fstate_name.assign(param[n+1]);
     n++;
-  } else if (strcmp(param[n], "has_mid") == 0){
-    has_mid = true;
   } else if (strcmp(param[n], "mid_name") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     mid_name.assign(param[n+1]);
@@ -827,13 +825,6 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("mid_name_list should contain at least one filename.");
     }
     n = i;
-  } else if (strcmp(param[n], "suffix") == 0){
-    require_option_values(param, num_param, n, 1, "neb_set");
-    string suffix(param[n+1]);
-    istate_name.assign("is_"+suffix+".xyz");
-    fstate_name.assign("fs_"+suffix+".xyz");
-    mid_name.assign("mid_"+suffix+".xyz");
-    n++;
   } else if (strcmp(param[n], "traj_name") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     traj_name.assign(param[n+1]);
@@ -1297,7 +1288,6 @@ void NEB::initialize_images() {
     input.close();
   }
   else {
-    printf("midname: %s\n", mid_name.data());
     Atoms *p_is = new Atoms(istate_name.data());
     Atoms *p_fs = new Atoms(fstate_name.data());
     h_ref.assign(p_is->box.cpu_h, p_is->box.cpu_h+9);
@@ -1308,17 +1298,22 @@ void NEB::initialize_images() {
     // print_gpu(tmp_h2, "tmp_h2");
     // cell_best_match(tmp_h.data(), tmp_h2.data(), tmp_h2.data());
     // print_gpu(tmp_h2, "tmp_h2");
-    if (mid_name_list.size() == 0) mid_name_list.push_back(mid_name);
+    if (!mid_name.empty() && mid_name_list.empty()) {
+      mid_name_list.push_back(mid_name);
+    }
+    if (!mid_name_list.empty()) {
+      printf("intermediate states:");
+      for (const auto& name : mid_name_list) printf(" %s", name.data());
+      printf("\n");
+    }
     // print_arr(h_ref.data(), 9, "vector h_ref");
     if (!variable_cell){
       images.push_back(unique_ptr<Atoms>(p_is));
-      if (has_mid){
-        for (int i=0; i<mid_name_list.size(); i++){
-          Atoms *p_tmp = new Atoms((mid_name_list[i]).data());
-          images.push_back(unique_ptr<Atoms>(p_tmp));
-          imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
-          // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
-        }
+      for (int i=0; i<mid_name_list.size(); i++){
+        Atoms *p_tmp = new Atoms((mid_name_list[i]).data());
+        images.push_back(unique_ptr<Atoms>(p_tmp));
+        imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
+        // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
       }
       images.push_back(unique_ptr<Atoms>(p_fs));
     } else{
@@ -1327,14 +1322,12 @@ void NEB::initialize_images() {
           pow(p_is->box.get_volume() / p_is->get_natoms(), 1.0 / 3.0);
       }
       images.push_back(make_cell_filter(*p_is, pressure, h_ref.data(), remove_rotation, cell_factor));
-      if (has_mid){
-        for (int i=0; i<mid_name_list.size(); i++){
-          Atoms *p_tmp = new_cell_filter(
-            (mid_name_list[i]).data(), pressure, h_ref.data(), remove_rotation, cell_factor);
-          images.push_back(unique_ptr<Atoms>(p_tmp));
-          imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
-          // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
-        }
+      for (int i=0; i<mid_name_list.size(); i++){
+        Atoms *p_tmp = new_cell_filter(
+          (mid_name_list[i]).data(), pressure, h_ref.data(), remove_rotation, cell_factor);
+        images.push_back(unique_ptr<Atoms>(p_tmp));
+        imid_list.push_back((i+1)*n_interpolate/(mid_name_list.size()+1));
+        // mid_list.push_back(make_pair((i+1)*n_interpolate/(mid_name_list.size()+1) + 1, p_tmp));
       }
       images.push_back(make_cell_filter(*p_fs, pressure, h_ref.data(), remove_rotation, cell_factor));
     }
@@ -1522,8 +1515,8 @@ void NEB::run_neb() {
     print_setting("energy_spacing_exponent", energy_spacing_exponent, 4);
     print_setting("energy_spacing_dist_power", energy_spacing_dist_power, 4);
   }
-  print_setting("has_mid", has_mid);
-  if (has_mid) print_setting("n_interpolate", n_interpolate, 4);
+  print_setting("intermediate_states", !mid_name_list.empty());
+  if (!mid_name_list.empty()) print_setting("n_interpolate", n_interpolate, 4);
   print_setting("need_relax", need_relax);
   print_setting("remove_translation", remove_translation);
   print_setting("remove_rotation", remove_rotation);

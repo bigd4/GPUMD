@@ -9,10 +9,8 @@ There can be several **neb_set** lines, but there should be only one **neb_run**
 All input structure files should be in extended XYZ format.
 - is_name: key 1, initial state input file name. default value: is.xyz
 - fs_name: key 1, final state input file name. default value: fs.xyz
-- has_mid: flag, if the intermediate states are needed.
-- mid_name: key 1, intermediate state input file name. default value: mid.xyz
-- mid_name_list: key variable, several intermediate state input file names.
-- suffix: key 1, set is_name, fs_name and mid_name to is\_{suffix}.xyz, fs\_{suffix}.xyz and mid\_{suffix}.xyz
+- mid_name: key 1, intermediate state input file name. Specifying this key enables the intermediate state.
+- mid_name_list: key variable, several intermediate state input file names. Specifying this key enables all listed intermediate states.
 - traj_name: key 1, whole initial trajectory. If this parameter is set, images are read from the trajectory instead of from is_name, fs_name, and mid_name.
 - interpolate: key 1, number of images inserted between input states. If several initial states are set, the inserted images are distributed evenly.
 - need_relax: flag, relax the initial and final states before the NEB run.
