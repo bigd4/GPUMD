@@ -83,6 +83,15 @@ public:
   {
   }
 
+  virtual void report_imagewise_minimizer_state(
+    const std::vector<double>& dt,
+    const std::vector<double>& power,
+    const std::vector<double>& alpha,
+    const std::vector<int>& n_positive,
+    const std::vector<int>& reset)
+  {
+  }
+
   // virtual void set_box(GPU_Vector<double> h0);
 
   virtual void set_calc(Force& force){

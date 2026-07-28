@@ -1560,6 +1560,15 @@ void NEB::run_neb() {
     }
     fprintf(fire_file, "# step dt power alpha n_positive reset\n");
     fclose(fire_file);
+
+    FILE* imagewise_fire_file = fopen("neb_fire_imagewise.out", "w");
+    if (imagewise_fire_file == nullptr) {
+      PRINT_INPUT_ERROR("Failed to open neb_fire_imagewise.out.");
+    }
+    fprintf(
+      imagewise_fire_file,
+      "# step image dt power alpha n_positive reset\n");
+    fclose(imagewise_fire_file);
   }
 
   if (inacc_num < 1) inacc_num *= n_realatoms;
@@ -2000,6 +2009,43 @@ void NEB::report_minimizer_state(
     alpha,
     n_positive,
     reset ? 1 : 0);
+  fclose(fid);
+}
+
+void NEB::report_imagewise_minimizer_state(
+  const vector<double>& dt,
+  const vector<double>& power,
+  const vector<double>& alpha,
+  const vector<int>& n_positive,
+  const vector<int>& reset)
+{
+  if (diagnostic_interval <= 0) return;
+  const int completed_step = step - 1;
+  if (completed_step < 0 || completed_step % diagnostic_interval != 0) return;
+  if (
+    dt.size() != power.size() ||
+    dt.size() != alpha.size() ||
+    dt.size() != n_positive.size() ||
+    dt.size() != reset.size()) {
+    PRINT_INPUT_ERROR("Invalid imagewise FIRE diagnostic state.");
+  }
+
+  FILE* fid = fopen("neb_fire_imagewise.out", "a");
+  if (fid == nullptr) {
+    PRINT_INPUT_ERROR("Failed to open neb_fire_imagewise.out.");
+  }
+  for (int image = 0; image < dt.size(); ++image) {
+    fprintf(
+      fid,
+      "%d %d %.10g %.17g %.10g %d %d\n",
+      completed_step,
+      image + 1,
+      dt[image],
+      power[image],
+      alpha[image],
+      n_positive[image],
+      reset[image]);
+  }
   fclose(fid);
 }
 

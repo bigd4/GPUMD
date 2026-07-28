@@ -247,6 +247,13 @@ private:
   void report_minimizer_state(
     double dt, double power, double alpha, int n_positive, bool reset) override;
 
+  void report_imagewise_minimizer_state(
+    const std::vector<double>& dt,
+    const std::vector<double>& power,
+    const std::vector<double>& alpha,
+    const std::vector<int>& n_positive,
+    const std::vector<int>& reset) override;
+
 public:
   std::vector<std::unique_ptr<Atoms>> images;
   std::vector<double> image_energies;

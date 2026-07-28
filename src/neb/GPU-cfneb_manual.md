@@ -88,4 +88,7 @@ The following parameters are optional. For the detail meaning of each parameter,
 - f_inc: key 1. default value: 1.1
 - alpha_start: key 1. default value: 0.25
 - f_alpha: key 1. default value: 0.99
+- alpha_min: key 1, lower bound for the FIRE mixing parameter after multiplication by `f_alpha`. It applies to both global and imagewise FIRE. `0` preserves the original unrestricted decay. Range: `[0, alpha_start]`. default value: 0
 - N_min: key 1. default value: 20
+- imagewise: flag, use independent FIRE time step, mixing parameter, positive-power counter, velocity norm, and force norm for every movable NEB image. NEB forces remain coupled through the tangent and springs, while optimizer state and FIRE resets are image-local. Images with zero force are frozen until they become active again. This option is intended for NEB calculations using the BaseAtoms block interface. default value: false
+- min_alignment_cosine: key 1, minimum allowed cosine between the velocity and force vectors of each image. The image enters the positive-power FIRE branch only when `v dot F - min_alignment_cosine * |v| * |F| > 0`; otherwise only that image is reset. `0` exactly recovers the original power-sign criterion. This option requires `imagewise`. Range: `[0, 1)`. default value: 0

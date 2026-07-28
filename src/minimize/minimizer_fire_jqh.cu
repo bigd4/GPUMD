@@ -20,6 +20,8 @@ Reference: PhysRevLett 97, 170201 (2006)
 ------------------------------------------------------------------------------*/
 
 #include "minimizer_fire_jqh.cuh"
+#include <algorithm>
+#include <numeric>
 using namespace std;
 
 namespace
@@ -59,6 +61,139 @@ __global__ void gpu_cell_metric_copy(
     int local = n % block_size;
     dst[n] = (local >= real_atoms_per_block * 3) ? src[n] / cell_metric_scale : src[n];
   }
+}
+
+__global__ void gpu_imagewise_reduce(
+  const int image_size,
+  const double* velocity,
+  const double* force,
+  double* power,
+  double* velocity_square,
+  double* force_square)
+{
+  const int image = blockIdx.x;
+  const int offset = image * image_size;
+  double local_power = 0.0;
+  double local_velocity_square = 0.0;
+  double local_force_square = 0.0;
+  for (int component = threadIdx.x; component < image_size; component += blockDim.x) {
+    const double velocity_value = velocity[offset + component];
+    const double force_value = force[offset + component];
+    local_power += velocity_value * force_value;
+    local_velocity_square += velocity_value * velocity_value;
+    local_force_square += force_value * force_value;
+  }
+
+  __shared__ double block_power[256];
+  __shared__ double block_velocity_square[256];
+  __shared__ double block_force_square[256];
+  block_power[threadIdx.x] = local_power;
+  block_velocity_square[threadIdx.x] = local_velocity_square;
+  block_force_square[threadIdx.x] = local_force_square;
+  __syncthreads();
+  for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+    if (threadIdx.x < stride) {
+      block_power[threadIdx.x] += block_power[threadIdx.x + stride];
+      block_velocity_square[threadIdx.x] +=
+        block_velocity_square[threadIdx.x + stride];
+      block_force_square[threadIdx.x] += block_force_square[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) {
+    power[image] = block_power[0];
+    velocity_square[image] = block_velocity_square[0];
+    force_square[image] = block_force_square[0];
+  }
+}
+
+__global__ void gpu_imagewise_reset(
+  const int size,
+  const int image_size,
+  const double* image_dt,
+  const int* reset,
+  double* position,
+  double* velocity)
+{
+  const int component = blockDim.x * blockIdx.x + threadIdx.x;
+  if (component >= size) return;
+  const int image = component / image_size;
+  if (reset[image] == 1) {
+    position[component] -= 0.5 * image_dt[image] * velocity[component];
+    velocity[component] = 0.0;
+  } else if (reset[image] == 2) {
+    velocity[component] = 0.0;
+  }
+}
+
+__global__ void gpu_imagewise_integrate(
+  const int size,
+  const int image_size,
+  const double inverse_mass,
+  const double* image_dt,
+  const double* one_minus_alpha,
+  const double* mixing_scale,
+  const double* force,
+  double* velocity,
+  double* displacement)
+{
+  const int component = blockDim.x * blockIdx.x + threadIdx.x;
+  if (component >= size) return;
+  const int image = component / image_size;
+  double velocity_value =
+    velocity[component] + image_dt[image] * inverse_mass * force[component];
+  velocity_value =
+    one_minus_alpha[image] * velocity_value +
+    mixing_scale[image] * force[component];
+  velocity[component] = velocity_value;
+  displacement[component] = image_dt[image] * velocity_value;
+}
+
+__global__ void gpu_imagewise_metric_max(
+  const int image_size,
+  const int real_size,
+  const double cell_metric_scale,
+  const double* displacement,
+  double* displacement_max)
+{
+  const int image = blockIdx.x;
+  const int offset = image * image_size;
+  double local_max = 0.0;
+  for (int component = threadIdx.x; component < image_size; component += blockDim.x) {
+    double value = abs(displacement[offset + component]);
+    if (component >= real_size) value /= cell_metric_scale;
+    local_max = max(local_max, value);
+  }
+
+  __shared__ double block_max[256];
+  block_max[threadIdx.x] = local_max;
+  __syncthreads();
+  for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+    if (threadIdx.x < stride) {
+      block_max[threadIdx.x] =
+        max(block_max[threadIdx.x], block_max[threadIdx.x + stride]);
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) displacement_max[image] = block_max[0];
+}
+
+__global__ void gpu_imagewise_apply_move(
+  const int size,
+  const int image_size,
+  const double max_move,
+  const double* displacement_max,
+  const double* displacement,
+  double* position)
+{
+  const int component = blockDim.x * blockIdx.x + threadIdx.x;
+  if (component >= size) return;
+  const int image = component / image_size;
+  const double scale =
+    displacement_max[image] > max_move ?
+      max_move / displacement_max[image] :
+      1.0;
+  position[component] += scale * displacement[component];
 }
 
 void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
@@ -222,12 +357,32 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
         PRINT_INPUT_ERROR("f_alpha should be a number.");
       }
       n++;
+    } else if (strcmp(param[n], "alpha_min") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
+      if (!is_valid_real(param[n+1], &alpha_min)) {
+        PRINT_INPUT_ERROR("alpha_min should be a number.");
+      }
+      if (alpha_min < 0.0) {
+        PRINT_INPUT_ERROR("alpha_min should be >= 0.");
+      }
+      n++;
     } else if (strcmp(param[n], "N_min") == 0){
       require_option_values(param, num_param, n, 1, "vcfire");
       if (!is_valid_int(param[n+1], &N_min)) {
         PRINT_INPUT_ERROR("N_min should be an int.");
       }
       n++;
+    } else if (strcmp(param[n], "min_alignment_cosine") == 0){
+      require_option_values(param, num_param, n, 1, "vcfire");
+      if (!is_valid_real(param[n+1], &min_alignment_cosine)) {
+        PRINT_INPUT_ERROR("min_alignment_cosine should be a number.");
+      }
+      if (min_alignment_cosine < 0.0 || min_alignment_cosine >= 1.0) {
+        PRINT_INPUT_ERROR("min_alignment_cosine should be >= 0 and < 1.");
+      }
+      n++;
+    } else if (strcmp(param[n], "imagewise") == 0){
+      imagewise = true;
     } else if (strcmp(param[n], "rotation_free") == 0){
       ;
     } else {
@@ -235,6 +390,12 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
     text += param[n];
     PRINT_INPUT_ERROR(text.data());
     }
+  }
+  if (min_alignment_cosine > 0.0 && !imagewise) {
+    PRINT_INPUT_ERROR("min_alignment_cosine requires imagewise FIRE.");
+  }
+  if (alpha_min > alpha_start) {
+    PRINT_INPUT_ERROR("alpha_min should be <= alpha_start.");
   }
   if (printflag){
     print_para();
@@ -259,7 +420,12 @@ void Minimizer_FIRE_JQH::print_para(){
   printf("%12s = %g\n", "f_inc", f_inc);
   printf("%12s = %g\n", "alpha_start", alpha_start);
   printf("%12s = %g\n", "f_alpha", f_alpha);
+  printf("%12s = %g\n", "alpha_min", alpha_min);
   printf("%12s = %d\n", "N_min", N_min);
+  printf("%12s = %s\n", "imagewise", imagewise ? "true" : "false");
+  if (imagewise) {
+    printf("%12s = %g\n", "min_alignment_cosine", min_alignment_cosine);
+  }
   printf("----------------------------------------\n");
 }
 
@@ -270,6 +436,9 @@ void Minimizer_FIRE_JQH::compute(
   GPU_Vector<double>& position_per_atom,
   std::vector<Group>& group)
 {
+  if (imagewise) {
+    PRINT_INPUT_ERROR("imagewise FIRE requires the BaseAtoms block interface.");
+  }
   double next_dt;
   const int size = number_of_atoms_ * 3;
   int base = (number_of_steps_ >= 10) ? (number_of_steps_ / 10) : 1;
@@ -304,13 +473,12 @@ void Minimizer_FIRE_JQH::compute(
         next_dt = dt * f_inc;
         if (next_dt < dt_max)
           dt = next_dt;
-        alpha *= f_alpha;
+        alpha = max(alpha * f_alpha, alpha_min);
       }
       N_neg++;
     } else {
       next_dt = dt * f_dec;
-      if (next_dt > dt_min)
-        dt = next_dt;
+      dt = max(next_dt, dt_min);
       alpha = alpha_start;
       // move position back
       scalar_multiply(-0.5 * dt, v, temp1);
@@ -339,6 +507,10 @@ void Minimizer_FIRE_JQH::compute(
 
 void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
 {
+  if (imagewise) {
+    compute_imagewise(atoms);
+    return;
+  }
   if (printflag) printf("---------------minimizer jqh---------------\n");
   double next_dt;
   const int size = number_of_atoms_ * 3;
@@ -395,14 +567,13 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
         next_dt = dt * f_inc;
         if (next_dt < dt_max)
           dt = next_dt;
-        alpha *= f_alpha;
+        alpha = max(alpha * f_alpha, alpha_min);
       }
       N_neg++;
     } else {
       fire_reset = true;
       next_dt = dt * f_dec;
-      if (next_dt > dt_min)
-        dt = next_dt;
+      dt = max(next_dt, dt_min);
       alpha = alpha_start;
       // move position back
       scalar_multiply(-0.5 * dt, v, temp1);
@@ -434,6 +605,183 @@ void Minimizer_FIRE_JQH::compute(BaseAtoms& atoms)
     // print_gpu(position_per_atom, "r2"); 
     // printf("sizeof minimizer pos %d\n", position_per_atom.size());
     // print_gpu(position_per_atom, "minimizer pos");
+  }
+
+  if (printflag) printf("Energy minimization finished.\n");
+}
+
+void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
+{
+  if (printflag) printf("----------imagewise minimizer jqh----------\n");
+  const int size = number_of_atoms_ * 3;
+  const int atoms_per_image = atoms.get_atoms_per_block();
+  const int real_atoms_per_image = atoms.get_real_atom_count_per_block();
+  const int image_size = atoms_per_image * 3;
+  const int real_size = real_atoms_per_image * 3;
+  if (
+    atoms_per_image <= 0 ||
+    real_atoms_per_image <= 0 ||
+    real_atoms_per_image > atoms_per_image ||
+    size % image_size != 0) {
+    PRINT_INPUT_ERROR("Invalid block layout for imagewise FIRE.");
+  }
+  const int number_of_images = size / image_size;
+  if (number_of_images <= 0) {
+    PRINT_INPUT_ERROR("imagewise FIRE requires at least one movable image.");
+  }
+  if (printflag) {
+    printf(
+      "Imagewise FIRE: %d blocks, %d degrees of freedom per block.\n",
+      number_of_images,
+      image_size);
+  }
+
+  const int base = (number_of_steps_ >= 10) ? (number_of_steps_ / 10) : 1;
+  GPU_Vector<double> velocity(size, 0.0);
+  GPU_Vector<double> displacement(size);
+  GPU_Vector<double> metric_temp(size);
+  GPU_Vector<double> gpu_power(number_of_images);
+  GPU_Vector<double> gpu_velocity_square(number_of_images);
+  GPU_Vector<double> gpu_force_square(number_of_images);
+  GPU_Vector<double> gpu_dt(number_of_images);
+  GPU_Vector<double> gpu_one_minus_alpha(number_of_images);
+  GPU_Vector<double> gpu_mixing_scale(number_of_images);
+  GPU_Vector<double> gpu_displacement_max(number_of_images);
+  GPU_Vector<int> gpu_reset(number_of_images);
+
+  vector<double> image_dt(number_of_images, dt);
+  vector<double> image_alpha(number_of_images, alpha_start);
+  vector<double> image_power(number_of_images);
+  vector<double> velocity_square(number_of_images);
+  vector<double> force_square(number_of_images);
+  vector<double> one_minus_alpha(number_of_images);
+  vector<double> mixing_scale(number_of_images);
+  vector<double> dt_report(number_of_images);
+  vector<int> n_positive(number_of_images, 0);
+  vector<int> reset(number_of_images, 0);
+
+  GPU_Vector<double>& position_per_atom = atoms.get_positions();
+  GPU_Vector<double>& potential_per_atom = atoms.get_potential_per_atom();
+  GPU_Vector<double>& force_per_atom = atoms.get_forces();
+  if (
+    position_per_atom.size() != size ||
+    force_per_atom.size() != size) {
+    PRINT_INPUT_ERROR("Vector size does not match imagewise FIRE layout.");
+  }
+
+  if (printflag) printf("\nEnergy minimization started.\n");
+  for (int step = 0; step < number_of_steps_; ++step) {
+    atoms.compute();
+    const double force_max =
+      metric_max_abs(atoms, force_per_atom, metric_temp, cell_metric_scale);
+    const bool stop_after_force_max = atoms.update_minimizer_force_max(force_max);
+    calculate_total_potential(potential_per_atom);
+
+    if (step % base == 0 || force_max < force_tolerance_ || stop_after_force_max) {
+      if (printflag) printf(
+        "    step %d: total_energy = %.10f eV, f_max = %.10f eV/A.\n",
+        step,
+        atoms.get_energy(),
+        force_max);
+      fflush(stdout);
+      if (force_max < force_tolerance_ || stop_after_force_max) break;
+    }
+
+    gpu_imagewise_reduce<<<number_of_images, 256>>>(
+      image_size,
+      velocity.data(),
+      force_per_atom.data(),
+      gpu_power.data(),
+      gpu_velocity_square.data(),
+      gpu_force_square.data());
+    GPU_CHECK_KERNEL;
+    gpu_power.copy_to_host(image_power.data());
+    gpu_velocity_square.copy_to_host(velocity_square.data());
+    gpu_force_square.copy_to_host(force_square.data());
+
+    for (int image = 0; image < number_of_images; ++image) {
+      reset[image] = 0;
+      if (force_square[image] <= 1.0e-30) {
+        reset[image] = 2;
+        image_power[image] = 0.0;
+        one_minus_alpha[image] = 1.0 - image_alpha[image];
+        mixing_scale[image] = 0.0;
+        continue;
+      }
+
+      const double effective_power =
+        image_power[image] -
+        min_alignment_cosine *
+          sqrt(velocity_square[image] * force_square[image]);
+      if (effective_power > 0.0) {
+        if (n_positive[image] > N_min) {
+          const double next_dt = image_dt[image] * f_inc;
+          if (next_dt < dt_max) image_dt[image] = next_dt;
+          image_alpha[image] =
+            max(image_alpha[image] * f_alpha, alpha_min);
+        }
+        n_positive[image]++;
+      } else {
+        image_dt[image] = max(image_dt[image] * f_dec, dt_min);
+        image_alpha[image] = alpha_start;
+        n_positive[image] = 0;
+        velocity_square[image] = 0.0;
+        reset[image] = 1;
+      }
+
+      one_minus_alpha[image] = 1.0 - image_alpha[image];
+      mixing_scale[image] =
+        image_alpha[image] *
+        sqrt(velocity_square[image] / force_square[image]);
+    }
+
+    for (int image = 0; image < number_of_images; ++image) {
+      dt_report[image] = image_dt[image] * TIME_UNIT_CONVERSION;
+    }
+    atoms.report_imagewise_minimizer_state(
+      dt_report, image_power, image_alpha, n_positive, reset);
+    atoms.report_minimizer_state(
+      *max_element(dt_report.begin(), dt_report.end()),
+      accumulate(image_power.begin(), image_power.end(), 0.0),
+      *min_element(image_alpha.begin(), image_alpha.end()),
+      *max_element(n_positive.begin(), n_positive.end()),
+      any_of(reset.begin(), reset.end(), [](int value) { return value == 1; }));
+
+    gpu_dt.copy_from_host(image_dt.data());
+    gpu_one_minus_alpha.copy_from_host(one_minus_alpha.data());
+    gpu_mixing_scale.copy_from_host(mixing_scale.data());
+    gpu_reset.copy_from_host(reset.data());
+    gpu_imagewise_reset<<<(size - 1) / 256 + 1, 256>>>(
+      size,
+      image_size,
+      gpu_dt.data(),
+      gpu_reset.data(),
+      position_per_atom.data(),
+      velocity.data());
+    gpu_imagewise_integrate<<<(size - 1) / 256 + 1, 256>>>(
+      size,
+      image_size,
+      1.0 / m,
+      gpu_dt.data(),
+      gpu_one_minus_alpha.data(),
+      gpu_mixing_scale.data(),
+      force_per_atom.data(),
+      velocity.data(),
+      displacement.data());
+    gpu_imagewise_metric_max<<<number_of_images, 256>>>(
+      image_size,
+      real_size,
+      cell_metric_scale,
+      displacement.data(),
+      gpu_displacement_max.data());
+    gpu_imagewise_apply_move<<<(size - 1) / 256 + 1, 256>>>(
+      size,
+      image_size,
+      max_move,
+      gpu_displacement_max.data(),
+      displacement.data(),
+      position_per_atom.data());
+    GPU_CHECK_KERNEL;
   }
 
   if (printflag) printf("Energy minimization finished.\n");
