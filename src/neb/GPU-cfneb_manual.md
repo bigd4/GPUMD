@@ -56,7 +56,7 @@ All input structure files should be in extended XYZ format.
 - no_ina: flag, do not use the image number adjustment feature.
 - If image number adjustment is enabled and only initial/final states are provided, one initial intermediate image is inserted automatically.
 - ina_interval: key 1, the minimal neb steps interval between two image number adjustment operations. default value: 20
-- ina_local_relax_steps: key 1, number of local NEB steps performed after an INA insertion or removal. During these steps, only changed images and their selected neighbors are optimized; all other images remain fixed. `0` disables this stage. default value: 0
+- ina_local_relax_steps: key 1, number of additional local NEB steps performed after an INA insertion or removal. During these steps, only changed images and their selected neighbors are optimized; all other images remain fixed. These local steps do not consume the `max_steps` specified by `neb_run` and are reported separately as `INA local step`; the regular `step` counter remains unchanged during local relaxation. `0` disables this stage. default value: 0
 - ina_local_relax_neighbors: key 1, number of neighboring images on each side included around every inserted image or changed adjacency during INA local relaxation. This option is used when `ina_local_relax_steps > 0`. default value: 1
 - ina_k: flag, adjust spring constants when inserting or removing images.
   - When energy_based_spacing is enabled, ina_k renormalizes the average effective spring constant (`klist * energy_spacing_factor`) to k.

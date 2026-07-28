@@ -14,8 +14,6 @@ neb_set etol 0.5                    # Use 0.5 eV as the tolerance for identifyin
 neb_set dist_range 0.03 0.8         # Remove or insert images when path intervals fall below 0.03 or exceed 0.8.
 neb_set dist_ncount 20              # Use the 20 largest atomic displacements to evaluate each path interval.
 neb_set ina_interval 20             # Allow image-number adjustment no more often than every 20 NEB steps.
-neb_set ina_local_relax_steps 20    # Perform 20 local NEB relaxation steps after an image is inserted or removed.
-neb_set ina_local_relax_neighbors 2 # Include two neighboring images on each side in local INA relaxation.
 neb_set peek_interval 300           # Overwrite peek_traj.xyz and neb_energies.out every 300 NEB steps.
 neb_set dump_interval 5000          # Append the NEB trajectory to dump_traj.xyz every 5000 NEB steps.
 neb_run fire 0.01 5000 dt_max 0.5 dt_min 0.01 max_move 0.1 # Run FIRE with a 0.01 eV/A tolerance, at most 5000 steps, a 0.01-0.5 fs time-step range, and a 0.1 A movement limit.

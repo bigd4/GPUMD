@@ -190,6 +190,7 @@ private:
   double last_energy = 0.0;
   int ina_count = 0;
   int step = 0;
+  int ina_local_steps_completed = 0;
   bool count_force_calc = false;
   int n_force_calc = 0;
   double force_tolerance;

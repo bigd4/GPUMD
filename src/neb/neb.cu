@@ -1023,7 +1023,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("ina_local_relax_steps should be an int.");
     }
     if (ina_local_relax_steps < 0) {
-      PRINT_INPUT_ERROR("ina_local_relax_steps should >= 0.");
+      PRINT_INPUT_ERROR("ina_local_relax_steps should be >= 0.");
     }
     n++;
   } else if (strcmp(param[n], "ina_local_relax_neighbors") == 0){
@@ -1032,7 +1032,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
       PRINT_INPUT_ERROR("ina_local_relax_neighbors should be an int.");
     }
     if (ina_local_relax_neighbors < 0) {
-      PRINT_INPUT_ERROR("ina_local_relax_neighbors should >= 0.");
+      PRINT_INPUT_ERROR("ina_local_relax_neighbors should be >= 0.");
     }
     n++;
   } else if (strcmp(param[n], "ina_k") == 0){
@@ -1207,8 +1207,9 @@ void NEB::reset_minimizer(
   int number_of_atoms, int max_steps, double force_tolerance, bool print_flag) {
   switch (minimizer_type) {
   case 1: {
-    printf("----------------------------------------\n");
-    printf("New minimization, maximally %d steps.\n", max_steps);
+    const char* indent = ina_local_relax_remaining > 0 ? "    " : "";
+    printf("%s----------------------------------------\n", indent);
+    printf("%sNew minimization, maximally %d steps.\n", indent, max_steps);
 
     minimizer.reset(new Minimizer_FIRE_JQH(number_of_atoms, max_steps, force_tolerance));
     auto& fire = dynamic_cast<Minimizer_FIRE_JQH&>(*minimizer);
@@ -1650,20 +1651,32 @@ void NEB::run_neb() {
   // -------------------------main loop------------------------------
   if (count_force_calc){
     printf("INA info: step, nimages, n_force_calc, fmax\n");
+    if (ina_local_relax_steps > 0) {
+      printf("    INA local info: local_step, step, nimages, n_force_calc, fmax\n");
+    }
   }
   while (true){
     initialize_compute();
-    reset_minimizer(natoms, max_steps - step, force_tolerance);
+    const int minimizer_steps =
+      ina_local_relax_remaining > 0
+      ? ina_local_relax_remaining
+      : max_steps - step;
+    reset_minimizer(natoms, minimizer_steps, force_tolerance);
     minimizer->compute(*this);
     // printf("neb total steps: %d\n", step);
     if (ina_count != 0) write_energies();
-    if (step >= max_steps) break;
+    if (step >= max_steps && ina_local_relax_remaining == 0) break;
     cublasDnrm2(handle, forces.size(), forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
       // minimizer->reset_number_of_atoms((images.size()-2) * natoms_per_image);
       break;
     }
   }
+  printf(
+    "NEB step summary: regular=%d, INA local=%d, total=%d.\n",
+    step,
+    ina_local_steps_completed,
+    step + ina_local_steps_completed);
   write_energies();
   write_neb_traj("final_traj.xyz", "w");
 }
@@ -1937,9 +1950,12 @@ bool NEB::update_minimizer_force_max(double force_max)
 {
   bool stop_minimizer = false;
   print_info(force_max);
-  if (step % dump_interval == 0 && step != 0) write_neb_traj("dump_traj.xyz", "a");
+  const bool local_relaxation = ina_local_relax_remaining > 0;
+  if (!local_relaxation && step % dump_interval == 0 && step != 0) {
+    write_neb_traj("dump_traj.xyz", "a");
+  }
 
-  if (step % peek_interval == 0 && step != 0){
+  if (!local_relaxation && step % peek_interval == 0 && step != 0){
     write_neb_traj("peek_traj.xyz", "w");
     write_energies();
   }
@@ -1948,9 +1964,10 @@ bool NEB::update_minimizer_force_max(double force_max)
     ina_local_relax_remaining--;
     const bool locally_converged = force_max < force_tolerance;
     if (locally_converged || ina_local_relax_remaining == 0) {
-      const int completed_steps = ina_local_relax_steps - ina_local_relax_remaining;
+      const int completed_steps =
+        ina_local_relax_steps - ina_local_relax_remaining;
       printf(
-        "INA local relaxation finished after %d step(s)%s.\n",
+        "    INA local relaxation finished after %d step(s)%s.\n",
         completed_steps,
         locally_converged ? " (locally converged)" : "");
       ina_local_relax_remaining = 0;
@@ -1959,7 +1976,7 @@ bool NEB::update_minimizer_force_max(double force_max)
       forces.fill(0);
       stop_minimizer = true;
     }
-    step++;
+    ina_local_steps_completed++;
     return stop_minimizer;
   }
 
@@ -1967,7 +1984,8 @@ bool NEB::update_minimizer_force_max(double force_max)
   if (image_number_adjustment && ina_count==0){
     if (print_k) print_arr(k_effective_list.data(), k_effective_list.size(), "k_effective_list");
     forces.fill(0);
-    printf("imaxes before change: ");
+    const char* indent = ina_local_relax_remaining > 0 ? "    " : "";
+    printf("%simaxes before change: ", indent);
     for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
     printf("\n");
     stop_minimizer = true;
@@ -1981,11 +1999,42 @@ void NEB::print_info(double force_max){
   cudaDeviceSynchronize();
   potential_per_atom[0] = *it_max_energy - first_energy;
   fmax = force_max;
-  if (step % print_interval == 0){
-    printf("step: %d, ", step);
+  const bool local_relaxation = ina_local_relax_remaining > 0;
+  const int local_step =
+    local_relaxation
+    ? ina_local_relax_steps - ina_local_relax_remaining + 1
+    : 0;
+  const bool print_this_step =
+    local_relaxation
+    ? (local_step == 1 ||
+       local_step % print_interval == 0 ||
+       local_step == ina_local_relax_steps)
+    : step % print_interval == 0;
+  if (print_this_step){
+    if (local_relaxation) {
+      printf(
+        "    INA local step: %d/%d (NEB step: %d), ",
+        local_step,
+        ina_local_relax_steps,
+        step);
+    } else {
+      printf("step: %d, ", step);
+    }
     printf("emax= %f(%d), ", *it_max_energy - first_energy, int(it_max_energy-image_energies.begin()));
     printf("fmax=%f\n",fmax);
-    if (count_force_calc) printf("INA info: %d\t%d\t%d\t%f\n", step, nimages, n_force_calc, fmax);
+    if (count_force_calc) {
+      if (local_relaxation) {
+        printf(
+          "    INA local info: %d\t%d\t%d\t%d\t%f\n",
+          local_step,
+          step,
+          nimages,
+          n_force_calc,
+          fmax);
+      } else {
+        printf("INA info: %d\t%d\t%d\t%f\n", step, nimages, n_force_calc, fmax);
+      }
+    }
   }
 }
 
@@ -2397,7 +2446,8 @@ void NEB::initialize_compute() {
   printf("neb initialize\n");
   #endif
   nimages = images.size();
-  printf("nimages: %d, natoms_per_image: %d\n", nimages, natoms_per_image);
+  const char* indent = ina_local_relax_remaining > 0 ? "    " : "";
+  printf("%snimages: %d, natoms_per_image: %d\n", indent, nimages, natoms_per_image);
   natoms = (nimages - 2) * natoms_per_image; // remove first and last images
 
   potential_per_atom.resize(1, Memory_Type::managed);
@@ -2492,7 +2542,9 @@ void NEB::apply_ina_local_relaxation()
   for (int image = 1; image < nimages - 1; image++) {
     if (!ina_local_active[image]) {
       CHECK(cudaMemset(
-        forces.data() + (image - 1) * image_size, 0, image_size * sizeof(double)));
+        forces.data() + (image - 1) * image_size,
+        0,
+        image_size * sizeof(double)));
     }
   }
 }
@@ -2555,13 +2607,13 @@ void NEB::finish_ina_local_tracking()
   ina_local_relax_remaining = ina_local_relax_steps;
   dyneb_active.assign(max(0, int(images.size()) - 2), true);
   printf(
-    "INA local relaxation: %d step(s), active images:", ina_local_relax_steps);
+    "    INA local relaxation: %d step(s), active images:",
+    ina_local_relax_steps);
   for (int image = 1; image < int(images.size()) - 1; image++) {
     if (ina_local_active[image]) printf(" %d", image);
   }
   printf("\n");
 }
-
 
 void NEB::find_min_max(double etol)
 {
@@ -2642,7 +2694,9 @@ void NEB::set_positions()
       ina_local_active.size() == nimages && ina_local_active[i];
     const bool update_position = local_relaxation
       ? local_active
-      : (!dynamic_relaxation || dyneb_active.size() != nimages - 2 || dyneb_active[i-1]);
+      : (!dynamic_relaxation ||
+         dyneb_active.size() != nimages - 2 ||
+         dyneb_active[i-1]);
     if (update_position) {
       images[i]->get_positions().copy_from_device(
         &positions[(i-1) * image_size], image_size);
