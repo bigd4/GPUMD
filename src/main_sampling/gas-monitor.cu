@@ -574,3 +574,394 @@ void TorchMonitor::box_to_tri(Box& box){
       // }
 }
 // #endif
+
+namespace {
+
+void trim_monitor_config_value(std::string& value)
+{
+  const auto first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    value.clear();
+    return;
+  }
+  const auto last = value.find_last_not_of(" \t\r\n");
+  value = value.substr(first, last - first + 1);
+}
+
+void unquote_monitor_config_value(std::string& value)
+{
+  if (value.size() >= 2 &&
+      ((value.front() == '"' && value.back() == '"') ||
+       (value.front() == '\'' && value.back() == '\''))) {
+    value = value.substr(1, value.size() - 2);
+  }
+}
+
+torch::Tensor cv_monitor_nl_to_side_array(torch::Tensor& torch_nl, int n_atoms)
+{
+  const int max_neighbors = static_cast<int>(torch_nl.numel()) / n_atoms;
+  torch::Tensor starts = torch::arange(
+    0,
+    n_atoms,
+    torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
+  starts = starts.repeat({max_neighbors});
+  const torch::Tensor mask = torch_nl >= 0;
+  starts = starts.masked_select(mask);
+  torch::Tensor ends = torch_nl.masked_select(mask).to(torch::kLong);
+  return torch::stack({starts, ends}, 1);
+}
+
+static __global__ void find_neighbor_list_large_box_cv_monitor(
+  const float neighbor_rc,
+  const int n_atoms,
+  const int nx,
+  const int ny,
+  const int nz,
+  const Box box,
+  const int* __restrict__ cell_count,
+  const int* __restrict__ cell_count_sum,
+  const int* __restrict__ cell_contents,
+  const double* __restrict__ x,
+  const double* __restrict__ y,
+  const double* __restrict__ z,
+  int* nn_radial,
+  int* nl_radial)
+{
+  const int n1 = blockIdx.x * blockDim.x + threadIdx.x;
+  if (n1 >= n_atoms) {
+    return;
+  }
+
+  const double x1 = x[n1];
+  const double y1 = y[n1];
+  const double z1 = z[n1];
+  int count_radial = 0;
+
+  int cell_id;
+  int cell_id_x;
+  int cell_id_y;
+  int cell_id_z;
+  find_cell_id(
+    box,
+    x1,
+    y1,
+    z1,
+    2.0f / neighbor_rc,
+    nx,
+    ny,
+    nz,
+    cell_id_x,
+    cell_id_y,
+    cell_id_z,
+    cell_id);
+
+  const int z_lim = box.pbc_z ? 2 : 0;
+  const int y_lim = box.pbc_y ? 2 : 0;
+  const int x_lim = box.pbc_x ? 2 : 0;
+
+  for (int zz = -z_lim; zz <= z_lim; ++zz) {
+    for (int yy = -y_lim; yy <= y_lim; ++yy) {
+      for (int xx = -x_lim; xx <= x_lim; ++xx) {
+        int neighbor_cell = cell_id + zz * nx * ny + yy * nx + xx;
+        if (cell_id_x + xx < 0) {
+          neighbor_cell += nx;
+        }
+        if (cell_id_x + xx >= nx) {
+          neighbor_cell -= nx;
+        }
+        if (cell_id_y + yy < 0) {
+          neighbor_cell += ny * nx;
+        }
+        if (cell_id_y + yy >= ny) {
+          neighbor_cell -= ny * nx;
+        }
+        if (cell_id_z + zz < 0) {
+          neighbor_cell += nz * ny * nx;
+        }
+        if (cell_id_z + zz >= nz) {
+          neighbor_cell -= nz * ny * nx;
+        }
+
+        const int number_in_cell = cell_count[neighbor_cell];
+        const int first_atom = cell_count_sum[neighbor_cell];
+        for (int m = 0; m < number_in_cell; ++m) {
+          const int n2 = cell_contents[first_atom + m];
+          if (n1 == n2) {
+            continue;
+          }
+
+          double dx = x[n2] - x1;
+          double dy = y[n2] - y1;
+          double dz = z[n2] - z1;
+          apply_mic(box, dx, dy, dz);
+          const float distance_squared =
+            static_cast<float>(dx * dx + dy * dy + dz * dz);
+          if (distance_squared >= neighbor_rc * neighbor_rc) {
+            continue;
+          }
+          nl_radial[count_radial++ * n_atoms + n1] = n2;
+        }
+      }
+    }
+  }
+  nn_radial[n1] = count_radial;
+}
+
+} // namespace
+
+CVMonitorConfig CVMonitorConfig::from_file(const std::string& file_path)
+{
+  std::ifstream file(file_path);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open Monitor config: " + file_path);
+  }
+
+  std::unordered_map<std::string, std::string> values;
+  std::string line;
+  while (std::getline(file, line)) {
+    const size_t comment = line.find('#');
+    if (comment != std::string::npos) {
+      line = line.substr(0, comment);
+    }
+    const size_t colon = line.find(':');
+    if (colon == std::string::npos) {
+      continue;
+    }
+    std::string key = line.substr(0, colon);
+    std::string value = line.substr(colon + 1);
+    trim_monitor_config_value(key);
+    trim_monitor_config_value(value);
+    if (!key.empty()) {
+      values[key] = value;
+    }
+  }
+
+  CVMonitorConfig config;
+  try {
+    if (values.count("cv_log_interval")) {
+      config.cv_log_interval = std::stoi(values.at("cv_log_interval"));
+    }
+    if (values.count("neighbor_rc")) {
+      config.neighbor_rc = std::stod(values.at("neighbor_rc"));
+    }
+    if (values.count("max_neighbors")) {
+      config.max_neighbors = std::stoi(values.at("max_neighbors"));
+    }
+    if (values.count("cv_log_path")) {
+      config.cv_log_path = values.at("cv_log_path");
+      unquote_monitor_config_value(config.cv_log_path);
+    }
+  } catch (const std::exception& error) {
+    throw std::runtime_error(
+      "Invalid Monitor config " + file_path + ": " + error.what());
+  }
+
+  if (config.cv_log_interval <= 0) {
+    throw std::runtime_error("Monitor cv_log_interval must be positive.");
+  }
+  if (config.neighbor_rc <= 0.0) {
+    throw std::runtime_error("Monitor neighbor_rc must be positive.");
+  }
+  if (config.max_neighbors <= 0) {
+    throw std::runtime_error("Monitor max_neighbors must be positive.");
+  }
+  if (config.cv_log_path.empty()) {
+    throw std::runtime_error("Monitor cv_log_path must not be empty.");
+  }
+  return config;
+}
+
+void CVMonitorConfig::print() const
+{
+  std::cout << "[Monitor] CV Log Interval: " << cv_log_interval << std::endl;
+  std::cout << "[Monitor] CV Log Path: " << cv_log_path << std::endl;
+  std::cout << "[Monitor] Neighbor RC: " << neighbor_rc << std::endl;
+  std::cout << "[Monitor] Max Neighbors: " << max_neighbors << std::endl;
+}
+
+TorchCVMonitor::TorchCVMonitor(
+  std::string model_path,
+  std::string config_path,
+  int n_atoms)
+  : config_(CVMonitorConfig::from_file(config_path)), n_atoms_(n_atoms), cpu_box_(9)
+{
+  if (n_atoms_ <= 0) {
+    throw std::runtime_error("Monitor requires at least one atom.");
+  }
+  try {
+    torch::jit::setGraphExecutorOptimize(true);
+    model_ = torch::jit::load(model_path, torch::kCUDA);
+    model_.eval();
+  } catch (const c10::Error& error) {
+    std::cerr << "Error loading Monitor model " << model_path << ": " << error.what()
+              << std::endl;
+    throw;
+  }
+
+  cell_count_.resize(n_atoms_);
+  cell_count_sum_.resize(n_atoms_);
+  cell_contents_.resize(n_atoms_);
+  nn_radial_.resize(n_atoms_);
+  nl_radial_.resize(n_atoms_ * config_.max_neighbors);
+
+  std::cout << "[Monitor] CVonly model loaded successfully from " << model_path << std::endl;
+  config_.print();
+  torch::cuda::synchronize();
+}
+
+std::unique_ptr<TorchCVMonitor> TorchCVMonitor::parse_monitor(
+  const char** param,
+  int num_param,
+  int number_of_atoms)
+{
+  if (num_param != 3) {
+    throw std::runtime_error(
+      "Error parsing Monitor: expected \"Monitor model.pt config.yaml\".");
+  }
+  return std::make_unique<TorchCVMonitor>(param[1], param[2], number_of_atoms);
+}
+
+void TorchCVMonitor::compute_large_box(
+  Box& box,
+  const GPU_Vector<double>& position_per_atom)
+{
+  constexpr int block_size = 64;
+  const int grid_size = (n_atoms_ - 1) / block_size + 1;
+  const double cell_list_cutoff = 0.5 * config_.neighbor_rc;
+  int number_of_bins[3];
+  box.get_num_bins(cell_list_cutoff, number_of_bins);
+
+  find_cell_list(
+    cell_list_cutoff,
+    number_of_bins,
+    box,
+    position_per_atom,
+    cell_count_,
+    cell_count_sum_,
+    cell_contents_);
+
+  find_neighbor_list_large_box_cv_monitor<<<grid_size, block_size>>>(
+    config_.neighbor_rc,
+    n_atoms_,
+    number_of_bins[0],
+    number_of_bins[1],
+    number_of_bins[2],
+    box,
+    cell_count_.data(),
+    cell_count_sum_.data(),
+    cell_contents_.data(),
+    position_per_atom.data(),
+    position_per_atom.data() + n_atoms_,
+    position_per_atom.data() + 2 * n_atoms_,
+    nn_radial_.data(),
+    nl_radial_.data());
+  torch::cuda::synchronize();
+}
+
+void TorchCVMonitor::get_neighbor_list(
+  Box& box,
+  const GPU_Vector<double>& position_per_atom)
+{
+  nn_radial_.fill(-1);
+  nl_radial_.fill(-1);
+  compute_large_box(box, position_per_atom);
+}
+
+void TorchCVMonitor::box_to_tri(Box& box)
+{
+  cpu_box_[0] = box.cpu_h[0];
+  cpu_box_[1] = box.cpu_h[3];
+  cpu_box_[2] = box.cpu_h[6];
+  cpu_box_[3] = box.cpu_h[1];
+  cpu_box_[4] = box.cpu_h[4];
+  cpu_box_[5] = box.cpu_h[7];
+  cpu_box_[6] = box.cpu_h[2];
+  cpu_box_[7] = box.cpu_h[5];
+  cpu_box_[8] = box.cpu_h[8];
+}
+
+torch::Tensor TorchCVMonitor::from_cuda_memory(double* d_array, int size) const
+{
+  return torch::from_blob(
+    d_array,
+    {size},
+    torch::TensorOptions().dtype(torch::kFloat64).device(torch::kCUDA));
+}
+
+torch::Tensor TorchCVMonitor::predict_cv(
+  const torch::Dict<std::string, torch::Tensor>& inputs)
+{
+  auto result = model_.forward({inputs}).toGenericDict();
+  torch::Dict<std::string, torch::Tensor> outputs;
+  for (const auto& item : result) {
+    outputs.insert(item.key().toStringRef(), item.value().toTensor());
+  }
+  if (!outputs.contains("cv_now")) {
+    throw std::runtime_error(
+      "Monitor model output must contain cv_now (pygas CVOnlyProcedure contract).");
+  }
+  torch::Tensor cv = outputs.at("cv_now").reshape({-1}).to(torch::kFloat64);
+  if (cv.numel() == 0) {
+    throw std::runtime_error("Monitor model cv_now output must not be empty.");
+  }
+  if (!cv.is_cuda()) {
+    cv = cv.to(torch::kCUDA);
+  }
+  return cv;
+}
+
+void TorchCVMonitor::log_cv() const
+{
+  torch::Tensor cv_cpu = torch_now_cvs_.to(torch::kCPU).contiguous().reshape({-1});
+  const auto values = cv_cpu.accessor<double, 1>();
+  std::ofstream file(config_.cv_log_path, std::ios::app);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open Monitor CV log file: " + config_.cv_log_path);
+  }
+  for (int index = 0; index < cv_cpu.size(0); ++index) {
+    if (index != 0) {
+      file << "\t\t";
+    }
+    file << values[index];
+  }
+  file << '\n';
+}
+
+void TorchCVMonitor::process(Box& box, const GPU_Vector<double>& positions, int step)
+{
+  if (step < 0) {
+    throw std::runtime_error("Monitor step must not be negative.");
+  }
+  if (step % config_.cv_log_interval != 0) {
+    return;
+  }
+  if (positions.size() != 3 * n_atoms_) {
+    throw std::runtime_error("Monitor atom count is inconsistent with model.xyz.");
+  }
+
+  box_to_tri(box);
+  get_neighbor_list(box, positions);
+
+  torch::Tensor positions_tensor =
+    from_cuda_memory(const_cast<double*>(positions.data()), positions.size())
+      .detach()
+      .clone()
+      .reshape({3, -1})
+      .transpose(0, 1);
+  torch::Tensor cell_tensor = torch::from_blob(
+    cpu_box_.data(), {9}, torch::TensorOptions().dtype(torch::kFloat64))
+                                .to(torch::kCUDA)
+                                .reshape({3, 3});
+  torch_nl_ = torch::from_blob(
+    nl_radial_.data(),
+    {n_atoms_ * config_.max_neighbors},
+    torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA));
+
+  torch::Dict<std::string, torch::Tensor> inputs;
+  inputs.insert("positions", positions_tensor);
+  inputs.insert("cell", cell_tensor);
+  inputs.insert("side_array", cv_monitor_nl_to_side_array(torch_nl_, n_atoms_));
+  torch_now_cvs_ = predict_cv(inputs);
+  torch::cuda::synchronize();
+  log_cv();
+}

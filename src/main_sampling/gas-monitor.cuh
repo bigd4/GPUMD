@@ -12,9 +12,11 @@
 #include <unordered_map>
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 // 定义一个结构体用于存储配置数据
 struct PSConfig {
@@ -251,6 +253,49 @@ private:
     // torch::Tensor mean_bias_force;
     // name
     // std::string gaussian_name = "GASGaussian.txt";
+};
+
+struct CVMonitorConfig {
+  int cv_log_interval = 100;
+  double neighbor_rc = 5.0;
+  int max_neighbors = 256;
+  std::string cv_log_path = "MonCVlog.txt";
+
+  static CVMonitorConfig from_file(const std::string& file_path);
+  void print() const;
+};
+
+class TorchCVMonitor {
+public:
+  TorchCVMonitor(std::string model_path, std::string config_path, int n_atoms);
+
+  // Evaluate and log only when step is a multiple of cv_log_interval.
+  void process(Box& box, const GPU_Vector<double>& positions, int step);
+
+  static std::unique_ptr<TorchCVMonitor> parse_monitor(
+    const char** param,
+    int num_param,
+    int number_of_atoms);
+
+private:
+  void compute_large_box(Box& box, const GPU_Vector<double>& position_per_atom);
+  void get_neighbor_list(Box& box, const GPU_Vector<double>& position_per_atom);
+  void box_to_tri(Box& box);
+  torch::Tensor from_cuda_memory(double* d_array, int size) const;
+  torch::Tensor predict_cv(const torch::Dict<std::string, torch::Tensor>& inputs);
+  void log_cv() const;
+
+  CVMonitorConfig config_;
+  int n_atoms_ = 0;
+  torch::Tensor torch_now_cvs_;
+  torch::Tensor torch_nl_;
+  std::vector<double> cpu_box_;
+  GPU_Vector<int> cell_count_;
+  GPU_Vector<int> cell_count_sum_;
+  GPU_Vector<int> cell_contents_;
+  GPU_Vector<int> nn_radial_;
+  GPU_Vector<int> nl_radial_;
+  torch::jit::script::Module model_;
 };
 
 // #endif

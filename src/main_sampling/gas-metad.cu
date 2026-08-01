@@ -64,6 +64,10 @@ Config load_gas_config_with_defaults(const std::string& cfg_path, int n_atoms)
                   << ", using defaults. Details: " << e.what() << std::endl;
     }
 
+    if (effective_config.cv_log_path.empty()) {
+        throw std::runtime_error("GAScfg cv_log_path must not be empty.");
+    }
+
     std::cout << "[GAS-Info] Effective GASConfig:" << std::endl;
     effective_config.print();
     return effective_config;
@@ -505,12 +509,11 @@ void TorchMetad::logCV_runtime(void){
     // 创建一个 TensorAccessor 对象来访问张量数据
     auto tensor_data = cpu_tensor.accessor<double, 1>();
     // 打开文件
-    std::string log_name = "GASCVlog.txt";
+    const std::string& log_name = config.cv_log_path;
 
     std::ofstream file(log_name,std::ios::app);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file: " <<log_name<< std::endl;
-        return;
+        throw std::runtime_error("Failed to open CV log file: " + log_name);
     }
     // 写入张量数据
     for (int j = 0; j < cpu_tensor.size(0); ++j) {
@@ -524,7 +527,7 @@ void TorchMetad::logCV_runtime(void){
     // 关闭文件
     file.close();
 }
-void TorchMetad::logCV_runtime(std::string& path){
+void TorchMetad::logCV_runtime(const std::string& path){
     auto log_cv_tensor = torch_now_cvs;
     torch::Tensor cv_cpu_tensor = log_cv_tensor.to(torch::kCPU);
     torch::Tensor bias_cpu_tensor = this->torch_bias.to(torch::kCPU);
@@ -533,12 +536,11 @@ void TorchMetad::logCV_runtime(std::string& path){
     // 创建一个 TensorAccessor 对象来访问张量数据
     auto tensor_data = cpu_tensor.accessor<double, 1>();
     // 打开文件
-    std::string log_name = path;
+    const std::string& log_name = path;
 
     std::ofstream file(log_name,std::ios::app);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file: " <<log_name<< std::endl;
-        return;
+        throw std::runtime_error("Failed to open CV log file: " + log_name);
     }
     // 写入张量数据
     for (int j = 0; j < cpu_tensor.size(0); ++j) {

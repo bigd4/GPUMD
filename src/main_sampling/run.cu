@@ -24,6 +24,7 @@ Run simulation according to the inputs in the run.in file.
 #include "utilities/gpu_macro.cuh"
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 
 namespace {
 void gpu_sampling_dump_restart(Box& box, std::vector<Group>& group, Atom& atom)
@@ -201,6 +202,10 @@ void GSRun::perform_a_run()
       atom.mass);
   }
 
+  if (p_cv_monitor) {
+    p_cv_monitor->process(box, atom.position_per_atom, 0);
+  }
+
   double initial_time_step = time_step;
   const auto time_begin = std::chrono::high_resolution_clock::now();
 
@@ -262,6 +267,10 @@ void GSRun::perform_a_run()
       thermo,
       atom,
       force);
+
+    if (p_cv_monitor) {
+      p_cv_monitor->process(box, atom.position_per_atom, step + 1);
+    }
 
     int base = (10 <= number_of_steps) ? (number_of_steps / 10) : 1;
     if (0 == (step + 1) % base) {
@@ -329,6 +338,14 @@ void GSRun::parse_one_keyword(std::vector<std::string>& tokens)
     std::unique_ptr<TorchMetad> p_gas_metad = TorchMetad::parse_GASMD(param, num_param, atom.number_of_atoms);
     force.potentials.emplace_back(std::move(p_gas_metad));
     force.set_multiple_potentials_mode("sum");
+    return;
+  }
+
+  if (strcmp(param[0], "Monitor") == 0) {
+    if (p_cv_monitor) {
+      throw std::runtime_error("Monitor can only be specified once in run.in.");
+    }
+    p_cv_monitor = TorchCVMonitor::parse_monitor(param, num_param, atom.number_of_atoms);
     return;
   }
 

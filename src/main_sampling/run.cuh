@@ -33,6 +33,7 @@ protected:
   void parse_one_keyword(std::vector<std::string>& tokens) override;
 
 private:
+  std::unique_ptr<TorchCVMonitor> p_cv_monitor;
   std::unique_ptr<TorchMonitor> p_gasps;
   bool is_pathsampling = false;
   bool is_ffs = false;

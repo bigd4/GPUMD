@@ -21,6 +21,7 @@ struct Config {
     int cv_storage_interval = 100;
     int cv_change_interval = 100;
     int cv_log_interval = 100;
+    std::string cv_log_path = "GASCVlog.txt";
     double neighbor_rc = 5.0;
     int max_neighbors = 256;
     int n_atoms = 0;
@@ -36,6 +37,7 @@ struct Config {
         std::cout << "[GAScfg]CV Storage Interval: " << cv_storage_interval << std::endl;
         std::cout << "[GAScfg]CV Change Interval: " << cv_change_interval << std::endl;
         std::cout << "[GAScfg]CV Log Interval: " << cv_log_interval << std::endl;
+        std::cout << "[GAScfg]CV Log Path: " << cv_log_path << std::endl;
         std::cout << "[GAScfg]Neighbor RC: " << neighbor_rc << std::endl;
         std::cout << "[GAScfg]Max Neighbors: " << max_neighbors << std::endl;
         std::cout << "[GAScfg]Number of Atoms: " << n_atoms << std::endl;
@@ -111,6 +113,14 @@ struct Config {
             if (configMap.find("cv_log_interval") != configMap.end()) {
                 config.cv_log_interval = std::stoi(configMap.at("cv_log_interval"));
             }
+            if (configMap.find("cv_log_path") != configMap.end()) {
+                config.cv_log_path = configMap.at("cv_log_path");
+                if (config.cv_log_path.size() >= 2 &&
+                    ((config.cv_log_path.front() == '"' && config.cv_log_path.back() == '"') ||
+                     (config.cv_log_path.front() == '\'' && config.cv_log_path.back() == '\''))) {
+                    config.cv_log_path = config.cv_log_path.substr(1, config.cv_log_path.size() - 2);
+                }
+            }
             if (configMap.find("neighbor_rc") != configMap.end()) {
                 config.neighbor_rc = std::stod(configMap.at("neighbor_rc"));
             }
@@ -172,7 +182,7 @@ public:
     torch::Tensor _FromCudaMemory(double* d_array, int size);
     void box_to_tri(Box& box);
     void logCV_runtime(void);
-    void logCV_runtime(std::string& path);
+    void logCV_runtime(const std::string& path);
     void appendCVtoTraj(bool is_opt);
 
     static std::unique_ptr<TorchMetad> parse_GASMD(const char** param, int num_param, const int number_of_atoms) {

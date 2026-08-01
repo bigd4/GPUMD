@@ -1,0 +1,7 @@
+velocity 300
+potential nep-alanine.txt
+time_step 1
+MetaD Alanine-torsion-pd-02.pt metad-matching.yaml
+Monitor alanine-torsion-cvonly.pt monitor-matching.yaml
+ensemble nvt_bdp 300 300 100
+run 20
