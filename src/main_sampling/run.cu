@@ -20,6 +20,7 @@ Run simulation according to the inputs in the run.in file.
 #include "run.cuh"
 
 #include "gas-metad.cuh"
+#include "gas-opes.cuh"
 #include "utilities/error.cuh"
 #include "utilities/gpu_macro.cuh"
 #include <chrono>
@@ -47,7 +48,7 @@ void gpu_sampling_dump_restart(Box& box, std::vector<Group>& group, Atom& atom)
 
   fprintf(
     fid,
-    "Lattice=\"%g %g %g %g %g %g %g %g %g\" ",
+    "Lattice=\"%.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g\" ",
     box.cpu_h[0],
     box.cpu_h[3],
     box.cpu_h[6],
@@ -68,7 +69,7 @@ void gpu_sampling_dump_restart(Box& box, std::vector<Group>& group, Atom& atom)
     const double natural_to_A_per_fs = 1.0 / TIME_UNIT_CONVERSION;
     fprintf(
       fid,
-      "%s %g %g %g %g %g %g %g ",
+      "%s %.17g %.17g %.17g %.17g %.17g %.17g %.17g ",
       atom.cpu_atom_symbol[n].c_str(),
       atom.cpu_position_per_atom[n],
       atom.cpu_position_per_atom[n + number_of_atoms],
@@ -272,6 +273,14 @@ void GSRun::perform_a_run()
       p_cv_monitor->process(box, atom.position_per_atom, step + 1);
     }
 
+    if (p_opes && p_opes->should_stop()) {
+      printf("[OPES] Terminal flooding/path status %d reached; exact OPES and atomic restart states are being saved.\n", p_opes->current_status());
+      fflush(stdout);
+      p_opes->checkpoint();
+      gpu_sampling_dump_restart(box, group, atom);
+      break;
+    }
+
     int base = (10 <= number_of_steps) ? (number_of_steps / 10) : 1;
     if (0 == (step + 1) % base) {
       printf("    %d steps completed.\n", step + 1);
@@ -337,6 +346,18 @@ void GSRun::parse_one_keyword(std::vector<std::string>& tokens)
   if (strcmp(param[0], "GASMD") == 0 || strcmp(param[0], "MetaD") == 0) {
     std::unique_ptr<TorchMetad> p_gas_metad = TorchMetad::parse_GASMD(param, num_param, atom.number_of_atoms);
     force.potentials.emplace_back(std::move(p_gas_metad));
+    force.set_multiple_potentials_mode("sum");
+    return;
+  }
+
+  if (strcmp(param[0], "OPES") == 0) {
+    if (p_opes) {
+      throw std::runtime_error("OPES can only be specified once in run.in.");
+    }
+    std::unique_ptr<TorchOPES> owned =
+      TorchOPES::parse_OPES(param, num_param, atom.number_of_atoms);
+    p_opes = owned.get();
+    force.potentials.emplace_back(std::move(owned));
     force.set_multiple_potentials_mode("sum");
     return;
   }

@@ -17,6 +17,7 @@
 
 #include "main_gpumd/run.cuh"
 #include "gas-monitor.cuh"
+#include "gas-opes.cuh"
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,6 +36,7 @@ protected:
 private:
   std::unique_ptr<TorchCVMonitor> p_cv_monitor;
   std::unique_ptr<TorchMonitor> p_gasps;
+  TorchOPES* p_opes = nullptr;
   bool is_pathsampling = false;
   bool is_ffs = false;
 };

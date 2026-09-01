@@ -36,6 +36,7 @@ This software is distributed under the GNU General Public License (GPL) version 
 * For users and developers:
   * Latest released version: https://gpumd.org/
   * Development version: https://gpumd.org/dev/
+  * [GPU-Sampling OPES development runtime](doc/opes.md)
 * For developers only:
   * [The developer guide](developers)
   
