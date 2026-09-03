@@ -74,16 +74,6 @@ Config load_gas_config_with_defaults(const std::string& cfg_path, int n_atoms)
     return effective_config;
 }
 
-torch::jit::script::Module load_gas_torchscript_model_for_inference(
-  const std::string& model_path)
-{
-    torch::jit::setGraphExecutorOptimize(true);
-    auto loaded_model = torch::jit::load(model_path, torch::kCUDA);
-    loaded_model.eval();
-
-    return loaded_model;
-}
-
 }
 
 
@@ -160,16 +150,17 @@ TorchMetad::TorchMetad(int n_atoms):TorchMetad("GASCVModel.pt","GAScfg.yaml",n_a
 
 TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
     this->n_atoms_ = n_atoms;
-    // 读取文件，设定参数
-    try {
-        model = load_gas_torchscript_model_for_inference(model_path);
-        std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
-        throw e;
-    }
     // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
     config = load_gas_config_with_defaults(cfg_path, n_atoms_);
+    model_runner = std::make_unique<GASModelRunner>(
+      model_path,
+      "bias_or_cvonly",
+      n_atoms_,
+      config.cv_size,
+      n_atoms_ * config.max_neighbors,
+      config.max_cv_nums);
+    std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path
+              << " (" << model_runner->backend() << " backend)" << std::endl;
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -193,16 +184,17 @@ TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,int n_atoms){
 
 TorchMetad::TorchMetad(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms){
     this->n_atoms_ = n_atoms;
-    // 读取文件，设定参数
-    try {
-        model = load_gas_torchscript_model_for_inference(model_path);
-        std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
-        throw e;
-    }
     // 接受 GASConfig 参数（先默认，再按 YAML 覆盖）
     config = load_gas_config_with_defaults(cfg_path, n_atoms_);
+    model_runner = std::make_unique<GASModelRunner>(
+      model_path,
+      "bias_or_cvonly",
+      n_atoms_,
+      config.cv_size,
+      n_atoms_ * config.max_neighbors,
+      config.max_cv_nums);
+    std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path
+              << " (" << model_runner->backend() << " backend)" << std::endl;
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -246,7 +238,7 @@ torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
           t0 = std::chrono::high_resolution_clock::now();
         }
         // 将输入传递给模型
-        auto result = model.forward({inputs}).toGenericDict();
+        auto outputs = model_runner->run(inputs);
         if (profile_predict && now_step%debug_interval==0) {
           torch::cuda::synchronize();
           const auto t1 = std::chrono::high_resolution_clock::now();
@@ -257,16 +249,14 @@ torch::Dict<std::string, torch::Tensor> TorchMetad::predict(
         }
         // 要花括号吗？
         // 转换返回值为 torch::Dict
-        torch::Dict<std::string, torch::Tensor> outputs;
-        for (const auto& item : result) {
-            auto key = item.key().toStringRef();
-            auto value = item.value().toTensor();
+        for (const auto& item : outputs) {
+            auto key = item.key();
+            auto value = item.value();
             // #ifdef USE_GAS_DEBUG
             if (config.debug_interval!=0){
               if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout << "[GAS-Debug] " << key << ": " << value << std::endl;}
             }
             // #endif
-            outputs.insert(key, value);
         }
         return outputs;
     // } catch (const c10::Error& e) {

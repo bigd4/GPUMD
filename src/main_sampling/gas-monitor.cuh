@@ -1,5 +1,7 @@
 // #ifdef USE_GAS
 #pragma once
+
+#include "gas-model-runner.cuh"
 #include "gas-config-utils.h"
 // #include "potential.cuh"
 #include "utilities/common.cuh"
@@ -248,7 +250,7 @@ private:
     GPU_Vector<int> NN_radial;    // radial neighbor list
     GPU_Vector<int> NL_radial;    // radial neighbor list
     // torch-model
-    torch::jit::script::Module model; // TorchScript 模型
+    std::unique_ptr<GASModelRunner> model_runner;
     // torch::Tensor mean_bias_force;
     // name
     // std::string gaussian_name = "GASGaussian.txt";
@@ -294,7 +296,7 @@ private:
   GPU_Vector<int> cell_contents_;
   GPU_Vector<int> nn_radial_;
   GPU_Vector<int> nl_radial_;
-  torch::jit::script::Module model_;
+  std::unique_ptr<GASModelRunner> model_runner_;
 };
 
 // #endif

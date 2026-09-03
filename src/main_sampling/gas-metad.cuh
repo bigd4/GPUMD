@@ -1,6 +1,7 @@
 // #ifdef USE_GAS
 #pragma once
 #include "gas-config-utils.h"
+#include "gas-model-runner.cuh"
 #include "force/potential.cuh"
 #include "utilities/common.cuh"
 #include "utilities/gpu_vector.cuh"
@@ -242,7 +243,7 @@ private:
     GPU_Vector<int> NN_radial;    // radial neighbor list
     GPU_Vector<int> NL_radial;    // radial neighbor list
     // torch-model
-    torch::jit::script::Module model; // TorchScript 模型
+    std::unique_ptr<GASModelRunner> model_runner;
     torch::Tensor mean_bias_force;
 
     // name

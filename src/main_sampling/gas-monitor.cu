@@ -128,18 +128,6 @@ TorchMonitor::TorchMonitor(int n_atoms):TorchMonitor("GASCVModel.pt","GAScfg.yam
 
 TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,int n_atoms){
     this->n_atoms_ = n_atoms;
-    // 读取文件，设定参数
-    try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
-        std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
-        throw e;
-    }
     // 接受 GASConfig 参数
     try {
         config = PSConfig::fromFile(cfg_path);
@@ -148,6 +136,15 @@ TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,int n_ato
         std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
         throw e;
     }
+    model_runner = std::make_unique<GASModelRunner>(
+      model_path,
+      "monitor",
+      n_atoms_,
+      config.cv_size,
+      n_atoms_ * config.max_neighbors,
+      config.max_cv_nums);
+    std::cout << "[GAS-Info] Monitor " << model_runner->backend()
+              << " backend loaded from " << model_path << std::endl;
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -166,18 +163,6 @@ TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,int n_ato
 
 TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,std::string gaussian_path,int n_atoms){
     this->n_atoms_ = n_atoms;
-    // 读取文件，设定参数
-    try {
-        // torch::jit::GraphOptimizerEnabledGuard guard{true};
-        torch::jit::setGraphExecutorOptimize(true);
-        // 加载 TorchScript 模型
-        model = torch::jit::load(model_path, torch::kCUDA);
-        model.eval(); // 设置为评估模式
-        std::cout << "[GAS-Info] GASCVModel loaded successfully from " << model_path << std::endl;
-    } catch (const c10::Error& e) {
-        std::cerr << "Error loading the model: "<< model_path << e.what() << std::endl;
-        throw e;
-    }
     // 接受 GASConfig 参数
     try {
         config = PSConfig::fromFile(cfg_path);
@@ -186,6 +171,15 @@ TorchMonitor::TorchMonitor(std::string model_path,std::string cfg_path,std::stri
         std::cerr << "Error loading the Config: "<< cfg_path << e.what() << std::endl;
         throw e;
     }
+    model_runner = std::make_unique<GASModelRunner>(
+      model_path,
+      "monitor",
+      n_atoms_,
+      config.cv_size,
+      n_atoms_ * config.max_neighbors,
+      config.max_cv_nums);
+    std::cout << "[GAS-Info] Monitor " << model_runner->backend()
+              << " backend loaded from " << model_path << std::endl;
 
     cell_count.resize(n_atoms_);
     cell_count_sum.resize(n_atoms_);
@@ -208,19 +202,15 @@ torch::Dict<std::string, torch::Tensor> TorchMonitor::predict(
     const torch::Dict<std::string, torch::Tensor>& inputs) {
     // try {
         // 将输入传递给模型
-        auto result = model.forward({inputs}).toGenericDict();
-        // 要花括号吗？
-        // 转换返回值为 torch::Dict
-        torch::Dict<std::string, torch::Tensor> outputs;
-        for (const auto& item : result) {
-            auto key = item.key().toStringRef();
-            auto value = item.value().toTensor();
+        auto outputs = model_runner->run(inputs);
+        for (const auto& item : outputs) {
+            auto key = item.key();
+            auto value = item.value();
             // #ifdef USE_GAS_DEBUG
             if (config.debug_interval!=0){
               if(key.compare("side_array") && key.compare("cv_traj") && key.compare("") && now_step%debug_interval==0){std::cout<<key<<value<<std::endl;}
             }
             // #endif
-            outputs.insert(key, value);
         }
         return outputs;
     // } catch (const c10::Error& e) {
@@ -573,15 +563,13 @@ TorchCVMonitor::TorchCVMonitor(
   if (n_atoms_ <= 0) {
     throw std::runtime_error("Monitor requires at least one atom.");
   }
-  try {
-    torch::jit::setGraphExecutorOptimize(true);
-    model_ = torch::jit::load(model_path, torch::kCUDA);
-    model_.eval();
-  } catch (const c10::Error& error) {
-    std::cerr << "Error loading Monitor model " << model_path << ": " << error.what()
-              << std::endl;
-    throw;
-  }
+  model_runner_ = std::make_unique<GASModelRunner>(
+    model_path,
+    "cvonly",
+    n_atoms_,
+    0,
+    n_atoms_ * config_.max_neighbors,
+    0);
 
   cell_count_.resize(n_atoms_);
   cell_count_sum_.resize(n_atoms_);
@@ -589,7 +577,8 @@ TorchCVMonitor::TorchCVMonitor(
   nn_radial_.resize(n_atoms_);
   nl_radial_.resize(n_atoms_ * config_.max_neighbors);
 
-  std::cout << "[Monitor] CVonly model loaded successfully from " << model_path << std::endl;
+  std::cout << "[Monitor] CVonly model loaded successfully from " << model_path
+            << " (" << model_runner_->backend() << " backend)" << std::endl;
   config_.print();
   torch::cuda::synchronize();
 }
@@ -685,11 +674,7 @@ torch::Tensor TorchCVMonitor::from_cuda_memory(double* d_array, int size) const
 torch::Tensor TorchCVMonitor::predict_cv(
   const torch::Dict<std::string, torch::Tensor>& inputs)
 {
-  auto result = model_.forward({inputs}).toGenericDict();
-  torch::Dict<std::string, torch::Tensor> outputs;
-  for (const auto& item : result) {
-    outputs.insert(item.key().toStringRef(), item.value().toTensor());
-  }
+  auto outputs = model_runner_->run(inputs);
   if (!outputs.contains("cv_now")) {
     throw std::runtime_error(
       "Monitor model output must contain cv_now (pygas CVOnlyProcedure contract).");

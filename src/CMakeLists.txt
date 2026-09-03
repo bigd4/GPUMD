@@ -8,7 +8,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_ARCHITECTURES "80" CACHE STRING "CUDA architectures")
+option(ENABLE_GAS_AOTI "Enable the torch.export/AOTInductor .pt2 backend when the selected LibTorch supports it" ON)
+option(BUILD_GAS_AOTI_SMOKE "Build the standalone GAS AOTI package-loader smoke executable" OFF)
 
 get_filename_component(GPUMD_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(DEFAULT_LIBTORCH_ROOT "${GPUMD_ROOT}/libtorch")
@@ -31,6 +32,21 @@ if(NOT EXISTS "${TORCH_CONFIG}")
 endif()
 set(Torch_DIR "${LIBTORCH_ROOT}/share/cmake/Torch" CACHE PATH "Path to TorchConfig.cmake" FORCE)
 find_package(Torch REQUIRED)
+set(AOTI_PACKAGE_LOADER_HEADER
+  "${LIBTORCH_ROOT}/include/torch/csrc/inductor/aoti_package/model_package_loader.h")
+set(GAS_AOTI_ENABLED OFF)
+if(ENABLE_GAS_AOTI AND Torch_VERSION VERSION_EQUAL "2.13.0" AND
+   EXISTS "${AOTI_PACKAGE_LOADER_HEADER}")
+  set(GAS_AOTI_ENABLED ON)
+  message(STATUS
+    "GPU-Sampling .pt2 backend enabled (LibTorch ${Torch_VERSION}, CUDA toolkit ${CUDAToolkit_VERSION}).")
+elseif(ENABLE_GAS_AOTI)
+  message(STATUS
+    "GPU-Sampling will be built in TorchScript-only compatibility mode: "
+    ".pt2 requires LibTorch 2.13.0 with the AOTI package-loader header; "
+    "found LibTorch ${Torch_VERSION} at ${LIBTORCH_ROOT}.")
+endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 set(COMMON_INCLUDE_DIRS
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -127,8 +143,29 @@ target_link_libraries(gpu-sampling PRIVATE
 )
 
 target_compile_definitions(gpu-sampling PRIVATE TORCH_USE_CUDA_DSA=ON)
+if(GAS_AOTI_ENABLED)
+  target_compile_definitions(gpu-sampling PRIVATE GAS_HAS_AOTI=1)
+endif()
 if(USE_GAS)
   target_compile_definitions(gpu-sampling PRIVATE USE_GAS)
+endif()
+
+if(BUILD_GAS_AOTI_SMOKE)
+  if(NOT GAS_AOTI_ENABLED)
+    message(FATAL_ERROR "BUILD_GAS_AOTI_SMOKE requires the .pt2 backend")
+  endif()
+  add_executable(gas-aoti-smoke
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/aoti-runner-smoke.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/main_sampling/gas-model-runner.cu)
+  target_include_directories(gas-aoti-smoke PRIVATE
+    ${COMMON_INCLUDE_DIRS}
+    ${TORCH_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_options(gas-aoti-smoke PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>)
+  target_compile_definitions(gas-aoti-smoke PRIVATE GAS_HAS_AOTI=1)
+  target_link_libraries(gas-aoti-smoke PRIVATE ${TORCH_LIBRARIES})
 endif()
 
 if(NOT WIN32)

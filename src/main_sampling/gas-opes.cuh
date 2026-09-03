@@ -3,6 +3,7 @@
 #include "force/neighbor.cuh"
 #include "force/potential.cuh"
 #include "gas-metad.cuh"
+#include "gas-model-runner.cuh"
 #include "utilities/common.cuh"
 #include "utilities/gpu_vector.cuh"
 #include <torch/script.h>
@@ -57,12 +58,12 @@ private:
   void initialize(const std::string& model_path, const std::string& cfg_path);
   void initialize_state();
   void load_state(const std::string& state_path);
-  void update_state(const c10::impl::GenericDict& output);
+  void update_state(const torch::Dict<std::string, torch::Tensor>& output);
   void compute_large_box(Box& box, const GPU_Vector<double>& positions);
   void get_neighbor_list(Box& box, const GPU_Vector<double>& positions);
   void box_to_tri(Box& box);
-  void log_colvar(const c10::impl::GenericDict& output, int evaluated_step);
-  void log_kernel(const c10::impl::GenericDict& output, int evaluated_step);
+  void log_colvar(const torch::Dict<std::string, torch::Tensor>& output, int evaluated_step);
+  void log_kernel(const torch::Dict<std::string, torch::Tensor>& output, int evaluated_step);
   torch::Tensor from_cuda_memory(double* array, int size);
 
   int n_atoms_ = 0;
@@ -72,7 +73,7 @@ private:
   bool state_dirty_ = false;
   bool restart_force_refresh_pending_ = false; // suppress exactly one pre-loop state update
   OPESConfig config_;
-  torch::jit::script::Module model_;
+  std::unique_ptr<GASModelRunner> model_runner_;
   std::unordered_map<std::string, torch::Tensor> state_;
 
   std::vector<double> cpu_box_;

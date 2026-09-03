@@ -118,14 +118,6 @@ void ensure_header(
   }
 }
 
-torch::jit::script::Module load_model(const std::string& path)
-{
-  torch::jit::setGraphExecutorOptimize(true);
-  auto model = torch::jit::load(path, torch::kCUDA);
-  model.eval();
-  return model;
-}
-
 } // namespace
 
 OPESConfig OPESConfig::from_file(const std::string& path, int n_atoms)
@@ -206,28 +198,34 @@ TorchOPES::~TorchOPES()
 
 void TorchOPES::initialize(const std::string& model_path, const std::string& cfg_path)
 {
-  model_ = load_model(model_path);
   config_ = OPESConfig::from_file(cfg_path, n_atoms_);
   config_.print();
+  model_runner_ = std::make_unique<GASModelRunner>(
+    model_path,
+    "opes",
+    n_atoms_,
+    config_.common.cv_size,
+    n_atoms_ * config_.common.max_neighbors,
+    0,
+    config_.max_kernels);
   cell_count_.resize(n_atoms_);
   cell_count_sum_.resize(n_atoms_);
   cell_contents_.resize(n_atoms_);
   nn_radial_.resize(n_atoms_);
   nl_radial_.resize(n_atoms_ * config_.common.max_neighbors);
   cpu_box_.resize(9);
-  std::cout << "[OPES-Info] Loaded TorchScript model " << model_path << std::endl;
+  std::cout << "[OPES-Info] Loaded " << model_runner_->backend()
+            << " model " << model_path << std::endl;
 }
 
 void TorchOPES::initialize_state()
 {
-  const auto value = model_.run_method("initialize_state", config_.max_kernels);
-  const auto dictionary = value.toGenericDict();
+  const auto dictionary = model_runner_->initialize_opes_state(config_.max_kernels);
   for (const char* key : STATE_KEYS) {
-    auto found = dictionary.find(c10::IValue(std::string(key)));
-    if (found == dictionary.end()) {
+    if (!dictionary.contains(key)) {
       throw std::runtime_error(std::string("OPES initialize_state is missing key: ") + key);
     }
-    state_[key] = found->value().toTensor();
+    state_[key] = dictionary.at(key);
   }
   const auto scalars = state_.at("opes_state_scalars");
   if (scalars.numel() < 14 || std::lround(scalars[13].item<double>()) != OPES_STATE_VERSION) {
@@ -276,15 +274,12 @@ void TorchOPES::load_state(const std::string& path)
     std::cout << "[OPES-Info] Expanded checkpoint kernel capacity from " << saved_capacity
               << " to " << config_.max_kernels << std::endl;
   }
-  const auto expected_state =
-    model_.run_method("initialize_state", config_.max_kernels).toGenericDict();
-  const auto expected_entry =
-    expected_state.find(c10::IValue(std::string("opes_state_metadata")));
-  if (expected_entry == expected_state.end()) {
+  const auto expected_state = model_runner_->initialize_opes_state(config_.max_kernels);
+  if (!expected_state.contains("opes_state_metadata")) {
     throw std::runtime_error("OPES model does not expose checkpoint compatibility metadata.");
   }
   const auto actual_metadata = state_.at("opes_state_metadata").reshape({-1});
-  const auto expected_metadata = expected_entry->value().toTensor().reshape({-1});
+  const auto expected_metadata = expected_state.at("opes_state_metadata").reshape({-1});
   if (
     actual_metadata.sizes() != expected_metadata.sizes() ||
     !torch::allclose(actual_metadata, expected_metadata, 1.0e-12, 1.0e-14)) {
@@ -324,14 +319,13 @@ void TorchOPES::checkpoint()
   state_dirty_ = false;
 }
 
-void TorchOPES::update_state(const c10::impl::GenericDict& output)
+void TorchOPES::update_state(const torch::Dict<std::string, torch::Tensor>& output)
 {
   for (const char* key : STATE_KEYS) {
-    auto found = output.find(c10::IValue(std::string(key)));
-    if (found == output.end()) {
+    if (!output.contains(key)) {
       throw std::runtime_error(std::string("OPES forward output is missing state key: ") + key);
     }
-    state_[key] = found->value().toTensor();
+    state_[key] = output.at(key);
   }
   state_dirty_ = true;
 }
@@ -396,7 +390,8 @@ void TorchOPES::box_to_tri(Box& box)
   cpu_box_[8] = box.cpu_h[8];
 }
 
-void TorchOPES::log_colvar(const c10::impl::GenericDict& output, int evaluated_step)
+void TorchOPES::log_colvar(
+  const torch::Dict<std::string, torch::Tensor>& output, int evaluated_step)
 {
   std::vector<std::string> fields = {"step", "bias"};
   for (int dim = 0; dim < config_.common.cv_size; ++dim)
@@ -422,31 +417,32 @@ void TorchOPES::log_colvar(const c10::impl::GenericDict& output, int evaluated_s
     {{"opes_state_version", std::to_string(OPES_STATE_VERSION)},
      {"cv_size", std::to_string(config_.common.cv_size)}});
 
-  const auto cv = output.at("cv_now").toTensor().detach().to(torch::kCPU).reshape({-1});
-  const auto force = output.at("forces").toTensor().detach();
+  const auto cv = output.at("cv_now").detach().to(torch::kCPU).reshape({-1});
+  const auto force = output.at("forces").detach();
   const double mean_force = force.norm(2, 1).mean().item<double>();
   std::ofstream file(config_.common.cv_log_path, std::ios::app);
   file << std::setprecision(17) << evaluated_step << ' '
-       << output.at("bias").toTensor().item<double>();
+       << output.at("bias").item<double>();
   for (int dim = 0; dim < config_.common.cv_size; ++dim)
     file << ' ' << cv[dim].item<double>();
   file << ' ' << mean_force << ' '
-       << output.at("opes_extra_bias").toTensor().item<double>() << ' '
-       << output.at("opes_rct").toTensor().item<double>() << ' '
-       << output.at("opes_zed").toTensor().item<double>() << ' '
-       << output.at("opes_neff").toTensor().item<double>() << ' '
-       << output.at("opes_nker").toTensor().item<double>() << ' '
-       << output.at("opes_work").toTensor().item<double>() << ' '
-       << output.at("opes_excluded").toTensor().item<double>() << ' ' << status_ << ' '
-       << output.at("opes_deposited").toTensor().item<double>() << ' '
-       << output.at("opes_merge_count").toTensor().item<double>() << ' '
-       << output.at("opes_logweight").toTensor().item<double>() << ' '
-       << output.at("opes_probability").toTensor().item<double>() << '\n';
+       << output.at("opes_extra_bias").item<double>() << ' '
+       << output.at("opes_rct").item<double>() << ' '
+       << output.at("opes_zed").item<double>() << ' '
+       << output.at("opes_neff").item<double>() << ' '
+       << output.at("opes_nker").item<double>() << ' '
+       << output.at("opes_work").item<double>() << ' '
+       << output.at("opes_excluded").item<double>() << ' ' << status_ << ' '
+       << output.at("opes_deposited").item<double>() << ' '
+       << output.at("opes_merge_count").item<double>() << ' '
+       << output.at("opes_logweight").item<double>() << ' '
+       << output.at("opes_probability").item<double>() << '\n';
 }
 
-void TorchOPES::log_kernel(const c10::impl::GenericDict& output, int evaluated_step)
+void TorchOPES::log_kernel(
+  const torch::Dict<std::string, torch::Tensor>& output, int evaluated_step)
 {
-  if (output.at("opes_deposited").toTensor().item<double>() < 0.5) {
+  if (output.at("opes_deposited").item<double>() < 0.5) {
     return;
   }
   std::vector<std::string> fields = {"step"};
@@ -460,18 +456,18 @@ void TorchOPES::log_kernel(const c10::impl::GenericDict& output, int evaluated_s
     config_.kernels_path,
     fields,
     {{"opes_state_version", std::to_string(OPES_STATE_VERSION)}});
-  const auto cv = output.at("cv_now").toTensor().detach().to(torch::kCPU).reshape({-1});
-  const auto sigma = output.at("opes_last_sigma").toTensor().detach().to(torch::kCPU).reshape({-1});
+  const auto cv = output.at("cv_now").detach().to(torch::kCPU).reshape({-1});
+  const auto sigma = output.at("opes_last_sigma").detach().to(torch::kCPU).reshape({-1});
   std::ofstream file(config_.kernels_path, std::ios::app);
   file << std::setprecision(17) << evaluated_step;
   for (int dim = 0; dim < config_.common.cv_size; ++dim)
     file << ' ' << cv[dim].item<double>();
   for (int dim = 0; dim < config_.common.cv_size; ++dim)
     file << ' ' << sigma[dim].item<double>();
-  file << ' ' << output.at("opes_last_height").toTensor().item<double>() << ' '
-       << output.at("opes_logweight").toTensor().item<double>() << ' '
-       << output.at("opes_merge_count").toTensor().item<double>() << ' '
-       << output.at("opes_nker").toTensor().item<double>() << '\n';
+  file << ' ' << output.at("opes_last_height").item<double>() << ' '
+       << output.at("opes_logweight").item<double>() << ' '
+       << output.at("opes_merge_count").item<double>() << ' '
+       << output.at("opes_nker").item<double>() << '\n';
 }
 
 void TorchOPES::compute(
@@ -524,14 +520,14 @@ void TorchOPES::compute(
     inputs.insert(key, state_.at(key));
 
   const int evaluated_step = now_step_;
-  auto output = model_.forward({inputs}).toGenericDict();
-  status_ = output.at("status").toTensor().item<int64_t>();
+  auto output = model_runner_->run(inputs);
+  status_ = output.at("status").item<int64_t>();
   if (!restart_force_refresh_pending_)
     update_state(output);
-  const auto bias = output.at("bias").toTensor();
+  const auto bias = output.at("bias");
   potential += bias.unsqueeze(0) / n_atoms_;
-  force += output.at("forces").toTensor();
-  atom_virial += output.at("virial").toTensor().unsqueeze(0) / n_atoms_;
+  force += output.at("forces");
+  atom_virial += output.at("virial").unsqueeze(0) / n_atoms_;
   torch::cuda::synchronize();
 
   if (restart_force_refresh_pending_) {
