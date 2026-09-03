@@ -1,0 +1,4 @@
+interface:
+  display_name: "GPUMD GPU-Sampling on WSL"
+  short_description: "Build and verify .pt/.pt2 GPU-Sampling"
+  default_prompt: "Use $gpumd-gpu-sampling-wsl to build and compare TorchScript and AOTI GPU-Sampling on WSL."

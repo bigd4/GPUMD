@@ -1,13 +1,13 @@
 # GPU-Sampling OPES runtime
 
 This development branch provides an independent `OPES` route for pyGAS
-TorchScript models.  It does not change the existing `GASMD` or `MetaD`
-dictionary ABI.
+TorchScript models and manifest-backed AOTInductor packages. It does not
+change the existing `GASMD` or `MetaD` TorchScript dictionary ABI.
 
 ## Run syntax
 
 ```text
-OPES GASCVModel.pt GAScfg.yaml [OPES_STATE.pt]
+OPES GASCVModel.pt|GASCVModel.pt2 GAScfg.yaml [OPES_STATE.pt]
 ```
 
 The optional fourth argument is a complete exact-state checkpoint, not a
@@ -44,12 +44,15 @@ significant digits so binary64 values survive a text round trip.
 
 ## Model contract
 
-The model exports `initialize_state(capacity)` and accepts a
+The legacy `.pt` model exports `initialize_state(capacity)` and accepts a
 `Dict[str, Tensor]` containing positions, cell, directed neighbour pairs,
 `opes_step`, compressed-kernel tensors, normalization/adaptive statistics, and
 compatibility metadata.  It returns updated state, `bias`, `forces`, flat
 nine-component `virial`, `cv_now`, `status`, `committor`, and OPES diagnostics.
-Use the pyGAS `pygas-check-gpumd-contract` skill before handing over a model.
+The `.pt2` adapter exposes the same values through a fixed ordered-tensor ABI;
+its eight state tensors keep the exact `.pt` checkpoint schema. This permits
+`.pt` to write `OPES_STATE.pt` for a `.pt2` continuation and vice versa. Use
+the pyGAS `pygas-check-gpumd-contract` skill before handing over a model.
 
 The C++ runtime checks atom count, neighbour overflow, kernel capacity,
 state ABI version, and checkpoint/model metadata.  All failures are explicit;
@@ -75,7 +78,8 @@ diagnostics and must not be used as time-dependent offsets.
 ## Supported scope
 
 The model implements PLUMED-style single-walker `OPES_METAD` and
-`OPES_METAD_EXPLORE`, compressed Gaussian kernels, adaptive sigma, mixed
+`OPES_METAD_EXPLORE`, compressed Gaussian kernels, OPES-internal adaptive
+sigma state (not the removed pyGAS `AdaptiveSigma` helper), mixed
 periodic CVs, exact restart, and flooding hooks.  MPI multiple walkers, the
 experimental PLUMED kernel neighbour list, and `OPES_EXPANDED` are not part of
 this runtime version.

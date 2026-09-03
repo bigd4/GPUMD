@@ -23,6 +23,13 @@ This software is distributed under the GNU General Public License (GPL) version 
 * Go to the `src` directory and type `make`.
 * When the compilation finishes, two executables, `gpumd` and `nep`, will be generated in the `src` directory. 
 
+GPU-Sampling also has a CMake build with two pyGAS deployment backends. Existing
+TorchScript `.pt` models retain their dictionary ABI and work with the matching
+LibTorch/CUDA build as before. A `.pt2` is an additional Linux CUDA
+AOTInductor package and is accepted only when its manifest, PyTorch/LibTorch
+version, CUDA major/minor, C++ ABI, GPU compute capability, dtype, dimensions,
+and declared capacities match. See the [dual-backend deployment guide](doc/aoti.md).
+
 ## Run GPUMD
 * Go to the directory of an example in the [examples directory](examples) and type one of the following commands:
   * `path/to/gpumd`
@@ -37,6 +44,7 @@ This software is distributed under the GNU General Public License (GPL) version 
   * Latest released version: https://gpumd.org/
   * Development version: https://gpumd.org/dev/
   * [GPU-Sampling OPES development runtime](doc/opes.md)
+  * [GPU-Sampling TorchScript/AOTInductor deployment](doc/aoti.md)
 * For developers only:
   * [The developer guide](developers)
   
