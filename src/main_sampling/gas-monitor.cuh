@@ -1,5 +1,6 @@
 // #ifdef USE_GAS
 #pragma once
+#include "gas-config-utils.h"
 // #include "potential.cuh"
 #include "utilities/common.cuh"
 #include "utilities/gpu_vector.cuh"
@@ -84,10 +85,8 @@ struct PSConfig {
             }
 
             // 修剪键和值的空白字符
-            key.erase(0, key.find_first_not_of(" \t"));
-            key.erase(key.find_last_not_of(" \t") + 1);
-            value.erase(0, value.find_first_not_of(" \t"));
-            value.erase(value.find_last_not_of(" \t") + 1);
+            gas_config::trim(key);
+            gas_config::trim(value);
 
             // 存储到哈希表
             configMap[key] = value;

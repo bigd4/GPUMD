@@ -113,3 +113,26 @@ def test_metad_torchscript_model_runs(tmp_path):
     _assert_periodic_range_matches(actual_rows, reference_rows, 1)
     _assert_periodic_range_matches(actual_rows, reference_rows, 2)
     _assert_scalar_range_matches(actual_rows, reference_rows, 3)
+
+
+def test_metad_reports_neighbor_capacity_overflow(tmp_path):
+    case_dir = tmp_path / "test-metad-overflow"
+    shutil.copytree(CASE_DIR, case_dir)
+    config_path = case_dir / "GAScfg.yaml"
+    config = config_path.read_text().replace(
+        "max_neighbors: 22", "max_neighbors: 1"
+    )
+    config_path.write_text(config)
+
+    completed = subprocess.run(
+        [str(_gpu_sampling_executable())],
+        cwd=case_dir,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    output = completed.stdout + completed.stderr
+
+    assert completed.returncode != 0
+    assert "GASMD neighbor list exceeded max_neighbors" in output

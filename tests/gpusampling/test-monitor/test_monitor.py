@@ -29,8 +29,8 @@ def _gpu_sampling_executable() -> Path:
     )
 
 
-def _run(case_dir: Path) -> str:
-    completed = subprocess.run(
+def _run_process(case_dir: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [str(_gpu_sampling_executable())],
         cwd=case_dir,
         capture_output=True,
@@ -38,6 +38,10 @@ def _run(case_dir: Path) -> str:
         timeout=180,
         check=False,
     )
+
+
+def _run(case_dir: Path) -> str:
+    completed = _run_process(case_dir)
     output = completed.stdout + completed.stderr
     assert completed.returncode == 0, output
     return output
@@ -146,3 +150,32 @@ def test_monitor_does_not_change_md_observables(tmp_path):
 
     assert (control_dir / "thermo.out").read_text() == (monitored_dir / "thermo.out").read_text()
     assert len(_read_rows(monitored_dir / "MonCVlog.txt", columns=1)) == RUN_STEPS // 5 + 1
+
+
+def test_monitor_reports_neighbor_capacity_overflow(tmp_path):
+    case_dir = _prepare_case(tmp_path, "neighbor-overflow")
+    config = (CASE_DIR / "monitor-default.yaml").read_text().replace(
+        "max_neighbors: 64", "max_neighbors: 1"
+    )
+    (case_dir / "monitor-overflow.yaml").write_text(config)
+    _write_plain_md_run(case_dir, "Monitor cvonly-first-atom-x.pt monitor-overflow.yaml")
+
+    completed = _run_process(case_dir)
+    output = completed.stdout + completed.stderr
+
+    assert completed.returncode != 0
+    assert "Monitor neighbor list exceeded max_neighbors" in output
+
+
+def test_small_periodic_cell_emits_each_directed_neighbor_once(tmp_path):
+    case_dir = _prepare_case(tmp_path, "small-periodic-cell")
+    n_atoms = int((case_dir / "model.xyz").read_text().splitlines()[0])
+    config = (CASE_DIR / "monitor-default.yaml").read_text()
+    config = config.replace("neighbor_rc: 5.5", "neighbor_rc: 100.0")
+    config = config.replace("max_neighbors: 64", f"max_neighbors: {n_atoms - 1}")
+    (case_dir / "monitor-small-cell.yaml").write_text(config)
+    _write_plain_md_run(case_dir, "Monitor cvonly-first-atom-x.pt monitor-small-cell.yaml")
+
+    _run(case_dir)
+
+    assert len(_read_rows(case_dir / "MonCVlog.txt", columns=1)) == RUN_STEPS // 5 + 1

@@ -1,5 +1,6 @@
 // #ifdef USE_GAS
 #include "gas-monitor.cuh"
+#include "gas-neighbor-list.cuh"
 #include "model/read_xyz.cuh"
 
 namespace{
@@ -49,122 +50,9 @@ namespace{
 //     return tensor.clone();  // 返回一个副本，确保数据不受外部修改的影响
 // }
 
-torch::Tensor NL2Indices(torch::Tensor& torch_NL,int n_atoms_NL){
-    int NL_size = torch_NL.size(0);
-    int max_neighbor = NL_size/n_atoms_NL;
-    torch::Tensor temp = torch::arange(0, n_atoms_NL,torch::kCUDA);
-    torch::Tensor start_array = temp.repeat({max_neighbor});
-    torch::Tensor mask = torch_NL >= 0;
-
-    start_array = start_array.masked_select(mask);
-    torch::Tensor end_array = torch_NL.masked_select(mask);
-    torch::Tensor side_array = torch::stack({start_array, end_array}, 1);
-    return side_array;
 }
 
 
-}
-
-
-
-static __global__ void find_neighbor_list_large_box_gas(
-  const float neighbor_rc,
-  const int N,
-  const int N1,
-  const int N2,
-  const int nx,
-  const int ny,
-  const int nz,
-  const Box box,
-  // const int* g_type,
-  const int* __restrict__ g_cell_count,
-  const int* __restrict__ g_cell_count_sum,
-  const int* __restrict__ g_cell_contents,
-  const double* __restrict__ g_x,
-  const double* __restrict__ g_y,
-  const double* __restrict__ g_z,
-  int* g_NN_radial,
-  int* g_NL_radial)
-{
-  int n1 = blockIdx.x * blockDim.x + threadIdx.x + N1;
-  if (n1 >= N2) {
-    return;
-  }
-
-  double x1 = g_x[n1];
-  double y1 = g_y[n1];
-  double z1 = g_z[n1];
-  int count_radial = 0;
-
-  int cell_id;
-  int cell_id_x;
-  int cell_id_y;
-  int cell_id_z;
-  find_cell_id(
-    box,
-    x1,
-    y1,
-    z1,
-    2.0f / neighbor_rc,
-    nx,
-    ny,
-    nz,
-    cell_id_x,
-    cell_id_y,
-    cell_id_z,
-    cell_id);
-
-  const int z_lim = box.pbc_z ? 2 : 0;
-  const int y_lim = box.pbc_y ? 2 : 0;
-  const int x_lim = box.pbc_x ? 2 : 0;
-
-  for (int zz = -z_lim; zz <= z_lim; ++zz) {
-    for (int yy = -y_lim; yy <= y_lim; ++yy) {
-      for (int xx = -x_lim; xx <= x_lim; ++xx) {
-        int neighbor_cell = cell_id + zz * nx * ny + yy * nx + xx;
-        if (cell_id_x + xx < 0)
-          neighbor_cell += nx;
-        if (cell_id_x + xx >= nx)
-          neighbor_cell -= nx;
-        if (cell_id_y + yy < 0)
-          neighbor_cell += ny * nx;
-        if (cell_id_y + yy >= ny)
-          neighbor_cell -= ny * nx;
-        if (cell_id_z + zz < 0)
-          neighbor_cell += nz * ny * nx;
-        if (cell_id_z + zz >= nz)
-          neighbor_cell -= nz * ny * nx;
-
-        const int num_atoms_neighbor_cell = g_cell_count[neighbor_cell];
-        const int num_atoms_previous_cells = g_cell_count_sum[neighbor_cell];
-
-        for (int m = 0; m < num_atoms_neighbor_cell; ++m) {
-          const int n2 = g_cell_contents[num_atoms_previous_cells + m];
-
-          if (n2 < N1 || n2 >= N2 || n1 == n2) {
-            continue;
-          }
-
-          double x12double = g_x[n2] - x1;
-          double y12double = g_y[n2] - y1;
-          double z12double = g_z[n2] - z1;
-          apply_mic(box, x12double, y12double, z12double);
-          float x12 = float(x12double), y12 = float(y12double), z12 = float(z12double);
-          float d12_square = x12 * x12 + y12 * y12 + z12 * z12;
-          
-          float rc_radial = neighbor_rc;
-
-          if (d12_square >= rc_radial * rc_radial) {
-            continue;
-          }
-          g_NL_radial[count_radial++ * N + n1] = n2;
-        }
-      }
-    }
-  }
-
-  g_NN_radial[n1] = count_radial;
-}
 
 // torch::Tensor NL2Indices(torch::Tensor& torch_NL,int n_atoms_NL){
 //     int NL_size = torch_NL.size(0);
@@ -204,11 +92,10 @@ void TorchMonitor::compute_large_box(
     this->cell_count_sum,
     this->cell_contents);
 
-  find_neighbor_list_large_box_gas<<<grid_size, BLOCK_SIZE>>>(
+  gas_neighbor::find_neighbor_list_large_box<<<grid_size, BLOCK_SIZE>>>(
     config.neighbor_rc,
+    config.max_neighbors,
     N,
-    0,// this->N1_,
-    N,// this->N2_,
     num_bins[0],
     num_bins[1],
     num_bins[2],
@@ -228,6 +115,14 @@ void TorchMonitor::get_neighbor_list(Box& box,const GPU_Vector<double>& position
   this->NN_radial.fill(-1);
   this->NL_radial.fill(-1);
   this->compute_large_box(box,position_per_atom);
+  auto counts = torch::from_blob(
+    NN_radial.data(),
+    {n_atoms_},
+    torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA));
+  if (counts.max().item<int>() > config.max_neighbors) {
+    throw std::runtime_error(
+      "GASMonitor neighbor list exceeded max_neighbors; increase GAScfg capacity.");
+  }
 }
 TorchMonitor::TorchMonitor(int n_atoms):TorchMonitor("GASCVModel.pt","GAScfg.yaml",n_atoms){}
 
@@ -419,7 +314,7 @@ bool TorchMonitor::process(
 
     torch_NL = torch::from_blob(NL_radial.data(), {n_atoms*config.max_neighbors}, torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA)).reshape(-1);
     torch::cuda::synchronize();
-    torch::Tensor side_array = NL2Indices(torch_NL,n_atoms);
+    torch::Tensor side_array = gas_neighbor::to_side_array(torch_NL,n_atoms);
 
 
     torch::Dict<std::string, torch::Tensor> inputs;
@@ -458,7 +353,7 @@ bool TorchMonitor::process(
 
     torch_NL = torch::from_blob(NL_radial.data(), {n_atoms*config.max_neighbors}, torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA)).reshape(-1);
     torch::cuda::synchronize();
-    torch::Tensor side_array = NL2Indices(torch_NL,n_atoms);
+    torch::Tensor side_array = gas_neighbor::to_side_array(torch_NL,n_atoms);
 
 
     torch::Dict<std::string, torch::Tensor> inputs;
@@ -597,116 +492,6 @@ void unquote_monitor_config_value(std::string& value)
   }
 }
 
-torch::Tensor cv_monitor_nl_to_side_array(torch::Tensor& torch_nl, int n_atoms)
-{
-  const int max_neighbors = static_cast<int>(torch_nl.numel()) / n_atoms;
-  torch::Tensor starts = torch::arange(
-    0,
-    n_atoms,
-    torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
-  starts = starts.repeat({max_neighbors});
-  const torch::Tensor mask = torch_nl >= 0;
-  starts = starts.masked_select(mask);
-  torch::Tensor ends = torch_nl.masked_select(mask).to(torch::kLong);
-  return torch::stack({starts, ends}, 1);
-}
-
-static __global__ void find_neighbor_list_large_box_cv_monitor(
-  const float neighbor_rc,
-  const int n_atoms,
-  const int nx,
-  const int ny,
-  const int nz,
-  const Box box,
-  const int* __restrict__ cell_count,
-  const int* __restrict__ cell_count_sum,
-  const int* __restrict__ cell_contents,
-  const double* __restrict__ x,
-  const double* __restrict__ y,
-  const double* __restrict__ z,
-  int* nn_radial,
-  int* nl_radial)
-{
-  const int n1 = blockIdx.x * blockDim.x + threadIdx.x;
-  if (n1 >= n_atoms) {
-    return;
-  }
-
-  const double x1 = x[n1];
-  const double y1 = y[n1];
-  const double z1 = z[n1];
-  int count_radial = 0;
-
-  int cell_id;
-  int cell_id_x;
-  int cell_id_y;
-  int cell_id_z;
-  find_cell_id(
-    box,
-    x1,
-    y1,
-    z1,
-    2.0f / neighbor_rc,
-    nx,
-    ny,
-    nz,
-    cell_id_x,
-    cell_id_y,
-    cell_id_z,
-    cell_id);
-
-  const int z_lim = box.pbc_z ? 2 : 0;
-  const int y_lim = box.pbc_y ? 2 : 0;
-  const int x_lim = box.pbc_x ? 2 : 0;
-
-  for (int zz = -z_lim; zz <= z_lim; ++zz) {
-    for (int yy = -y_lim; yy <= y_lim; ++yy) {
-      for (int xx = -x_lim; xx <= x_lim; ++xx) {
-        int neighbor_cell = cell_id + zz * nx * ny + yy * nx + xx;
-        if (cell_id_x + xx < 0) {
-          neighbor_cell += nx;
-        }
-        if (cell_id_x + xx >= nx) {
-          neighbor_cell -= nx;
-        }
-        if (cell_id_y + yy < 0) {
-          neighbor_cell += ny * nx;
-        }
-        if (cell_id_y + yy >= ny) {
-          neighbor_cell -= ny * nx;
-        }
-        if (cell_id_z + zz < 0) {
-          neighbor_cell += nz * ny * nx;
-        }
-        if (cell_id_z + zz >= nz) {
-          neighbor_cell -= nz * ny * nx;
-        }
-
-        const int number_in_cell = cell_count[neighbor_cell];
-        const int first_atom = cell_count_sum[neighbor_cell];
-        for (int m = 0; m < number_in_cell; ++m) {
-          const int n2 = cell_contents[first_atom + m];
-          if (n1 == n2) {
-            continue;
-          }
-
-          double dx = x[n2] - x1;
-          double dy = y[n2] - y1;
-          double dz = z[n2] - z1;
-          apply_mic(box, dx, dy, dz);
-          const float distance_squared =
-            static_cast<float>(dx * dx + dy * dy + dz * dz);
-          if (distance_squared >= neighbor_rc * neighbor_rc) {
-            continue;
-          }
-          nl_radial[count_radial++ * n_atoms + n1] = n2;
-        }
-      }
-    }
-  }
-  nn_radial[n1] = count_radial;
-}
-
 } // namespace
 
 CVMonitorConfig CVMonitorConfig::from_file(const std::string& file_path)
@@ -840,8 +625,9 @@ void TorchCVMonitor::compute_large_box(
     cell_count_sum_,
     cell_contents_);
 
-  find_neighbor_list_large_box_cv_monitor<<<grid_size, block_size>>>(
+  gas_neighbor::find_neighbor_list_large_box<<<grid_size, block_size>>>(
     config_.neighbor_rc,
+    config_.max_neighbors,
     n_atoms_,
     number_of_bins[0],
     number_of_bins[1],
@@ -865,6 +651,14 @@ void TorchCVMonitor::get_neighbor_list(
   nn_radial_.fill(-1);
   nl_radial_.fill(-1);
   compute_large_box(box, position_per_atom);
+  auto counts = torch::from_blob(
+    nn_radial_.data(),
+    {n_atoms_},
+    torch::TensorOptions().dtype(torch::kInt).device(torch::kCUDA));
+  if (counts.max().item<int>() > config_.max_neighbors) {
+    throw std::runtime_error(
+      "Monitor neighbor list exceeded max_neighbors; increase GAScfg capacity.");
+  }
 }
 
 void TorchCVMonitor::box_to_tri(Box& box)
@@ -960,7 +754,7 @@ void TorchCVMonitor::process(Box& box, const GPU_Vector<double>& positions, int 
   torch::Dict<std::string, torch::Tensor> inputs;
   inputs.insert("positions", positions_tensor);
   inputs.insert("cell", cell_tensor);
-  inputs.insert("side_array", cv_monitor_nl_to_side_array(torch_nl_, n_atoms_));
+  inputs.insert("side_array", gas_neighbor::to_side_array(torch_nl_, n_atoms_));
   torch_now_cvs_ = predict_cv(inputs);
   torch::cuda::synchronize();
   log_cv();
