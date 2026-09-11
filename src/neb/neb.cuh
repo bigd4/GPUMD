@@ -140,6 +140,9 @@ private:
   bool find_mic = false;
 
   bool image_number_adjustment = true;
+  bool ina_memory_guard = true;
+  double ina_memory_reserve_mb = 512.0; // MiB
+  size_t ina_memory_skipped = 0;
   bool trim_images = false;
   double trim_similar_tol = 0.01;
   bool ina_k = false;
@@ -235,6 +238,8 @@ private:
   void finish_ina_local_tracking();
 
   bool satisfy_ina_force_tolerence() const;
+
+  bool can_insert_image(bool& memory_warning_printed);
 
   void adjust_image_spacing(bool allow_remove, bool bootstrap);
 

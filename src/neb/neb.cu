@@ -1,4 +1,5 @@
 #include "neb.cuh"
+#include "ina_memory_budget.h"
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
@@ -986,6 +987,21 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   // Image Number Adjustment: controls for inserting/removing images along the path.
   } else if (strcmp(param[n], "no_ina") == 0){
     image_number_adjustment = false;
+  } else if (strcmp(param[n], "ina_memory_guard") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    int enabled;
+    if (!is_valid_int(param[n+1], &enabled) || (enabled != 0 && enabled != 1)) {
+      PRINT_INPUT_ERROR("ina_memory_guard should be 0 or 1.");
+    }
+    ina_memory_guard = enabled != 0;
+    n++;
+  } else if (strcmp(param[n], "ina_memory_reserve_mb") == 0){
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (!is_valid_real(param[n+1], &ina_memory_reserve_mb) ||
+        !std::isfinite(ina_memory_reserve_mb) || ina_memory_reserve_mb < 0.0) {
+      PRINT_INPUT_ERROR("ina_memory_reserve_mb should be a finite non-negative real.");
+    }
+    n++;
   } else if (strcmp(param[n], "trim_images") == 0){
     trim_images = true;
   } else if (strcmp(param[n], "trim_similar_tol") == 0){
@@ -1440,6 +1456,7 @@ double NEB::estimate_cell_metric_scale()
 }
 
 void NEB::run_neb() {
+  ina_memory_skipped = 0;
   printf("\n**************************************************************\n");
   printf("*                            [o]                             *\n");
   printf("*                           /   \\                            *\n");
@@ -1483,6 +1500,8 @@ void NEB::run_neb() {
   print_setting("image_number_adjustment", image_number_adjustment);
   if (image_number_adjustment) {
     print_setting("ina_interval", ina_interval, 4);
+    print_setting("ina_memory_guard", ina_memory_guard, 4);
+    if (ina_memory_guard) print_setting("ina_memory_reserve_mb", ina_memory_reserve_mb, 8);
     print_setting("ina_local_relax_steps", ina_local_relax_steps, 4);
     if (ina_local_relax_steps > 0) {
       print_setting("ina_local_relax_neighbors", ina_local_relax_neighbors, 8);
@@ -1670,6 +1689,10 @@ void NEB::run_neb() {
     step,
     ina_local_steps_completed,
     step + ina_local_steps_completed);
+  if (ina_memory_skipped > 0) {
+    printf("INA memory guard summary: skipped %zu insertion candidate(s); "
+           "the requested image spacing is not guaranteed.\n", ina_memory_skipped);
+  }
   write_energies();
   write_neb_traj("final_traj.xyz", "w");
 }
@@ -2100,6 +2123,45 @@ bool NEB::satisfy_ina_force_tolerence() const
   return false;
 }
 
+bool NEB::can_insert_image(bool& memory_warning_printed)
+{
+  if (!ina_memory_guard) return true;
+  // Synchronize only at an actual insertion candidate, not every NEB step.
+  CHECK(cudaDeviceSynchronize());
+  size_t free_bytes = 0, total_bytes = 0;
+  CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+  Atoms* reference = images.front()->get_p_atoms();
+  size_t image_bytes = sizeof(double) * (
+    reference->get_positions().size() + reference->get_forces().size() +
+    reference->get_potential_per_atom().size() + reference->virials.size());
+  image_bytes += sizeof(int) * reference->type.size();
+  for (const auto& group : reference->group) {
+    image_bytes += sizeof(int) * (
+      group.label.size() + group.size.size() + group.size_sum.size() + group.contents.size());
+  }
+  if (variable_cell) {
+    // Allow a second copy of atom metadata plus the wrapper's generalized
+    // positions/forces and cell matrices (also covers rotation-free filters).
+    image_bytes = 2 * image_bytes +
+      sizeof(double) * (8 * static_cast<size_t>(natoms_per_image) + 256);
+  }
+  const long double extra = ina_memory::extra_bytes(
+    image_bytes, natoms_per_image, images.size() + 1);
+  if (ina_memory::fits(free_bytes, extra, ina_memory_reserve_mb)) return true;
+
+  ++ina_memory_skipped;
+  if (!memory_warning_printed) {
+    printf(
+      "INA memory guard: insertion skipped at NEB step %d, images=%zu, "
+      "free=%.1f MiB, estimated_extra=%.1Lf MiB, reserve=%.1f MiB. "
+      "Image spacing may remain above dist_range.\n",
+      step, images.size(), free_bytes / 1048576.0, extra / 1048576.0L,
+      ina_memory_reserve_mb);
+    memory_warning_printed = true;
+  }
+  return false;
+}
+
 void NEB::adjust_image_spacing(bool allow_remove, bool bootstrap)
 {
   if (images.size() < 2) return;
@@ -2156,6 +2218,7 @@ void NEB::adjust_image_spacing(bool allow_remove, bool bootstrap)
   GPU_Vector<int> cell_count(n_realatoms), cell_count_sum(n_realatoms), cell_contents(n_realatoms);
   GPU_Vector<int> NN(n_realatoms), NL(n_realatoms * max_neighbor);
   int i_ori = 0;
+  bool memory_warning_printed = false;
   for (int i = 1; i < images.size(); i++)
   {
     double cur_min_dist(min_dist), cur_max_dist(max_dist);
@@ -2209,6 +2272,12 @@ void NEB::adjust_image_spacing(bool allow_remove, bool bootstrap)
     dist = r_dist + h_dist;
 
     if (bootstrap || dist > cur_max_dist){
+      if (!can_insert_image(memory_warning_printed)) {
+        if (bootstrap && images.size() < 3) {
+          PRINT_INPUT_ERROR("INA memory guard cannot allocate the first intermediate image.");
+        }
+        continue; // No topology change: do not reset FIRE or trigger local relaxation.
+      }
       double max_dist_ratio = (dist > 2.0 * cur_max_dist) ? (cur_max_dist / dist) : 0.5;
       double insert_ratio =
         max_dist_ratio + ina_insert_midpoint_weight * (0.5 - max_dist_ratio);
