@@ -59,5 +59,6 @@ public:
     Atom& atom,
     Force& force);
 
+  trajectory::Config output_config;
   std::vector<std::unique_ptr<Property>> properties;
 };

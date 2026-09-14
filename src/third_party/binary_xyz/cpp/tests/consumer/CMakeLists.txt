@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.18)
+project(binary_xyz_consumer LANGUAGES CXX)
+find_package(binary_xyz CONFIG REQUIRED)
+add_executable(consumer ../../examples/md_writer.cpp)
+target_link_libraries(consumer PRIVATE binary_xyz::binary_xyz)

@@ -186,3 +186,8 @@ file(WRITE ${CMAKE_BINARY_DIR}/clean.cmake "
         file(REMOVE ${EXECUTABLES})
     endif()
 ")
+
+# Optional binary trajectory support; shared with the CPU-only adapter tests.
+add_subdirectory(io)
+target_link_libraries(gpumd trajectory_io)
+target_link_libraries(gpu-sampling trajectory_io)

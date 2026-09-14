@@ -53,3 +53,5 @@ Caveats
 * For qNEP models, the charge values dumped out are predicted by the qNEP models.
   For other models, the charge values are those specified in :attr:`model.xyz` via :attr:`charge:R:1`.
 * The Born effective charge (:term:`BEC`) is only meaningful for a qNEP model trained with target :term:`BEC`.
+
+The MD structure or per-atom output of this command also supports :ref:`output_format <kw_output_format>` for binary encoding. Statistical companion files retain their original format.

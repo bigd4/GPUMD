@@ -18,6 +18,7 @@ Dump some data to dump.xyz in the extended XYZ format
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_exyz.cuh"
+#include "output_frame.cuh"
 #include "model/atom.cuh"
 #include "model/box.cuh"
 #include "utilities/common.cuh"
@@ -135,7 +136,7 @@ void Dump_EXYZ::preprocess(
 {
   if (dump_) {
     if (separated_ == 0) {
-      fid_ = my_fopen("dump.xyz", "a");
+      if (!binary_output.enabled()) fid_ = my_fopen("dump.xyz", "a");
     }
 
     gpu_total_virial_.resize(6);
@@ -258,9 +259,24 @@ void Dump_EXYZ::process(
     atom.potential_per_atom.copy_to_host(cpu_potential_per_atom_.data());
   }
 
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, group);
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1) + trajectory::geometry(box)
+      + trajectory::thermodynamics(atom.virial_per_atom, thermo);
+    frame.add_strings("species", atom.cpu_atom_symbol, indices);
+    frame.add_real("pos", 3, atom.cpu_position_per_atom, atom.number_of_atoms, indices);
+    if (has_velocity_) frame.add_real("vel", 3, atom.cpu_velocity_per_atom, atom.number_of_atoms, indices, 1.0 / TIME_UNIT_CONVERSION);
+    if (has_force_) frame.add_real("forces", 3, cpu_force_per_atom_, atom.number_of_atoms, indices);
+    if (has_potential_) frame.add_real("energy_atom", 1, cpu_potential_per_atom_, atom.number_of_atoms, indices);
+    const std::string path = separated_ ? "dump." + std::to_string(step + 1) + ".xyz" : "dump.xyz";
+    binary_output.write(path, frame, separated_ == 0);
+    return;
+  }
+
   if (separated_) {
     std::string filename = "dump." + std::to_string(step + 1) + ".xyz";
-    fid_ = my_fopen(filename.data(), "w");
+    if (!binary_output.enabled()) fid_ = my_fopen(filename.data(), "w");
   }
 
   // line 1
@@ -295,7 +311,7 @@ void Dump_EXYZ::process(
   if (separated_ == 0) {
     fflush(fid_);
   } else {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
   }
 }
 
@@ -309,7 +325,7 @@ void Dump_EXYZ::postprocess(
 {
   if (dump_) {
     if (separated_ == 0) {
-      fclose(fid_);
+      if (!binary_output.enabled()) fclose(fid_);
     }
     dump_ = false;
   }

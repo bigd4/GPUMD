@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 ###########################################################
 # Makefile for GPUMD MDI executable
 # This creates a separate gpumd-mdi executable with MDI support
@@ -44,6 +45,8 @@ ifdef MDI_LIB
 endif
 
 
+include io/output_format.mk
+
 ###########################################################
 # source files for gpumd-mdi
 ###########################################################
@@ -80,6 +83,7 @@ endif
 # headers
 ###########################################################
 HEADERS =                         \
+	$(wildcard io/*.h)           \
 	$(wildcard utilities/*.cuh)   \
 	$(wildcard integrate/*.cuh)   \
 	$(wildcard mc/*.cuh)          \
@@ -103,8 +107,8 @@ HEADERS =                         \
 # executable
 ###########################################################
 all: gpumd-mdi
-gpumd-mdi: $(OBJ_MDI)
-	$(CC) $(LDFLAGS) $^ -o gpumd-mdi $(LIBS)
+gpumd-mdi: $(OBJ_MDI) $(OUTPUT_OBJ) io/.output_mode
+	$(CC) $(LDFLAGS) $(filter %.o %.obj,$^) -o gpumd-mdi $(LIBS) $(OUTPUT_LIBS)
 	@echo =================================================
 	@echo The gpumd-mdi executable is successfully compiled!
 	@echo =================================================

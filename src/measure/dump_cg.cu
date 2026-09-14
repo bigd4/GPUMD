@@ -18,6 +18,7 @@ Dump training data for NEP-CG
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_cg.cuh"
+#include "output_frame.cuh"
 #include "model/atom.cuh"
 #include "model/box.cuh"
 #include "utilities/common.cuh"
@@ -98,7 +99,7 @@ void Dump_CG::preprocess(
   Box& box,
   Force& force)
 {
-  fid_ = my_fopen("train.xyz", "a");
+  if (!binary_output.enabled()) fid_ = my_fopen("train.xyz", "a");
 
   gpu_total_virial_.resize(6);
   cpu_total_virial_.resize(6);
@@ -339,26 +340,46 @@ void Dump_CG::process(
 
   // output data
   if ((step + 1) == number_of_steps) {
-    // line 1
-    fprintf(fid_, "%d\n", num_beads);
-
-    double extra_virial = (num_atoms_total - num_beads) * K_B * temperature;
-
-    // line 2
-    output_line2(fid_, box, relative_step, extra_virial);
-
-    // other lines
-    for (int b = 0; b < num_beads; b++) {
-      fprintf(fid_, "%s", bead_name_[g.cpu_contents[g.cpu_size_sum[b] + 0]].c_str());
-      for (int d = 0; d < 3; ++d) {
-        fprintf(fid_, " %.8f", cpu_position_bead_[num_beads * d + b]);
+    if (binary_output.enabled()) {
+      std::vector<int> indices(num_beads); std::iota(indices.begin(), indices.end(), 0);
+      std::vector<std::string> labels;
+      for (int b=0; b<num_beads; ++b) {
+        if (g.cpu_size[b] == 0) PRINT_INPUT_ERROR("dump_cg cannot define an empty bead.");
+        labels.push_back(bead_name_[g.cpu_contents[g.cpu_size_sum[b]]]);
       }
-      for (int d = 0; d < 3; ++d) {
-        fprintf(fid_, " %.8f", cpu_force_bead_[num_beads * d + b] * relative_step);
+      trajectory::Frame frame; frame.count = num_beads;
+      const double extra = (num_atoms_total - num_beads) * K_B * temperature;
+      double virial[9];
+      for (int i=0;i<9;++i) virial[i] = cpu_virial_bead_[i] * relative_step + ((i%4==0) ? extra : 0.0);
+      std::ostringstream info; info.imbue(std::locale::classic());
+      info << std::setprecision(17) << " energy=" << cpu_energy_bead_ * relative_step;
+      frame.info = trajectory::geometry(box) + info.str() + trajectory::tensor("virial", virial, 9);
+      frame.add_strings("species", labels, indices);
+      frame.add_real("pos", 3, cpu_position_bead_, num_beads, indices);
+      frame.add_real("forces", 3, cpu_force_bead_, num_beads, indices, relative_step);
+      binary_output.write("train.xyz", frame);
+    } else {
+      // line 1
+      fprintf(fid_, "%d\n", num_beads);
+
+      double extra_virial = (num_atoms_total - num_beads) * K_B * temperature;
+
+      // line 2
+      output_line2(fid_, box, relative_step, extra_virial);
+
+      // other lines
+      for (int b = 0; b < num_beads; b++) {
+        fprintf(fid_, "%s", bead_name_[g.cpu_contents[g.cpu_size_sum[b] + 0]].c_str());
+        for (int d = 0; d < 3; ++d) {
+          fprintf(fid_, " %.8f", cpu_position_bead_[num_beads * d + b]);
+        }
+        for (int d = 0; d < 3; ++d) {
+          fprintf(fid_, " %.8f", cpu_force_bead_[num_beads * d + b] * relative_step);
+        }
+        fprintf(fid_, "\n");
       }
-      fprintf(fid_, "\n");
+      fflush(fid_);
     }
-    fflush(fid_);
 
 
   }
@@ -382,5 +403,5 @@ void Dump_CG::postprocess(
   const double time_step,
   const double temperature)
 {
-  fclose(fid_);
+  if (!binary_output.enabled()) fclose(fid_);
 }

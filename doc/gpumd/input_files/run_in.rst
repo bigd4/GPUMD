@@ -167,6 +167,10 @@ Output
      - Run on-the-fly active learning, saving structures that exceeds a set threshold maximum force uncertainty over all specified NEP potentials.
      - No
      - No
+   * - :ref:`output_format <kw_output_format>`
+     - Select text or binary encoding for MD per-atom outputs.
+     - No
+     - Yes
    * - :ref:`dump_exyz <kw_dump_exyz>`
      - Write positions and other quantities in `extended XYZ format <https://github.com/libAtoms/extxyz>`_
      - No

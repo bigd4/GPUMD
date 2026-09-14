@@ -40,3 +40,5 @@ Example 2
 Similar to the above example, but only for atoms in group 1 within grouping method 2::
 
   dump_velocity 10 group 2 1
+
+The MD structure or per-atom output of this command also supports :ref:`output_format <kw_output_format>` for binary encoding. Statistical companion files retain their original format.

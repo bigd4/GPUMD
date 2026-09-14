@@ -18,6 +18,7 @@ Dump a restart file
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_restart.cuh"
+#include "output_frame.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
 #include "utilities/common.cuh"
@@ -81,6 +82,21 @@ void Dump_Restart::process(
     return;
   if ((step + 1) % dump_interval_ != 0)
     return;
+
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, group);
+    atom.position_per_atom.copy_to_host(atom.cpu_position_per_atom.data());
+    atom.velocity_per_atom.copy_to_host(atom.cpu_velocity_per_atom.data());
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::geometry(box);
+    frame.add_strings("species", atom.cpu_atom_symbol, indices);
+    frame.add_real("pos", 3, atom.cpu_position_per_atom, atom.number_of_atoms, indices);
+    frame.add_real("mass", 1, atom.cpu_mass, atom.number_of_atoms, indices);
+    frame.add_real("vel", 3, atom.cpu_velocity_per_atom, atom.number_of_atoms, indices, 1.0 / TIME_UNIT_CONVERSION);
+    trajectory::add_groups(frame, group, indices);
+    binary_output.write("restart.xyz", frame, false);
+    return;
+  }
 
   FILE* fid = my_fopen("restart.xyz", "w");
 

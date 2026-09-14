@@ -18,6 +18,8 @@ The driver class dealing with measurement.
 ------------------------------------------------------------------------------*/
 
 #include "measure.cuh"
+#include "utilities/error.cuh"
+#include <exception>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -30,7 +32,7 @@ void Measure::initialize(
   std::vector<Group>& group,
   Atom& atom,
   Box& box,
-  Force& force)
+  Force& force) try
 {
   std::vector<std::string> property_names;
   for (auto& prop : properties) {
@@ -54,6 +56,7 @@ void Measure::initialize(
 
 
   for (auto& prop : properties) {
+    prop->binary_output.configure(output_config);
     prop->preprocess(
       number_of_steps,
       time_step,
@@ -63,6 +66,8 @@ void Measure::initialize(
       box,
       force);
   }
+} catch (const std::exception& error) {
+  PRINT_INPUT_ERROR(error.what());
 }
 
 void Measure::finalize(
@@ -99,7 +104,7 @@ void Measure::process(
   std::vector<Group>& group,
   GPU_Vector<double>& thermo,
   Atom& atom,
-  Force& force)
+  Force& force) try
 {
   for (auto& prop : properties) {
     prop->process(
@@ -116,4 +121,6 @@ void Measure::process(
       atom,
       force);
   }
+} catch (const std::exception& error) {
+  PRINT_INPUT_ERROR(error.what());
 }

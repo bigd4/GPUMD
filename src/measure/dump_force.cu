@@ -18,6 +18,8 @@ Dump force data to a file at a given interval.
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_force.cuh"
+#include "output_frame.cuh"
+#include "utilities/common.cuh"
 #include "model/group.cuh"
 #include "parse_utilities.cuh"
 #include "utilities/error.cuh"
@@ -69,7 +71,7 @@ void Dump_Force::preprocess(
   Force& force)
 {
   if (dump_) {
-    fid_ = my_fopen("force.out", "a");
+    if (!binary_output.enabled()) fid_ = my_fopen("force.out", "a");
 
     if (grouping_method_ < 0) {
       cpu_force_per_atom.resize(atom.number_of_atoms * 3);
@@ -119,6 +121,18 @@ void Dump_Force::process(
     return;
   if ((step + 1) % dump_interval_ != 0)
     return;
+
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, groups, grouping_method_, group_id_);
+    std::vector<double> values(atom.number_of_atoms * 3);
+    atom.force_per_atom.copy_to_host(values.data());
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1, grouping_method_, group_id_);
+
+    frame.add_real("forces", 3, values, atom.number_of_atoms, indices, 1.0);
+    binary_output.write("force.xyz", frame);
+    return;
+  }
 
   const int number_of_atoms = atom.number_of_atoms;
 
@@ -173,7 +187,7 @@ void Dump_Force::postprocess(
   const double temperature)
 {
   if (dump_) {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
     dump_ = false;
     grouping_method_ = -1;
   }
