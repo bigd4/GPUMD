@@ -18,6 +18,10 @@ The class defining the simulation model.
 ------------------------------------------------------------------------------*/
 
 #include "atom.cuh"
+#include "io/output_format.h"
+#include <cmath>
+#include <climits>
+#include <limits>
 #include "box.cuh"
 #include "group.cuh"
 #include "read_xyz.cuh"
@@ -628,10 +632,84 @@ void initialize_position(
 //     group[m].find_contents(atom.number_of_atoms);
 //   }
 
+static void initialize_binary_position(
+  const char* filename, int& has_velocity, int& number_of_types,
+  Box& box, std::vector<Group>& groups, Atom& atom)
+{
+  try {
+    auto frame = trajectory::read_model(filename);
+    if (frame.count < 2 || frame.count > INT_MAX / 9) throw std::runtime_error("invalid model atom count");
+    const int n = static_cast<int>(frame.count);
+    auto array = [&](const std::string& name, char type, int components, bool required) -> const trajectory::Array* {
+      for (const auto& a : frame.arrays) if (a.name == name) {
+        if (a.type != type || (components && a.components != static_cast<std::size_t>(components)))
+          throw std::runtime_error("invalid model property: " + name);
+        return &a;
+      }
+      if (required) throw std::runtime_error("missing model property: " + name);
+      return nullptr;
+    };
+    auto symbols = array("species", 'S', 1, true);
+    auto positions = array("pos", 'R', 3, true);
+    auto mass = array("mass", 'R', 1, false);
+    auto charge = array("charge", 'R', 1, false);
+    auto velocity = array("vel", 'R', 3, false);
+    auto grouping = array("group", 'I', 0, false);
+    const int transpose[9] = {0,3,6,1,4,7,2,5,8};
+    for (int i=0;i<9;++i) {
+      if (!std::isfinite(frame.cell[i])) throw std::runtime_error("non-finite model lattice");
+      box.cpu_h[transpose[i]] = frame.cell[i];
+    }
+    const auto h = box.cpu_h;
+    const double det = h[0]*(h[4]*h[8]-h[5]*h[7])-h[1]*(h[3]*h[8]-h[5]*h[6])+h[2]*(h[3]*h[7]-h[4]*h[6]);
+    if (!std::isfinite(det) || det == 0) throw std::runtime_error("missing or singular model lattice");
+    box.pbc_x=frame.pbc[0]; box.pbc_y=frame.pbc[1]; box.pbc_z=frame.pbc[2]; box.get_inverse();
+    auto potential_filename = get_filename_potential();
+    auto allowed = get_atom_symbols(potential_filename);
+    number_of_types = allowed.size(); atom.number_of_atoms = n;
+    atom.cpu_atom_symbol = symbols->strings;
+    atom.cpu_type.resize(n); atom.cpu_mass.resize(n); atom.cpu_charge.assign(n,0);
+    atom.cpu_position_per_atom.resize(n*3); atom.cpu_velocity_per_atom.assign(n*3,0);
+    has_velocity = velocity != nullptr;
+    groups.resize(grouping ? grouping->components : 0);
+    for (auto& g:groups) {g.cpu_label.resize(n);g.number=0;}
+    for (int i=0;i<n;++i) {
+      const auto& symbol = atom.cpu_atom_symbol[i];
+      auto it = std::find(allowed.begin(),allowed.end(),symbol);
+      if (it==allowed.end()) throw std::runtime_error("model element not allowed by potential: " + symbol);
+      atom.cpu_type[i] = it-allowed.begin();
+      atom.cpu_mass[i] = mass ? mass->real[i] : MASS_TABLE.at(symbol);
+      if (!std::isfinite(atom.cpu_mass[i]) || atom.cpu_mass[i]<=0) throw std::runtime_error("invalid atom mass");
+      if (charge) {
+        if (!std::isfinite(charge->real[i]) || std::abs(charge->real[i])>std::numeric_limits<float>::max()) throw std::runtime_error("invalid atom charge");
+        atom.cpu_charge[i] = charge->real[i];
+      }
+      for (int d=0;d<3;++d) {
+        double x=positions->real[i*3+d];
+        double v=velocity ? velocity->real[i*3+d]*TIME_UNIT_CONVERSION : 0;
+        if (!std::isfinite(x) || !std::isfinite(v)) throw std::runtime_error("non-finite model position or velocity");
+        atom.cpu_position_per_atom[i+n*d]=x; atom.cpu_velocity_per_atom[i+n*d]=v;
+      }
+      for (std::size_t m=0;m<groups.size();++m) {
+        auto label=grouping->integer[i*groups.size()+m];
+        if (label<0 || label>=n) throw std::runtime_error("group label must be >=0 and <N");
+        groups[m].cpu_label[i]=label; groups[m].number=std::max(groups[m].number,static_cast<int>(label)+1);
+      }
+    }
+    for (std::size_t m=0;m<groups.size();++m) {groups[m].find_size(n,m,true);groups[m].find_contents(n);}
+    find_type_size(n,number_of_types,atom.cpu_type,atom.cpu_type_size,true);
+    printf("Read binary model %s: %d atoms, velocities %s.\n",filename,n,has_velocity ? "present" : "absent");
+  } catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
+}
+
 void initialize_position(
   const char* xyzname, int& has_velocity_in_xyz, int& number_of_types,
    Box& box, std::vector<Group>& group, Atom& atom)
 {
+  if (trajectory::is_binary(xyzname)) {
+    initialize_binary_position(xyzname, has_velocity_in_xyz, number_of_types, box, group, atom);
+    return;
+  }
   std::string filename(xyzname);
   std::ifstream input(filename);
   if (!input.is_open()) {

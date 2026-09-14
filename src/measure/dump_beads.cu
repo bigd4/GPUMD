@@ -18,6 +18,7 @@ Dump bead data in PIMD-related run
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_beads.cuh"
+#include "output_frame.cuh"
 #include "model/atom.cuh"
 #include "model/box.cuh"
 #include "utilities/common.cuh"
@@ -87,7 +88,7 @@ void Dump_Beads::preprocess(
     fid_.resize(number_of_beads_);
     for (int k = 0; k < number_of_beads_; ++k) {
       std::string filename = "beads_dump_" + std::to_string(k) + ".xyz";
-      fid_[k] = my_fopen(filename.c_str(), "a");
+      if (!binary_output.enabled()) fid_[k] = my_fopen(filename.c_str(), "a");
     }
     cpu_position_.resize(atom.number_of_atoms * 3);
     if (has_velocity_) {
@@ -167,6 +168,18 @@ void Dump_Beads::process(
       atom.force_beads[k].copy_to_host(cpu_force_.data());
     }
 
+    if (binary_output.enabled()) {
+      const auto indices = trajectory::selection(num_atoms_total, group);
+      trajectory::Frame frame; frame.count = indices.size();
+      frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1) + trajectory::geometry(box);
+      frame.add_strings("species", atom.cpu_atom_symbol, indices);
+      frame.add_real("pos", 3, cpu_position_, num_atoms_total, indices);
+      if (has_velocity_) frame.add_real("vel", 3, cpu_velocity_, num_atoms_total, indices, 1.0 / TIME_UNIT_CONVERSION);
+      if (has_force_) frame.add_real("forces", 3, cpu_force_, num_atoms_total, indices);
+      binary_output.write("beads_dump_" + std::to_string(k) + ".xyz", frame);
+      continue;
+    }
+
     // line 1
     fprintf(fid_[k], "%d\n", num_atoms_total);
 
@@ -207,7 +220,7 @@ void Dump_Beads::postprocess(
 {
   if (dump_) {
     for (int k = 0; k < number_of_beads_; ++k) {
-      fclose(fid_[k]);
+      if (!binary_output.enabled()) fclose(fid_[k]);
     }
     dump_ = false;
   }

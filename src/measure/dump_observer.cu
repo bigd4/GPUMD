@@ -17,6 +17,7 @@ Dump energy/force/virial with all loaded potentials at a given interval.
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_observer.cuh"
+#include "output_frame.cuh"
 #include "model/box.cuh"
 #include "parse_utilities.cuh"
 #include "utilities/common.cuh"
@@ -154,7 +155,7 @@ void Dump_Observer::preprocess(
     for (int i = 0; i < number_of_files; i++) {
       const std::string file_number = (number_of_files == 1) ? "" : std::to_string(i);
       std::string exyz_filename = "observer" + file_number + ".xyz";
-      exyz_files_.push_back(my_fopen(exyz_filename.c_str(), "a"));
+      exyz_files_.push_back(binary_output.enabled() ? nullptr : my_fopen(exyz_filename.c_str(), "a"));
       std::string thermo_filename = "observer" + file_number + ".out";
       thermo_files_.push_back(my_fopen(thermo_filename.c_str(), "a"));
     }
@@ -369,6 +370,20 @@ void Dump_Observer::write_exyz(
     force_per_atom.copy_to_host(cpu_force_per_atom_.data());
   }
 
+  if (binary_output.enabled()) {
+    std::vector<int> indices(num_atoms_total); std::iota(indices.begin(), indices.end(), 0);
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1) + trajectory::geometry(box)
+      + trajectory::thermodynamics(virial_per_atom, gpu_thermo);
+    frame.add_strings("species", cpu_atom_symbol, indices);
+    frame.add_real("pos", 3, cpu_position_per_atom, num_atoms_total, indices);
+    if (has_velocity_) frame.add_real("vel", 3, cpu_velocity_per_atom, num_atoms_total, indices, 1.0 / TIME_UNIT_CONVERSION);
+    if (has_force_) frame.add_real("forces", 3, cpu_force_per_atom_, num_atoms_total, indices);
+    const std::string suffix = exyz_files_.size() == 1 ? "" : std::to_string(file_index);
+    binary_output.write("observer" + suffix + ".xyz", frame);
+    return;
+  }
+
   // line 1
   fprintf(fid_, "%d\n", num_atoms_total);
 
@@ -457,7 +472,7 @@ void Dump_Observer::postprocess(
   const double temperature)
 {
   for (int i = 0; i < exyz_files_.size(); i++) {
-    fclose(exyz_files_[i]);
+    if (exyz_files_[i]) fclose(exyz_files_[i]);
   }
   for (int i = 0; i < thermo_files_.size(); i++) {
     fclose(thermo_files_[i]);

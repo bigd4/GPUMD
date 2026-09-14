@@ -18,6 +18,7 @@ Dump per-atom data to user-specified file(s) in the extended XYZ format
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_xyz.cuh"
+#include "output_frame.cuh"
 #include "force/force.cuh"
 #include "model/atom.cuh"
 #include "model/box.cuh"
@@ -179,7 +180,7 @@ void Dump_XYZ::preprocess(
   Force& force)
 {
   if (separated_ == 0) {
-    fid_ = my_fopen(filename_.c_str(), "a");
+    if (!binary_output.enabled()) fid_ = my_fopen(filename_.c_str(), "a");
   }
 
   gpu_total_virial_.resize(6);
@@ -353,9 +354,33 @@ void Dump_XYZ::process(
     atom.virial_per_atom.copy_to_host(cpu_virial_per_atom_.data());
   }
 
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, groups, grouping_method_, group_id_);
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1) + trajectory::geometry(box)
+      + trajectory::thermodynamics(atom.virial_per_atom, thermo);
+    frame.add_strings("species", atom.cpu_atom_symbol, indices);
+    frame.add_real("pos", 3, atom.cpu_position_per_atom, atom.number_of_atoms, indices);
+    if (quantities.has_velocity_) frame.add_real("vel", 3, atom.cpu_velocity_per_atom, atom.number_of_atoms, indices, 1.0 / TIME_UNIT_CONVERSION);
+    if (quantities.has_force_) frame.add_real("forces", 3, cpu_force_per_atom_, atom.number_of_atoms, indices);
+    if (quantities.has_potential_) frame.add_real("energy_atom", 1, cpu_potential_per_atom_, atom.number_of_atoms, indices);
+    if (quantities.has_mass_) frame.add_real("mass", 1, atom.cpu_mass, atom.number_of_atoms, indices);
+    if (quantities.has_charge_) frame.add_real("charge", 1, atom.cpu_charge, atom.number_of_atoms, indices);
+    if (quantities.has_bec_) frame.add_real("bec", 9, cpu_bec_, atom.number_of_atoms, indices);
+    if (quantities.has_unwrapped_position_) frame.add_real("unwrapped_position", 3, cpu_unwrapped_position_, atom.number_of_atoms, indices);
+    if (quantities.has_virial_) {
+      const int order[9] = {0, 3, 4, 6, 1, 5, 7, 8, 2};
+      frame.add_real("virial", 9, cpu_virial_per_atom_, atom.number_of_atoms, indices, 1.0, order);
+    }
+    if (quantities.has_group_) trajectory::add_groups(frame, groups, indices);
+    const std::string path = separated_ ? filename_ + std::to_string(step + 1) : filename_;
+    binary_output.write(path, frame, separated_ == 0);
+    return;
+  }
+
   if (separated_) {
     std::string filename = filename_ + std::to_string(step + 1);
-    fid_ = my_fopen(filename.data(), "w");
+    if (!binary_output.enabled()) fid_ = my_fopen(filename.data(), "w");
   }
 
   // line 1
@@ -424,7 +449,7 @@ void Dump_XYZ::process(
   if (separated_ == 0) {
     fflush(fid_);
   } else {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
   }
 }
 
@@ -437,6 +462,6 @@ void Dump_XYZ::postprocess(
   const double temperature)
 {
   if (separated_ == 0) {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
   }
 }
