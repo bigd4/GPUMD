@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 ###########################################################
 # Note: 
 # 1) You can modify -arch=sm_60 according to 
@@ -25,6 +26,8 @@ INC = -I./
 LDFLAGS = 
 LIBS = -lcublas -lcusolver -lcufft
 GPUMD_EXEC ?= gpumd
+include io/output_format.mk
+
 
 
 ###########################################################
@@ -67,6 +70,7 @@ endif
 # headers
 ###########################################################
 HEADERS =                         \
+	$(wildcard io/*.h)              \
 	$(wildcard utilities/*.cuh)   \
 	$(wildcard main_gpumd/*.cuh)  \
 	$(wildcard integrate/*.cuh)   \
@@ -77,6 +81,7 @@ HEADERS =                         \
 	$(wildcard model/*.cuh)       \
 	$(wildcard phonon/*.cuh)      \
 	$(wildcard main_nep/*.cuh)    \
+	$(wildcard neb/*.h)        \
 	$(wildcard neb/*.cuh)	      \
 	$(wildcard main_gnep/*.cuh)
 
@@ -85,8 +90,8 @@ HEADERS =                         \
 # executables
 ###########################################################
 all: $(GPUMD_EXEC) nep
-$(GPUMD_EXEC): $(OBJ_GPUMD)
-	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
+$(GPUMD_EXEC): $(OBJ_GPUMD) $(OUTPUT_OBJ) io/.output_mode
+	$(CC) $(LDFLAGS) $(filter %.o %.obj,$^) -o $@ $(LIBS) $(OUTPUT_LIBS)
 	@echo =================================================
 	@echo The $@ executable is successfully compiled!
 	@echo =================================================

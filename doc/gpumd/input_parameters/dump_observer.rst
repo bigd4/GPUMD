@@ -65,3 +65,5 @@ Caveats
   That means, its effect will not be passed from one run to the next.
 * If `mode` is set to `observe`, then the output file has an appending behavior and will result in two files, `observer(index).out` and `observer(index).xyz` file for each potential no matter how many times the simulation is run.
 * If `mode` is set to `average`, then the output file has an appending behavior and will result in a single `observer.xyz` file no matter how many times the simulation is run.
+
+The MD structure or per-atom output of this command also supports :ref:`output_format <kw_output_format>` for binary encoding. Statistical companion files retain their original format.

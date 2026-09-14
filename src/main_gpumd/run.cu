@@ -439,7 +439,11 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     param[n] = tokens[n].c_str();
   }
 
-  if (strcmp(param[0], "potential") == 0) {
+  if (strcmp(param[0], "output_format") == 0) {
+    try { measure.output_config.parse(tokens); }
+    catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
+    printf("Output format: %s\n", measure.output_config.format.c_str());
+  } else if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
   } else if (
     strcmp(param[0], "read_xyz") == 0 || strcmp(param[0], "model_file") == 0 ||

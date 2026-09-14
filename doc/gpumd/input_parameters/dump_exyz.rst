@@ -41,3 +41,5 @@ Caveats
 * This keyword is not propagating.
   That means, its effect will not be passed from one run to the next.
 * The output file has an appending behavior and will result in a single `dump.xyz` file no matter how many times the simulation is run.
+
+The MD structure or per-atom output of this command also supports :ref:`output_format <kw_output_format>` for binary encoding. Statistical companion files retain their original format.
