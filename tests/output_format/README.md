@@ -23,3 +23,11 @@ python3 tests/output_format/gpu_smoke.py /absolute/path/to/gpumd /absolute/path/
 The script checks all nine affected commands, field values and units, group selections, empty selections, filename rules, append and overwrite behavior, configuration persistence, two-potential observer output, four PIMD beads, QNEP BEC, model/restart input, missing/default model fields, Z-only models, and invalid data. Failure cases must exit with GPUMD's normal error status, not a signal. Per-process wall times and output sizes are recorded in `report.json`; these small tests include process startup and are not throughput benchmarks.
 
 The original upstream native API and 14 Python/C++ interoperability tests can also be run against the local codec. The latter require the upstream Python package from the pinned source revision; set `BXYZ_CPP_CLI`, `BXYZ_CPP_EXAMPLE`, and `PYTHONPATH` to the relevant executables and upstream package. They are separate from the new generic Python reader tests.
+
+NEB integration uses the existing diamond-vacancy example and a fresh GPU-node output directory:
+
+```sh
+python3 tests/output_format/neb_smoke.py /absolute/path/to/gpumd /absolute/path/to/fresh_neb_results
+```
+
+It compares fixed-cell and variable-cell text/binary paths, endpoint and intermediate input, full-path rereading, relaxed endpoints, append/overwrite behavior, and damaged later frames.

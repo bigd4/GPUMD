@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <map>
+#include <utility>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -54,6 +56,8 @@ struct Options {
     double float_rtol = 1e-7;
     double float_atol = 0.0;
     StringMode string_mode = StringMode::automatic;
+    // Local extension: property name -> (relative, absolute) tolerance.
+    std::map<std::string, std::pair<double, double>> property_tolerances;
 };
 
 // Owns a binary file. next() verifies all frames read; read(i) seeks past earlier payloads.
