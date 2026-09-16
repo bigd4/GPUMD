@@ -42,6 +42,16 @@ struct Frame {
 std::string filename(const std::string& original, const Config& config);
 bool is_binary(const std::string& path);
 Frame read_model(const std::string& path);
+// Sequential structural reader: validates every frame, including checksum and schema.
+class ModelReader {
+public:
+  explicit ModelReader(const std::string& path);
+  ~ModelReader();
+  bool next(Frame& frame);
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 class Output {
 public:
   Output();

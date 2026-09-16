@@ -6,7 +6,7 @@ There can be several **neb_set** lines, but there should be only one **neb_run**
 
 ## NEB Settings
 ### Input Files
-All input structure files should be in extended XYZ format.
+Input structures may use extended XYZ, BXYZ or ZBXYZ (binary formats require `USE_BXYZ=1`). Endpoint and intermediate-state files use the first frame; `traj_name` reads and validates every frame. All images must have the same atom count and element order. Array-only binary frames cannot initialize NEB.
 - is_name: key 1, initial state input file name. default value: is.xyz
 - fs_name: key 1, final state input file name. default value: fs.xyz
 - mid_name: key 1, intermediate state input file name. Specifying this key enables the intermediate state.
@@ -124,3 +124,23 @@ Optional `neb_set` counts, each a positive integer no larger than 1000000:
 The mode requires imagewise FIRE, `tangent modified`, isotropic pressure, and a rotation-free or fixed cell. When energy-based spacing is active, use `energy_spacing_damping 1` to keep fixed-geometry verification independent of damping history. Unsupported combinations are rejected: climb, find_min, DYNEB, INA local relaxation and ina_k. Ordinary INA and `no_ina` are supported. FIRE timestep/mixing and path initialization remain explicit user settings; the switch does not interpolate a fixed number of images or select intermediate input frames.
 
 `neb_cyclic_transverse.out` records each chunk's phase, regular evaluations, image generation, topology changes, stable count, passed cycles, live/verified residuals and force calls. `neb_cyclic_transverse_summary.out` explicitly reports `accepted 1` or `accepted 0`; exhausting `max_steps` is not convergence. `final_traj.xyz` contains evaluated final geometry. Counts include the initial two endpoint evaluations and fresh internal-image verification calls, but exclude optional endpoint relaxation. Computing the full-force diagnostic reuses the same PES forces. Reloading a saved trajectory starts a new schedule and acceptance history. Passing this transverse criterion does not establish convergence of full NEB force, image-density convergence, or a globally minimal path.
+
+## Binary structure output
+The global `output_format` keyword applies at `neb_run`, regardless of its position relative to `neb_set`. For example, `output_format zbxyz precision lossless compression_level 3` selects compressed output. The default `xyz` preserves the existing text files. Use one `neb_run` per input file as above.
+
+`interpolate.xyz`, `dump_traj.xyz`, `peek_traj.xyz`, `final_traj.xyz` and `relaxed_is_fs.xyz` change their suffix to `.bxyz` or `.zbxyz`. Dump trajectories append full paths at `dump_interval`; the other files replace the previous snapshot (two endpoints for `relaxed_is_fs`). The binary frames contain species, Cartesian positions, physical lattice/PBC, energy and enthalpy, with `Step`, zero-based `image` and `nimages` metadata. Energies remain in eV and positions in angstrom. Energy and FIRE diagnostic tables remain text. Binary precision uses the global `auto` or `lossless` setting.
+
+To reuse a saved path, set `neb_set traj_name final_traj.zbxyz interpolate 0`. This loads structures, not optimizer state. Do not use an accumulated `dump_traj` as a single path unless you first extract the intended snapshot. All input frames and existing appended output are checksum-validated. See `doc/gpumd/input_parameters/output_format.rst` for full options and Python reading examples.
+
+## GPU 显存峰值记录
+
+每次 `neb_run` 默认独立记录显存采样峰值，无需新增输入选项。在运行入口、图像初始化后、优化器分配及完成后、每次 NEB 力计算入口和弹簧工作区分配后调用 `cudaMemGetInfo`。INA 调整图像后重新分配优化器时同样采样，局部松弛也纳入本次统计。发现新峰值时打印并刷新 `NEB GPU memory high-water mark`；正常结束时打印 `NEB GPU memory summary`，包括峰值 MiB/GiB、设备总容量和采样次数。
+
+这是当前 CUDA 设备的总已用显存采样峰值（total−free），包括CUDA上下文和同卡其他进程，不是本进程分配量。它不是精确的全时段峰值，可能漏掉采样间隙的瞬时分配，以及分配失败前未采样的需求；进程异常终止时没有结束汇总，可查看此前已刷新的峰值行。此记录不改变 INA 显存保护策略，也不增加显式设备同步。
+
+## Optional peak-energy convergence
+`neb_set energy_convergence <window_steps> <tolerance_eV>` enables an alternative stopping condition. For example, `neb_set energy_convergence 100 1e-5` stops when the maximum minus minimum peak energy over the last 100 consecutive regular NEB evaluations is at most 1e-5 eV. The default is disabled; `energy_convergence 0 0` disables it explicitly. A nonzero window must be at least 2, and the tolerance must be finite and nonnegative.
+
+The peak is the maximum image energy over the whole path, including endpoints, matching `emax` in the existing log. Variable-cell NEB uses the existing enthalpy objective. The highest image may change within the window. This is a full-window range test, not an adjacent-step difference or just a comparison of the first and last values. A window of 100 counts 100 evaluations (earliest samples are steps 0 through 99). The threshold is total energy in eV, not per-atom energy.
+
+Either the existing force condition or this energy condition may stop optimization. The energy stop prints the step interval, measured range, threshold and current force; it does not imply force convergence. Image insertion/removal or an INA minimizer restart clears the history, and local INA relaxation does not count toward the window. A non-finite energy/force also clears the window. Final trajectory and energy output follow the normal completion path.

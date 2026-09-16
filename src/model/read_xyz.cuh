@@ -24,6 +24,10 @@ class Atom;
 #include <fstream>
 #include <string>
 
+namespace trajectory { struct Frame; }
+void initialize_position(const trajectory::Frame& frame, int& has_velocity, int& number_of_types,
+                         Box& box, std::vector<Group>& groups, Atom& atom);
+
 void set_run_input_filename(const std::string& filename);
 
 void initialize_position(

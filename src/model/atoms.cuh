@@ -152,6 +152,8 @@ public:
 
   Atoms(const char* filename);
 
+  explicit Atoms(const trajectory::Frame& frame);
+
   Atoms(std::ifstream& input, bool& success, bool print_flag = true);
 
   ~Atoms();

@@ -632,12 +632,11 @@ void initialize_position(
 //     group[m].find_contents(atom.number_of_atoms);
 //   }
 
-static void initialize_binary_position(
-  const char* filename, int& has_velocity, int& number_of_types,
+void initialize_position(
+  const trajectory::Frame& frame, int& has_velocity, int& number_of_types,
   Box& box, std::vector<Group>& groups, Atom& atom)
 {
   try {
-    auto frame = trajectory::read_model(filename);
     if (frame.count < 2 || frame.count > INT_MAX / 9) throw std::runtime_error("invalid model atom count");
     const int n = static_cast<int>(frame.count);
     auto array = [&](const std::string& name, char type, int components, bool required) -> const trajectory::Array* {
@@ -698,7 +697,7 @@ static void initialize_binary_position(
     }
     for (std::size_t m=0;m<groups.size();++m) {groups[m].find_size(n,m,true);groups[m].find_contents(n);}
     find_type_size(n,number_of_types,atom.cpu_type,atom.cpu_type_size,true);
-    printf("Read binary model %s: %d atoms, velocities %s.\n",filename,n,has_velocity ? "present" : "absent");
+    printf("Read binary structure: %d atoms, velocities %s.\n",n,has_velocity ? "present" : "absent");
   } catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
 }
 
@@ -707,7 +706,9 @@ void initialize_position(
    Box& box, std::vector<Group>& group, Atom& atom)
 {
   if (trajectory::is_binary(xyzname)) {
-    initialize_binary_position(xyzname, has_velocity_in_xyz, number_of_types, box, group, atom);
+    try {
+      initialize_position(trajectory::read_model(xyzname), has_velocity_in_xyz, number_of_types, box, group, atom);
+    } catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
     return;
   }
   std::string filename(xyzname);

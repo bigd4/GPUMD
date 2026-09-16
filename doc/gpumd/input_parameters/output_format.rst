@@ -3,7 +3,7 @@
 output_format
 =============
 
-Select the output encoding for MD structures and per-atom arrays. This setting does not enable any dump command or change its interval or atom selection.
+Select the output encoding for MD structures, per-atom arrays and NEB structures. This setting does not enable any dump command or change its interval or atom selection.
 
 Syntax
 ------
@@ -16,7 +16,7 @@ Syntax
 
 The default is ``xyz``: every command keeps its existing text format, including ``velocity.out`` and ``force.out``. Binary formats require a build with ``USE_BXYZ=1``. ``bxyz`` writes uncompressed v4 frames; ``zbxyz`` writes independently compressed v5 frames.
 
-Optional key/value pairs may appear in either order. ``precision auto`` (the default for binary output) selects float32 or float64 per property using relative tolerance 1e-7 and absolute tolerance zero. ``precision lossless`` uses zero tolerance and preserves the original floating values; exactly representable values may still use float32. Integer and string values are lossless. ``compression_level`` is allowed only for ``zbxyz`` and accepts 1 through 22, default 3. Text mode accepts no binary options. Invalid, repeated or incomplete options are errors.
+Optional key/value pairs may appear in either order. ``precision auto`` (the default for binary output) selects float32 or float64 per property. Cartesian ``pos`` and ``unwrapped_position`` use absolute tolerance 1e-6 angstrom and relative tolerance zero; ``forces`` uses absolute tolerance 1e-5 eV/angstrom and ``vel`` uses absolute tolerance 1e-6 angstrom/fs, both with relative tolerance zero. Other floating arrays retain relative tolerance 1e-7 and absolute tolerance zero. These absolute bounds apply to each component, not the vector norm. If any value exceeds the tolerance after float32 conversion, the whole property stays float64. Lattice and other frame metadata retain their existing text precision. ``precision lossless`` uses zero tolerance and preserves the original floating values; exactly representable values may still use float32. Integer and string values are lossless. ``compression_level`` is allowed only for ``zbxyz`` and accepts 1 through 22, default 3. Text mode accepts no binary options. Invalid, repeated or incomplete options are errors.
 
 The last setting before each ``run`` applies to all affected dumps in that run, regardless of their declaration order. It persists across runs. Every new ``output_format`` command starts from the selected format's defaults. Existing per-command text precision options still control text output; binary precision is controlled exclusively by ``output_format``.
 
@@ -58,7 +58,47 @@ For ``bxyz``, replace ``.zbxyz`` with ``.bxyz``. ``dump_xyz`` retains its explic
 
 All existing arrays, units, selection order and file numbering are preserved. Velocity-only and force-only outputs contain only ``vel:R:3`` and ``forces:R:3``, respectively; they do not synthesize coordinates or species. Their headers record time in fs, the run-local step and the selected grouping method/group ID when applicable. Empty selections produce valid zero-row binary frames. Coarse-grained species labels remain strings, including labels that are not chemical elements. Frame metadata and per-atom properties are separate namespaces, so total and per-atom ``virial`` can coexist.
 
-``dump_netcdf`` always writes NetCDF. Thermodynamic tables, total dipole/polarizability, RDF and shock statistics are unchanged, including the statistical files accompanying observer and coarse-grained dumps. NEB-specific output is not controlled by this keyword.
+``dump_netcdf`` always writes NetCDF. Thermodynamic tables, total dipole/polarizability, RDF and shock statistics are unchanged, including the statistical files accompanying observer and coarse-grained dumps.
+
+NEB structures
+--------------
+
+The last ``output_format`` before ``neb_run`` also controls NEB structure output, independently of the ordering of ``neb_set`` lines. Keep the existing single-``neb_run`` input convention. The default remains text XYZ.
+
+.. list-table:: NEB filenames and write behavior
+   :header-rows: 1
+
+   * - Text filename
+     - Compressed filename
+     - Behavior
+   * - ``interpolate.xyz``
+     - ``interpolate.zbxyz``
+     - Replace with the interpolated path
+   * - ``dump_traj.xyz``
+     - ``dump_traj.zbxyz``
+     - Append the full path at each ``dump_interval``
+   * - ``peek_traj.xyz``
+     - ``peek_traj.zbxyz``
+     - Replace with the latest path at each ``peek_interval``
+   * - ``final_traj.xyz``
+     - ``final_traj.zbxyz``
+     - Replace with the final path
+   * - ``relaxed_is_fs.xyz``
+     - ``relaxed_is_fs.zbxyz``
+     - Replace with the two endpoints after ``need_relax``
+
+Use ``.bxyz`` for uncompressed output. Each image is a structure frame containing ``species`` and Cartesian ``pos`` in angstrom, its physical lattice and PBC, ``energy`` (potential energy, eV) and ``enthalpy`` (the existing NEB image objective, eV). Variable-cell filter coordinates are not serialized as atoms. Binary metadata also records ``Step``, zero-based ``image`` and ``nimages``. Existing text precision and diagnostic/energy tables are unchanged; binary precision follows the global setting. No velocities, forces or integrator state are added to NEB output.
+
+``is_name``, ``fs_name``, ``mid_name`` and ``mid_name_list`` accept the first frame of binary structure files. ``traj_name`` reads all frames sequentially, validating every checksum; use a single path such as ``final_traj.zbxyz`` or ``peek_traj.zbxyz``. ``dump_traj`` contains successive paths and is not automatically split into snapshots on input. All images must have the same atom count and element order. Array-only frames, missing/singular cells, damaged payloads and paths with fewer than two frames are rejected. Input detection is independent of the selected output format.
+
+.. code:: text
+
+   potential nep.txt
+   neb_set traj_name final_traj.zbxyz interpolate 0
+   output_format zbxyz precision lossless compression_level 3
+   neb_run fire 0.01 1000
+
+This resumes optimization from saved structures; it does not restore FIRE or INA internal state. For pure NEB input, ``output_format`` does not require an additional ``model.xyz``.
 
 Reading and restarting
 ----------------------

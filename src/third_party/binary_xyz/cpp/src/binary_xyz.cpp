@@ -245,14 +245,17 @@ std::vector<Field> prepare(const Frame& frame,const Options& opts) {
         if(std::visit([](const auto& v){return v.size();},f.data)!=mul(frame.size(),f.count)) fail("array size mismatch: "+f.name);
         if(f.storage=="Z8") continue;
         if(f.kind=='R') {
+            auto tolerance=opts.property_tolerances.find(f.name);
+            double rtol=tolerance==opts.property_tolerances.end()?opts.float_rtol:tolerance->second.first;
+            double atol=tolerance==opts.property_tolerances.end()?opts.float_atol:tolerance->second.second;
             bool fits=true;
             for(double x:std::get<std::vector<double>>(f.data)) {
                 if(std::isnan(x)) {fits=false;break;}
                 // Avoid out-of-range floating conversion, which C++ does not guarantee.
                 if(std::isfinite(x) && std::abs(x)>std::numeric_limits<float>::max()) {fits=false;break;}
                 double back=static_cast<double>(static_cast<float>(x));
-                if(opts.float_rtol==0 && opts.float_atol==0) fits=bits(x)==bits(back);
-                else if(std::isfinite(x)) fits=std::abs(back-x)<=opts.float_atol+opts.float_rtol*std::abs(x);
+                if(rtol==0 && atol==0) fits=bits(x)==bits(back);
+                else if(std::isfinite(x)) fits=std::abs(back-x)<=atol+rtol*std::abs(x);
                 if(!fits) break;
             }
             f.storage=fits?"R32":"R64";
@@ -412,14 +415,17 @@ std::vector<Field> prepare(const RawFrame& frame,const Options& opts) {
         if(std::visit([](const auto& v){return v.size();},f.data)!=mul(frame.count,f.count)) fail("array size mismatch: "+f.name);
         if(f.storage=="Z8") continue;
         if(f.kind=='R') {
+            auto tolerance=opts.property_tolerances.find(f.name);
+            double rtol=tolerance==opts.property_tolerances.end()?opts.float_rtol:tolerance->second.first;
+            double atol=tolerance==opts.property_tolerances.end()?opts.float_atol:tolerance->second.second;
             bool fits=true;
             for(double x:std::get<std::vector<double>>(f.data)) {
                 if(std::isnan(x)) {fits=false;break;}
                 // Avoid out-of-range floating conversion, which C++ does not guarantee.
                 if(std::isfinite(x) && std::abs(x)>std::numeric_limits<float>::max()) {fits=false;break;}
                 double back=static_cast<double>(static_cast<float>(x));
-                if(opts.float_rtol==0 && opts.float_atol==0) fits=bits(x)==bits(back);
-                else if(std::isfinite(x)) fits=std::abs(back-x)<=opts.float_atol+opts.float_rtol*std::abs(x);
+                if(rtol==0 && atol==0) fits=bits(x)==bits(back);
+                else if(std::isfinite(x)) fits=std::abs(back-x)<=atol+rtol*std::abs(x);
                 if(!fits) break;
             }
             f.storage=fits?"R32":"R64";
@@ -562,6 +568,11 @@ Frame Reader::read(std::size_t index) {
 }
 Writer::Writer(const std::filesystem::path& path,Options options,bool append):options_(options) {
     if(!std::isfinite(options.float_rtol)||!std::isfinite(options.float_atol)||options.float_rtol<0||options.float_atol<0) fail("invalid floating tolerance");
+    for(const auto& tolerance:options.property_tolerances) {
+        double rtol=tolerance.second.first, atol=tolerance.second.second;
+        if(tolerance.first.empty() || !std::isfinite(rtol) || !std::isfinite(atol) || rtol<0 || atol<0)
+            fail("invalid property floating tolerance");
+    }
     if(options.compression_level<1||options.compression_level>22) fail("compression level must be 1-22");
     auto suffix=path.extension().string();std::transform(suffix.begin(),suffix.end(),suffix.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     compressed_=options.compressed.value_or(suffix==".zbxyz");

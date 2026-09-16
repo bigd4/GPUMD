@@ -317,12 +317,18 @@ Atoms::Atoms(const char* filename)
   int has_velocity;
   int number_of_types;
   Atom atom;
-  ifstream input(filename);
-  initialize_position(input, has_velocity, number_of_types, box, group, atom);
-  input.close();
+  initialize_position(filename, has_velocity, number_of_types, box, group, atom);
   initialize(atom);
 }
 
+
+Atoms::Atoms(const trajectory::Frame& frame)
+{
+  int has_velocity, number_of_types;
+  Atom atom;
+  initialize_position(frame, has_velocity, number_of_types, box, group, atom);
+  initialize(atom);
+}
 
 Atoms::Atoms(ifstream& input, bool& success, bool print_flag)
 {
