@@ -63,7 +63,7 @@ struct Output::Impl {
 };
 Output::Output():impl_(new Impl) {}
 Output::~Output() = default;
-void Output::configure(const Config& config) { config_=config; }
+void Output::configure(const Config& config) { impl_.reset(new Impl); config_=config; }
 void Output::write(const std::string& original, const Frame& frame, bool append) {
 #ifdef USE_BXYZ
   if(!enabled()) throw std::runtime_error("binary writer used in text mode");
@@ -77,9 +77,16 @@ void Output::write(const std::string& original, const Frame& frame, bool append)
   binary_xyz::Options opts;opts.compressed=config_.format=="zbxyz";
   opts.compression_level=config_.compression_level;
   if(config_.lossless) opts.float_rtol=opts.float_atol=0;
+  else {
+    // Cartesian coordinates are in angstrom: enforce an absolute error bound.
+    opts.property_tolerances["pos"] = {0.0, 1e-6};
+    opts.property_tolerances["unwrapped_position"] = {0.0, 1e-6};
+    opts.property_tolerances["forces"] = {0.0, 1e-5}; // eV/angstrom
+    opts.property_tolerances["vel"] = {0.0, 1e-6}; // angstrom/fs
+  }
   auto path=filename(original,config_);
   try {
-    if(!append) { binary_xyz::Writer writer(path,opts);writer.write(raw);writer.flush(); }
+    if(!append) { impl_->writers.erase(path); binary_xyz::Writer writer(path,opts);writer.write(raw);writer.flush(); }
     else {
       auto& writer=impl_->writers[path];
       if(!writer) writer.reset(new binary_xyz::Writer(path,opts,true));
@@ -90,10 +97,8 @@ void Output::write(const std::string& original, const Frame& frame, bool append)
   throw std::runtime_error("binary output requires a USE_BXYZ=1 build");
 #endif
 }
-Frame read_model(const std::string& path) {
 #ifdef USE_BXYZ
-  binary_xyz::Reader reader(path);
-  auto raw=reader.read_raw(0);
+static Frame model_frame(binary_xyz::RawFrame raw) {
   // Discard properties not used for initialization before structured conversion.
   auto model=raw;
   model.properties.erase(std::remove_if(model.properties.begin(),model.properties.end(),[](const binary_xyz::Property& p) {
@@ -118,8 +123,32 @@ Frame read_model(const std::string& path) {
     result.arrays.push_back(std::move(a));
   }
   return result;
+}
+#endif
+struct ModelReader::Impl {
+#ifdef USE_BXYZ
+  binary_xyz::Reader reader;
+  explicit Impl(const std::string& path):reader(path) {}
+#else
+  explicit Impl(const std::string&) { throw std::runtime_error("binary input requires a USE_BXYZ=1 build"); }
+#endif
+};
+ModelReader::ModelReader(const std::string& path):impl_(new Impl(path)) {}
+ModelReader::~ModelReader() = default;
+bool ModelReader::next(Frame& frame) {
+#ifdef USE_BXYZ
+  binary_xyz::RawFrame raw;
+  if(!impl_->reader.next_raw(raw)) return false;
+  frame=model_frame(std::move(raw));
+  return true;
 #else
   throw std::runtime_error("binary input requires a USE_BXYZ=1 build");
 #endif
+}
+Frame read_model(const std::string& path) {
+  ModelReader reader(path);
+  Frame frame;
+  if(!reader.next(frame)) throw std::runtime_error("empty binary model: "+path);
+  return frame;
 }
 } // namespace trajectory

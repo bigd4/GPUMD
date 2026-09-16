@@ -1,5 +1,6 @@
 #include "neb.cuh"
 #include "ina_memory_budget.h"
+#include "measure/output_frame.cuh"
 #include <thrust/sort.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
@@ -804,7 +805,16 @@ NEB::~NEB() {
 void NEB::parse_options(const char** param, int num_param, int& n)
 {
   // Input Files: structure file names, initial path construction, and endpoint relaxation.
-  if (strcmp(param[n], "is_name") == 0){
+  if (strcmp(param[n], "energy_convergence") == 0) {
+    require_option_values(param, num_param, n, 2, "neb_set");
+    if (!is_valid_int(param[n+1], &energy_convergence_steps) ||
+        (energy_convergence_steps != 0 && energy_convergence_steps < 2))
+      PRINT_INPUT_ERROR("energy_convergence window must be 0 (disabled) or at least 2 steps.");
+    if (!is_valid_real(param[n+2], &energy_convergence_tolerance) ||
+        !std::isfinite(energy_convergence_tolerance) || energy_convergence_tolerance < 0)
+      PRINT_INPUT_ERROR("energy_convergence tolerance must be finite and nonnegative (eV).");
+    n += 2;
+  } else if (strcmp(param[n], "is_name") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     istate_name.assign(param[n+1]);
     n++;
@@ -1167,11 +1177,14 @@ void NEB::parse_options(const char** param, int num_param, int& n)
   }
 }
 
-void NEB::parse_neb(const char** param, int num_param, Force& force)
-{
+void NEB::parse_neb(const char** param, int num_param, Force& force,
+                    const trajectory::Config& config)
+try {
   p_force = &force;
 
   if (strcmp(param[0], "neb_run") == 0) {
+    output_config = config;
+    binary_output.configure(config);
     if (num_param < 2) {
       PRINT_INPUT_ERROR("neb_run should specify an optimizer.");
     }
@@ -1209,6 +1222,8 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
   }
   
 }
+
+catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
 
 void NEB::reset_minimizer(
   int number_of_atoms, int max_steps, double force_tolerance, bool print_flag) {
@@ -1259,49 +1274,38 @@ void cell_best_match(double* cell_ref, double* cell, double* new_cell){
 void NEB::initialize_images() {
   if (traj_name.size() != 0){
     printf("--------------file %s to traj-------------------\n", traj_name.data());
-    ifstream input(traj_name);
-    bool read_success;
-    if (!variable_cell){
-      while (true){
-        Atoms* p_tmp = new Atoms(input, read_success, false);
-        if (read_success) {
-          // mid_list.push_back(make_pair(-1, p_tmp));
-          images.emplace_back(unique_ptr<Atoms>(p_tmp));
-        } else break;
+    vector<unique_ptr<Atoms>> raw_images;
+    if (trajectory::is_binary(traj_name)) {
+      trajectory::ModelReader reader(traj_name);
+      trajectory::Frame frame;
+      while (reader.next(frame)) raw_images.emplace_back(new Atoms(frame));
+    } else {
+      ifstream input(traj_name);
+      bool success;
+      while (true) {
+        unique_ptr<Atoms> image(new Atoms(input, success, false));
+        if (!success) break;
+        raw_images.push_back(std::move(image));
       }
     }
-    else {
-      vector<Atoms*> raw_images;
-      while (true) {
-        Atoms* p_tmp = new Atoms(input, read_success, false);
-        if (read_success) {
-          raw_images.push_back(p_tmp);
-        } else {
-          delete p_tmp;
-          break;
-        }
-      }
-      if (raw_images.empty()) {
-        printf("read traj failed\n");
-        exit(-1);
-      }
-      h_ref.assign(raw_images.front()->box.cpu_h, raw_images.front()->box.cpu_h+9);
+    if (raw_images.size() < 2) PRINT_INPUT_ERROR("NEB trajectory requires at least two structure frames.");
+    h_ref.assign(raw_images.front()->box.cpu_h, raw_images.front()->box.cpu_h+9);
+    for (const auto& image : raw_images) {
+      if (image->cpu_atom_symbol != raw_images.front()->cpu_atom_symbol)
+        PRINT_INPUT_ERROR("NEB images must have the same atom count and element order.");
+    }
+    if (!variable_cell) {
+      for (auto& image : raw_images) images.push_back(std::move(image));
+    } else {
       if (cell_factor <= 0.0) {
         cell_factor = estimate_active_atom_scale(*raw_images.front(), *raw_images.back()) *
           pow(raw_images.front()->box.get_volume() / raw_images.front()->get_natoms(), 1.0 / 3.0);
       }
-      for (int i = 0; i < raw_images.size(); i++) {
-        if (i == 0) {
-          images.push_back(make_cell_filter(*raw_images[i], pressure, remove_rotation, cell_factor));
-        } else {
-          images.push_back(make_cell_filter(*raw_images[i], pressure, h_ref.data(), remove_rotation, cell_factor));
-          // mid_list.push_back(make_pair(-1, raw_images[i]));
-        }
-      }
+      for (auto& image : raw_images)
+        images.push_back(make_cell_filter(*image.release(), pressure, h_ref.data(), remove_rotation, cell_factor));
     }
     imid_list.push_back(-1);
     printf("traj nimages: %d\n", int(images.size()));
-    input.close();
   }
   else {
     Atoms *p_is = new Atoms(istate_name.data());
@@ -1347,6 +1351,11 @@ void NEB::initialize_images() {
       }
       images.push_back(make_cell_filter(*p_fs, pressure, h_ref.data(), remove_rotation, cell_factor));
     }
+  }
+  if (images.size() < 2) PRINT_INPUT_ERROR("NEB requires at least two images.");
+  for (const auto& image : images) {
+    if (image->get_p_atoms()->cpu_atom_symbol != images.front()->get_p_atoms()->cpu_atom_symbol)
+      PRINT_INPUT_ERROR("NEB images must have the same atom count and element order.");
   }
   natoms_per_image = images[0]->get_natoms();
   n_realatoms = images[0]->get_p_atoms()->get_natoms();
@@ -1456,6 +1465,8 @@ double NEB::estimate_cell_metric_scale()
 }
 
 void NEB::run_neb() {
+  energy_window.clear();
+  energy_converged = false;
   ina_memory_skipped = 0;
   printf("\n**************************************************************\n");
   printf("*                            [o]                             *\n");
@@ -1550,6 +1561,9 @@ void NEB::run_neb() {
   }
   print_setting("tangent_method", tangent_method_name);
   print_setting("max_steps", max_steps);
+  print_setting("energy_convergence_steps", energy_convergence_steps);
+  if (energy_convergence_steps > 0)
+    printf("    energy_convergence_tolerance = %.17g eV (window max-min)\n", energy_convergence_tolerance);
   print_setting("dump_interval", dump_interval);
   print_setting("peek_interval", peek_interval);
   print_setting("print_interval", print_interval);
@@ -1606,14 +1620,18 @@ void NEB::run_neb() {
     reset_minimizer(natoms_per_image, 10000, relax_tol, true);
     minimizer->compute(*images.back());
     printf("-----------relax finish---------\n");
-    FILE* fid=fopen("relaxed_is_fs.xyz", "w");
-    Atoms& atoms_is = *images.front()->get_p_atoms();
-    save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), images.front()->get_energy(), atoms_is.cpu_atom_symbol,
-       atoms_is.get_positions());
-    Atoms& atoms_fs = *images.back()->get_p_atoms();
-    save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), images.back()->get_energy(), atoms_fs.cpu_atom_symbol,
-       atoms_fs.get_positions());
-    fclose(fid);
+    if (binary_output.enabled()) {
+      write_binary_images("relaxed_is_fs.xyz", false, {0, static_cast<int>(images.size()-1)});
+    } else {
+      FILE* fid=fopen("relaxed_is_fs.xyz", "w");
+      Atoms& atoms_is = *images.front()->get_p_atoms();
+      save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), images.front()->get_energy(), atoms_is.cpu_atom_symbol,
+         atoms_is.get_positions());
+      Atoms& atoms_fs = *images.back()->get_p_atoms();
+      save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), images.back()->get_energy(), atoms_fs.cpu_atom_symbol,
+         atoms_fs.get_positions());
+      fclose(fid);
+    }
   }
   if (remove_translation){
     double center[3], ref_center[3];
@@ -1677,6 +1695,7 @@ void NEB::run_neb() {
     minimizer->compute(*this);
     // printf("neb total steps: %d\n", step);
     if (ina_count != 0) write_energies();
+    if (energy_converged) break;
     if (step >= max_steps && ina_local_relax_remaining == 0) break;
     cublasDnrm2(handle, forces.size(), forces.data(), 1, &fnrm2);
     if (fnrm2 != 0.0) {
@@ -1977,6 +1996,7 @@ bool NEB::update_minimizer_force_max(double force_max)
   }
 
   if (ina_local_relax_remaining > 0) {
+    energy_window.clear();
     ina_local_relax_remaining--;
     const bool locally_converged = force_max < force_tolerance;
     if (locally_converged || ina_local_relax_remaining == 0) {
@@ -2005,6 +2025,24 @@ bool NEB::update_minimizer_force_max(double force_max)
     for_each(imaxes.begin(), imaxes.end(), [](int a){printf("%d ", a);});
     printf("\n");
     stop_minimizer = true;
+  }
+  // A topology update invalidates this force evaluation's energy history.
+  if (stop_minimizer || !std::isfinite(force_max) ||
+      !std::all_of(image_energies.begin(), image_energies.end(),
+                   [](double e) { return std::isfinite(e); })) {
+    energy_window.clear();
+  } else if (energy_convergence_steps > 0) {
+    const double peak = *max_element(image_energies.begin(), image_energies.end());
+    double spread;
+    if (energy_window.update(step, peak, energy_convergence_steps,
+                             energy_convergence_tolerance, spread)) {
+      energy_converged = true;
+      stop_minimizer = true;
+      printf("NEB converged by peak-energy stability: steps %d-%d, "
+             "window=%d, range=%.17g eV <= %.17g eV, fmax=%.10g eV/A.\n",
+             step-energy_convergence_steps+1, step, energy_convergence_steps,
+             spread, energy_convergence_tolerance, force_max);
+    }
   }
   step++;
   return stop_minimizer;
@@ -2436,7 +2474,37 @@ void NEB::adjust_image_number() {
   finish_ina_local_tracking();
 }
 
+void NEB::write_binary_images(const char* filename, bool append, const vector<int>& indices)
+{
+  printf("==================write %s==================\n", trajectory::filename(filename, output_config).c_str());
+  for (int index : indices) {
+    Atoms& atoms = *images[index]->get_p_atoms();
+    trajectory::Frame frame;
+    frame.count = atoms.get_natoms();
+    std::ostringstream info;
+    info.imbue(std::locale::classic());
+    info << std::setprecision(17) << "energy=" << atoms.get_energy()
+         << " enthalpy=" << images[index]->get_energy()
+         << " Step=" << step << " image=" << index << " nimages=" << images.size();
+    frame.info = info.str() + trajectory::geometry(atoms.box);
+    vector<int> selected(frame.count);
+    std::iota(selected.begin(), selected.end(), 0);
+    vector<double> positions(atoms.get_positions().size());
+    atoms.get_positions().copy_to_host(positions.data());
+    frame.add_strings("species", atoms.cpu_atom_symbol, selected);
+    frame.add_real("pos", 3, positions, frame.count, selected);
+    binary_output.write(filename, frame, append);
+    append = true;
+  }
+}
+
 void NEB::write_neb_traj(const char* filename, const char* mode){
+  if (binary_output.enabled()) {
+    vector<int> indices(images.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    write_binary_images(filename, mode[0] == 'a', indices);
+    return;
+  }
   printf("==================write %s==================\n", filename);
   FILE* fid=fopen(filename, mode);
   vector<double> cpu_positions(natoms_per_image*3);
