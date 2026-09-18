@@ -77,6 +77,7 @@ Below you can find a listing of keywords for the ``run.in`` input file.
    :caption: Output
    
    active
+   output_format
    dump_exyz
    dump_xyz
    dump_beads

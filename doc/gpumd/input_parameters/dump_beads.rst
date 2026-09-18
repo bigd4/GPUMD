@@ -14,3 +14,5 @@ Caveats
 * The centroid data (the average over all the beads) for the ring polymer in PIMD-related runs are still output by the :ref:`dump_exyz keyword <kw_dump_exyz>`. 
 
 * This keyword should not be used in a run not related to PIMD.
+
+The MD structure or per-atom output of this command also supports :ref:`output_format <kw_output_format>` for binary encoding. Statistical companion files retain their original format.

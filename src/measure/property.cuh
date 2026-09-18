@@ -19,6 +19,7 @@
 #include "model/box.cuh"
 #include "model/group.cuh"
 #include <string>
+#include "io/output_format.h"
 #include <vector>
 
 class Integrate;
@@ -33,6 +34,7 @@ public:
   virtual ~Property(void);
 
   std::string property_name = "";
+  trajectory::Output binary_output;
 
   virtual void preprocess(
     const int number_of_steps,

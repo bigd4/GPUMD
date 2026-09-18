@@ -1,4 +1,6 @@
 #pragma once
+#include "energy_window.h"
+#include "io/output_format.h"
 #include "force/force.cuh"
 #include "force/nep.cuh"
 // #include "minimize/minimizer.cuh"
@@ -114,6 +116,9 @@ public:
 class NEB: public BaseAtoms
 {
 private:
+  trajectory::Output binary_output;
+  trajectory::Config output_config;
+  void write_binary_images(const char* filename, bool append, const std::vector<int>& indices);
   // compute setting
   double k = 0.1;
   bool energy_based_spacing = false;
@@ -140,6 +145,9 @@ private:
   bool find_mic = false;
 
   bool image_number_adjustment = true;
+  bool ina_memory_guard = true;
+  double ina_memory_reserve_mb = 512.0; // MiB
+  size_t ina_memory_skipped = 0;
   bool trim_images = false;
   double trim_similar_tol = 0.01;
   bool ina_k = false;
@@ -185,6 +193,10 @@ private:
   // std::vector<pair<int,Atoms*>> mid_list;
   std::vector<int> imid_list; // the positions that each mid_image should be insert into
   std::vector<double> h_ref{9};
+  int energy_convergence_steps = 0;
+  double energy_convergence_tolerance = 0.0;
+  bool energy_converged = false;
+  neb_energy::Window energy_window;
   double first_energy = 0.0;
   double last_energy = 0.0;
   int ina_count = 0;
@@ -236,6 +248,8 @@ private:
 
   bool satisfy_ina_force_tolerence() const;
 
+  bool can_insert_image(bool& memory_warning_printed);
+
   void adjust_image_spacing(bool allow_remove, bool bootstrap);
 
   void adjust_image_number();
@@ -270,7 +284,8 @@ public:
   // NEB(Atoms atoms, const int number_of_atoms, const int number_of_steps, const double force_tolerance)
   // {}
 
-  void parse_neb(const char** param, int num_param, Force& force);
+  void parse_neb(const char** param, int num_param, Force& force,
+                 const trajectory::Config& output_config);
 
   void reset_minimizer(
     int number_of_atoms, int max_steps, double force_tolerance, bool print_flag=false);

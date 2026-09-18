@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 ###########################################################
 # Note: 
 # 1) You can modify gfx90a according to your GPU
@@ -17,6 +18,8 @@ INC = -I./
 LDFLAGS = 
 LIBS = -lhipblas -lhipsolver -lhipfft
 
+
+include io/output_format.mk
 
 ###########################################################
 # source files
@@ -47,6 +50,7 @@ OBJ_NEP = $(SOURCES_NEP:.cu=.o)
 # headers
 ###########################################################
 HEADERS =                         \
+	$(wildcard io/*.h)           \
 	$(wildcard utilities/*.cuh)   \
 	$(wildcard main_gpumd/*.cuh)  \
 	$(wildcard integrate/*.cuh)   \
@@ -63,8 +67,8 @@ HEADERS =                         \
 # executables
 ###########################################################
 all: gpumd nep
-gpumd: $(OBJ_GPUMD)
-	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
+gpumd: $(OBJ_GPUMD) $(OUTPUT_OBJ) io/.output_mode
+	$(CC) $(LDFLAGS) $(filter %.o %.obj,$^) -o $@ $(LIBS) $(OUTPUT_LIBS)
 	@echo =================================================
 	@echo The gpumd executable is successfully compiled!
 	@echo =================================================
@@ -105,4 +109,3 @@ main_nep/%.o: main_nep/%.cu $(HEADERS)
 ###########################################################
 clean:
 	rm -f */*.o gpumd nep
-

@@ -18,6 +18,8 @@ Dump position data to movie.xyz.
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_position.cuh"
+#include "output_frame.cuh"
+#include "utilities/common.cuh"
 #include "model/box.cuh"
 #include "model/group.cuh"
 #include "parse_utilities.cuh"
@@ -75,7 +77,7 @@ void Dump_Position::preprocess(
   Force& force)
 {
   if (dump_) {
-    fid_ = my_fopen("movie.xyz", "a");
+    if (!binary_output.enabled()) fid_ = my_fopen("movie.xyz", "a");
     if (precision_ == 0)
       strcpy(precision_str_, "%s %g %g %g\n");
     else if (precision_ == 1) // single precision
@@ -141,6 +143,19 @@ void Dump_Position::process(
   if ((step + 1) % dump_interval_ != 0)
     return;
 
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, groups, grouping_method_, group_id_);
+    std::vector<double> values(atom.number_of_atoms * 3);
+    atom.position_per_atom.copy_to_host(values.data());
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1, grouping_method_, group_id_);
+    frame.info += trajectory::geometry(box);
+    frame.add_strings("species", atom.cpu_atom_symbol, indices);
+    frame.add_real("pos", 3, values, atom.number_of_atoms, indices, 1.0);
+    binary_output.write("movie.xyz", frame);
+    return;
+  }
+
   const int num_atoms_total = atom.number_of_atoms;
 
   if (grouping_method_ < 0) {
@@ -200,7 +215,7 @@ void Dump_Position::postprocess(
   const double temperature)
 {
   if (dump_) {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
     dump_ = false;
     grouping_method_ = -1;
     precision_ = 0;

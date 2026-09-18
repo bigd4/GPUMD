@@ -18,6 +18,7 @@ Dump velocity data to a file at a given interval.
 --------------------------------------------------------------------------------------------------*/
 
 #include "dump_velocity.cuh"
+#include "output_frame.cuh"
 #include "model/group.cuh"
 #include "parse_utilities.cuh"
 #include "utilities/common.cuh"
@@ -70,7 +71,7 @@ void Dump_Velocity::preprocess(
   Force& force)
 {
   if (dump_) {
-    fid_ = my_fopen("velocity.out", "a");
+    if (!binary_output.enabled()) fid_ = my_fopen("velocity.out", "a");
   }
 }
 
@@ -112,6 +113,18 @@ void Dump_Velocity::process(
     return;
   if ((step + 1) % dump_interval_ != 0)
     return;
+
+  if (binary_output.enabled()) {
+    const auto indices = trajectory::selection(atom.number_of_atoms, groups, grouping_method_, group_id_);
+    std::vector<double> values(atom.number_of_atoms * 3);
+    atom.velocity_per_atom.copy_to_host(values.data());
+    trajectory::Frame frame; frame.count = indices.size();
+    frame.info = trajectory::stamp(global_time * TIME_UNIT_CONVERSION, step + 1, grouping_method_, group_id_);
+
+    frame.add_real("vel", 3, values, atom.number_of_atoms, indices, 1.0 / TIME_UNIT_CONVERSION);
+    binary_output.write("velocity.xyz", frame);
+    return;
+  }
 
   const int num_atoms_total = atom.number_of_atoms;
   const double natural_to_A_per_fs = 1.0 / TIME_UNIT_CONVERSION;
@@ -167,7 +180,7 @@ void Dump_Velocity::postprocess(
   const double temperature)
 {
   if (dump_) {
-    fclose(fid_);
+    if (!binary_output.enabled()) fclose(fid_);
     dump_ = false;
     grouping_method_ = -1;
   }

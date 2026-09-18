@@ -246,7 +246,7 @@ std::string Run::get_initial_structure_filename()
           ++n;
         }
       }
-    } else if (keyword != "potential") {
+    } else if (keyword != "potential" && keyword != "output_format") {
       has_non_neb_run = true;
     }
   }
@@ -439,7 +439,11 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
     param[n] = tokens[n].c_str();
   }
 
-  if (strcmp(param[0], "potential") == 0) {
+  if (strcmp(param[0], "output_format") == 0) {
+    try { measure.output_config.parse(tokens); }
+    catch (const std::exception& error) { PRINT_INPUT_ERROR(error.what()); }
+    printf("Output format: %s\n", measure.output_config.format.c_str());
+  } else if (strcmp(param[0], "potential") == 0) {
     force.parse_potential(param, num_param, box, atom.type.size());
   } else if (
     strcmp(param[0], "read_xyz") == 0 || strcmp(param[0], "model_file") == 0 ||
@@ -677,7 +681,7 @@ void Run::parse_one_keyword(std::vector<std::string>& tokens)
       atom.virial_per_atom);
   } else if (strcmp(param[0], "neb_run") == 0 ||
              strcmp(param[0], "neb_set") == 0) {
-    neb.parse_neb(param, num_param, force);
+    neb.parse_neb(param, num_param, force, measure.output_config);
   } else if (strcmp(param[0], "run") == 0) {
     parse_run(param, num_param);
   } else {
