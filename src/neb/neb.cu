@@ -803,7 +803,26 @@ NEB::~NEB() {
 void NEB::parse_options(const char** param, int num_param, int& n)
 {
   // Input Files: structure file names, initial path construction, and endpoint relaxation.
-  if (strcmp(param[n], "is_name") == 0){
+  if (strcmp(param[n], "cyclic_transverse") == 0) {
+    require_option_values(param, num_param, n, 1, "neb_set");
+    if (strcmp(param[n+1], "on") == 0 || strcmp(param[n+1], "1") == 0) cyclic_transverse = true;
+    else if (strcmp(param[n+1], "off") == 0 || strcmp(param[n+1], "0") == 0) cyclic_transverse = false;
+    else PRINT_INPUT_ERROR("cyclic_transverse requires on/off or 1/0.");
+    ++n;
+  } else if (strcmp(param[n], "cyclic_parallel_steps") == 0 ||
+             strcmp(param[n], "cyclic_perpendicular_steps") == 0 ||
+             strcmp(param[n], "cyclic_settling_steps") == 0 ||
+             strcmp(param[n], "cyclic_required_cycles") == 0) {
+    require_option_values(param, num_param, n, 1, "neb_set");
+    int value;
+    if (!is_valid_int(param[n+1], &value) || value < 1 || value > 1000000)
+      PRINT_INPUT_ERROR("Cyclic transverse counts must be integers in [1, 1000000].");
+    if (strcmp(param[n], "cyclic_parallel_steps") == 0) cyclic_settings.parallel_steps = value;
+    else if (strcmp(param[n], "cyclic_perpendicular_steps") == 0) cyclic_settings.perpendicular_steps = value;
+    else if (strcmp(param[n], "cyclic_settling_steps") == 0) cyclic_settings.settling_steps = value;
+    else cyclic_settings.required_cycles = value;
+    ++n;
+  } else if (strcmp(param[n], "is_name") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
     istate_name.assign(param[n+1]);
     n++;
@@ -1440,6 +1459,16 @@ double NEB::estimate_cell_metric_scale()
 }
 
 void NEB::run_neb() {
+  if (cyclic_transverse) {
+    bool imagewise = false;
+    for (auto option : optimizer_opt) if (strcmp(option, "imagewise") == 0) imagewise = true;
+    if (minimizer_type != 1 || !imagewise || tangent_method_name != "modified" ||
+        climb || find_min || dynamic_relaxation || ina_local_relax_steps > 0 || ina_k ||
+        (variable_cell && !remove_rotation) || pressure.size() != 1 ||
+        (energy_based_spacing && energy_spacing_damping != 1.0)) {
+      PRINT_INPUT_ERROR("cyclic_transverse requires imagewise FIRE, modified tangent, isotropic p, rotation-free/fixed cell, energy_spacing_damping 1 when enabled, and no climb, find_min, dyneb, INA local relaxation, or ina_k.");
+    }
+  }
   printf("\n**************************************************************\n");
   printf("*                            [o]                             *\n");
   printf("*                           /   \\                            *\n");
@@ -1531,6 +1560,15 @@ void NEB::run_neb() {
   }
   print_setting("tangent_method", tangent_method_name);
   print_setting("max_steps", max_steps);
+  if (cyclic_transverse) {
+    print_setting("cyclic_transverse", true);
+    print_setting("cyclic_parallel_steps", cyclic_settings.parallel_steps, 4);
+    print_setting("cyclic_perpendicular_steps", cyclic_settings.perpendicular_steps, 4);
+    print_setting("cyclic_settling_steps", cyclic_settings.settling_steps, 4);
+    print_setting("cyclic_required_cycles", cyclic_settings.required_cycles, 4);
+    printf("    Convergence criterion: independently verified physical transverse force; full NEB force is diagnostic only.\n");
+  }
+
   print_setting("dump_interval", dump_interval);
   print_setting("peek_interval", peek_interval);
   print_setting("print_interval", print_interval);
@@ -1590,10 +1628,10 @@ void NEB::run_neb() {
     FILE* fid=fopen("relaxed_is_fs.xyz", "w");
     Atoms& atoms_is = *images.front()->get_p_atoms();
     save_one_frame(fid, atoms_is.box, atoms_is.get_energy(), images.front()->get_energy(), atoms_is.cpu_atom_symbol,
-       atoms_is.get_positions());
+       atoms_is.get_positions(), true);
     Atoms& atoms_fs = *images.back()->get_p_atoms();
     save_one_frame(fid, atoms_fs.box, atoms_fs.get_energy(), images.back()->get_energy(), atoms_fs.cpu_atom_symbol,
-       atoms_fs.get_positions());
+       atoms_fs.get_positions(), true);
     fclose(fid);
   }
   if (remove_translation){
@@ -1640,6 +1678,14 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
 
+  if (cyclic_transverse) {
+    n_force_calc += 2; // Endpoint evaluations immediately above; relaxation is separate.
+    run_cyclic_transverse();
+    return;
+  }
+
+
+
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
   if (count_force_calc){
@@ -1675,6 +1721,133 @@ void NEB::run_neb() {
 }
 
 
+double NEB::cyclic_force_max()
+{
+  double norm;
+  cublasDnrm2(handle, forces.size(), forces.data(), 1, &norm);
+  if (!std::isfinite(norm)) PRINT_INPUT_ERROR("Non-finite force in cyclic transverse verification.");
+  GPU_Vector<double> peaks(nimages - 2);
+  gpu_image_force_max<<<nimages - 2, 256>>>(natoms_per_image, n_realatoms,
+    nimages - 2, minimizer_cell_metric_scale, forces.data(), peaks.data());
+  GPU_CHECK_KERNEL;
+  vector<double> values(nimages - 2);
+  peaks.copy_to_host(values.data());
+  return *max_element(values.begin(), values.end());
+}
+
+bool NEB::update_cyclic_transverse(double force_max)
+{
+  cyclic_live_fmax = force_max;
+  cyclic_target_stop = cyclic_allow_target_stop && force_max <= force_tolerance;
+  // End on evaluated geometry. Neither integration nor INA may append an
+  // unevaluated terminal configuration to a chunk or to the final snapshot.
+  if (cyclic_target_stop || step + 1 >= cyclic_chunk_end) {
+    ++step;
+    return true;
+  }
+  if (image_number_adjustment) adjust_image_number();
+  ++step;
+  if (image_number_adjustment && ina_count == 0) {
+    forces.fill(0);
+    return true;
+  }
+  return false;
+}
+
+void NEB::run_cyclic_transverse()
+{
+  if (count_force_calc) printf("INA info: step, nimages, n_force_calc, fmax\n");
+  cyclic_state = NEBCyclicTransverse::State{};
+  cyclic_topology_generation = 0;
+  cyclic_verifying = cyclic_full_force = false;
+  FILE* log = fopen("neb_cyclic_transverse.out", "w");
+  if (!log) PRINT_INPUT_ERROR("Cannot open cyclic transverse diagnostics.");
+  fprintf(log, "# chunk start_step evaluations phase nimages generation changed stable_evaluations cycles live_fmax verified_perp full_diagnostic force_calls\n");
+  int chunk = 0;
+  double verified = std::numeric_limits<double>::quiet_NaN();
+  double full = verified;
+  bool last_parallel = true;
+  while (step < max_steps && cyclic_state.cycles < cyclic_settings.required_cycles) {
+    const int start = step;
+    const int generation = cyclic_topology_generation;
+    const bool parallel = cyclic_state.parallel;
+    cyclic_chunk_end = step + min(max_steps - step, parallel ?
+      cyclic_settings.parallel_steps : cyclic_settings.perpendicular_steps);
+    cyclic_allow_target_stop = !parallel && cyclic_state.settled(cyclic_settings);
+    cyclic_target_stop = false;
+    // Reconstruct rotation-free generalized coordinates just as a trajectory
+    // restart does, without serialization or a change of the reference metric.
+    if (variable_cell) {
+      for (int i = 1; i < int(images.size()) - 1; ++i)
+        static_cast<VCWrapper*>(images[i].get())->build_positions();
+    }
+    do {
+      initialize_compute();
+      // Disable FIRE's ordinary convergence exit; this controller decides
+      // when a transverse target is admissible and never accepts spring-only convergence.
+      reset_minimizer(natoms, cyclic_chunk_end - step, 0.0);
+      minimizer->compute(*this);
+    } while (step < cyclic_chunk_end && !cyclic_target_stop);
+
+    const bool changed = cyclic_topology_generation != generation;
+    verified = full = std::numeric_limits<double>::quiet_NaN();
+    if (!parallel) {
+      // A fresh PES evaluation on fixed geometry, with no regular-step,
+      // tangent-history, coordinate-history or INA advancement.
+      cyclic_verifying = true;
+      compute();
+      cyclic_verifying = false;
+      verified = cyclic_force_max();
+      cyclic_full_force = true;
+      assemble_neb_forces(false);
+      full = cyclic_force_max();
+      cyclic_full_force = false;
+      assemble_neb_forces(false);
+    }
+    const bool accepted = cyclic_state.finish(cyclic_settings, step - start, changed,
+      cyclic_live_fmax, verified, force_tolerance);
+    ++chunk;
+    fprintf(log, "%d %d %d %s %d %d %d %d %d %.17g %.17g %.17g %d\n",
+      chunk, start, step - start, parallel ? "parallel" : "perpendicular", nimages,
+      cyclic_topology_generation, int(changed), cyclic_state.stable_steps, cyclic_state.cycles,
+      cyclic_live_fmax, verified, full, n_force_calc);
+    fflush(log);
+    printf("Cyclic transverse: step=%d, phase=%s, images=%d, verified_perp=%.10g, cycles=%d/%d%s.\n",
+      step, parallel ? "parallel" : "perpendicular", nimages, verified,
+      cyclic_state.cycles, cyclic_settings.required_cycles, accepted ? " (cycle passed)" : "");
+    last_parallel = parallel;
+  }
+  fclose(log);
+  if (last_parallel) {
+    // A budget ending in the parallel phase is never convergence. Still
+    // report the true transverse residual of the saved final configuration.
+    cyclic_state.parallel = false;
+    cyclic_verifying = true;
+    compute();
+    cyclic_verifying = false;
+    verified = cyclic_force_max();
+    cyclic_full_force = true;
+    assemble_neb_forces(false);
+    full = cyclic_force_max();
+    cyclic_full_force = false;
+    assemble_neb_forces(false);
+  }
+  fmax = verified;
+  const bool accepted = cyclic_state.cycles >= cyclic_settings.required_cycles;
+  printf("Cyclic transverse %s: regular=%d, cycles=%d/%d, F_perp,max=%.10g eV/A, full NEB diagnostic=%.10g eV/A, force calls=%d (endpoint relaxation excluded).\n",
+    accepted ? "CONVERGED" : "NOT CONVERGED (step budget)", step,
+    cyclic_state.cycles, cyclic_settings.required_cycles, verified, full, n_force_calc);
+  FILE* summary = fopen("neb_cyclic_transverse_summary.out", "w");
+  if (!summary) PRINT_INPUT_ERROR("Cannot open cyclic transverse summary.");
+  fprintf(summary, "accepted %d\nregular_evaluations %d\ncycles %d\nrequired_cycles %d\nimages %d\nforce_tolerance %.17g\nverified_perpendicular_fmax %.17g\nfull_NEB_diagnostic %.17g\nforce_calls_excluding_endpoint_relaxation %d\n",
+    int(accepted), step, cyclic_state.cycles, cyclic_settings.required_cycles, nimages,
+    force_tolerance, verified, full, n_force_calc);
+  fclose(summary);
+  printf("NEB step summary: regular=%d, INA local=0, total=%d.\n", step, step);
+  write_energies();
+  write_neb_traj("final_traj.xyz", "w");
+}
+
 void NEB::compute()
 {
   // printf("neb compute\n");
@@ -1698,7 +1871,17 @@ void NEB::compute()
     image_energies[i] = images[i]->get_energy();
   }
   n_force_calc += force_calculations;
+  assemble_neb_forces(!cyclic_verifying);
+  apply_dynamic_relaxation();
+  apply_ina_local_relaxation();
+}
 
+void NEB::assemble_neb_forces(bool advance_iteration)
+{
+  for (int i = 1; i < nimages - 1; ++i) {
+    images[i]->get_forces().copy_to_device(forces.data() + (i - 1) * 3 * natoms_per_image, 3 * natoms_per_image);
+    image_energies[i] = images[i]->get_energy();
+  }
   find_min_max(etol);
   k_effective_list = klist;
   // printf("klist: ");
@@ -1740,7 +1923,7 @@ void NEB::compute()
 
   const int image_size = natoms_per_image * 3;
   const bool write_diagnostics =
-    diagnostic_interval > 0 && step % diagnostic_interval == 0;
+    advance_iteration && diagnostic_interval > 0 && step % diagnostic_interval == 0;
   FILE* diagnostic_file = nullptr;
   vector<double> cpu_diagnostic_force(write_diagnostics ? image_size : 0);
   if (write_diagnostics) {
@@ -1884,6 +2067,12 @@ void NEB::compute()
       tangentmethod->add_image_force(natoms_per_image*3,
         tangential_force, tangent.data(), spring1, spring2,
         &forces[(i-1)*natoms_per_image*3]);
+      if (cyclic_transverse && !cyclic_full_force) {
+        auto& modified = static_cast<ModifiedImprovedTangentMethod&>(*tangentmethod);
+        auto& selected = cyclic_state.parallel ? modified.par_spring_force : modified.perp_force;
+        CHECK(cudaMemcpy(forces.data() + (i - 1) * image_size, selected.data(),
+          image_size * sizeof(double), cudaMemcpyDeviceToDevice));
+      }
     }
       
     if (remove_translation){
@@ -1933,8 +2122,6 @@ void NEB::compute()
   GPU_CHECK_KERNEL;
   }
   if (diagnostic_file != nullptr) fclose(diagnostic_file);
-  apply_dynamic_relaxation();
-  apply_ina_local_relaxation();
   // print_gpu(forces, "neb forces");
   // print_gpu(positions, "neb pos");
 }
@@ -1952,6 +2139,8 @@ bool NEB::update_minimizer_force_max(double force_max)
     write_neb_traj("peek_traj.xyz", "w");
     write_energies();
   }
+
+  if (cyclic_transverse) return update_cyclic_transverse(force_max);
 
   if (ina_local_relax_remaining > 0) {
     ina_local_relax_remaining--;
@@ -2376,7 +2565,7 @@ void NEB::write_neb_traj(const char* filename, const char* mode){
   for (int i=0;i<images.size();i++){
     Atoms& atoms = *images[i]->get_p_atoms();
     save_one_frame(fid, atoms.box, atoms.get_energy(), images[i]->get_energy(), atoms.cpu_atom_symbol,
-       atoms.get_positions(), cpu_positions);
+       atoms.get_positions(), cpu_positions, true);
     // print_gpu(atoms.get_positions());
   }
   fclose(fid);
@@ -2566,6 +2755,7 @@ void NEB::mark_ina_local_region(int image_index)
 
 void NEB::notify_ina_image_inserted(int image_index)
 {
+  if (cyclic_transverse) ++cyclic_topology_generation;
   if (!ina_local_tracking) return;
   if (ina_local_active.size() + 1 == images.size()) {
     ina_local_active.insert(ina_local_active.begin() + image_index, false);
@@ -2578,6 +2768,7 @@ void NEB::notify_ina_image_inserted(int image_index)
 
 void NEB::notify_ina_image_erased(int image_index)
 {
+  if (cyclic_transverse) ++cyclic_topology_generation;
   if (!ina_local_tracking) return;
   if (ina_local_active.size() == images.size() + 1) {
     ina_local_active.erase(ina_local_active.begin() + image_index);

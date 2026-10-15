@@ -792,22 +792,26 @@ void save_one_frame(
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom,
-  std::vector<double>& cpu_position_per_atom)
+  std::vector<double>& cpu_position_per_atom,
+  bool high_precision)
 {
   #ifdef DEBUG
   printf("==========save one frame=============\n");
   #endif
   const int num_atoms_total = position_per_atom.size() / 3;
-  char precision_str_[] = "%s %g %g %g\n";
+  const char* atom_format = high_precision
+    ? "%s %.17g %.17g %.17g\n" : "%s %g %g %g\n";
+  const char* header_format = high_precision
+    ? "Lattice=\"%.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g\" "
+      "Properties=species:S:1:pos:R:3 energy=%.17g enthalpy=%.17g\n"
+    : "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
+      "Properties=species:S:1:pos:R:3 energy=%.6f enthalpy=%.6f\n";
 
   position_per_atom.copy_to_host(cpu_position_per_atom.data());
   fprintf(fid_, "%d\n", num_atoms_total);
   fprintf(
     fid_,
-    "Lattice=\"%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e%15.7e\" "
-    "Properties=species:S:1:pos:R:3 "
-    "energy=%.6f "
-    "enthalpy=%.6f\n",
+    header_format,
     box.cpu_h[0],
     box.cpu_h[3],
     box.cpu_h[6],
@@ -822,7 +826,7 @@ void save_one_frame(
   for (int n = 0; n < num_atoms_total; n++) {
     fprintf(
       fid_,
-      precision_str_,
+      atom_format,
       cpu_atom_symbol[n].c_str(),
       cpu_position_per_atom[n],
       cpu_position_per_atom[n + num_atoms_total],
@@ -837,11 +841,12 @@ void save_one_frame(
   double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
-  GPU_Vector<double>& position_per_atom)
+  GPU_Vector<double>& position_per_atom,
+  bool high_precision)
 {
   vector<double> cpu_position_per_atom(position_per_atom.size());
   save_one_frame(fid_, box, energy, enthalpy, cpu_atom_symbol,
-    position_per_atom, cpu_position_per_atom);
+    position_per_atom, cpu_position_per_atom, high_precision);
 }
 
 void save_one_frame(

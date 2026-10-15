@@ -110,8 +110,9 @@ __global__ void gpu_imagewise_reduce(
 __global__ void gpu_imagewise_reset(
   const int size,
   const int image_size,
-  const double* image_dt,
+  const double* rollback_fraction,
   const int* reset,
+  const double* previous_displacement,
   double* position,
   double* velocity)
 {
@@ -119,7 +120,7 @@ __global__ void gpu_imagewise_reset(
   if (component >= size) return;
   const int image = component / image_size;
   if (reset[image] == 1) {
-    position[component] -= 0.5 * image_dt[image] * velocity[component];
+    position[component] -= rollback_fraction[image] * previous_displacement[component];
     velocity[component] = 0.0;
   } else if (reset[image] == 2) {
     velocity[component] = 0.0;
@@ -183,7 +184,7 @@ __global__ void gpu_imagewise_apply_move(
   const int image_size,
   const double max_move,
   const double* displacement_max,
-  const double* displacement,
+  double* displacement,
   double* position)
 {
   const int component = blockDim.x * blockIdx.x + threadIdx.x;
@@ -193,7 +194,8 @@ __global__ void gpu_imagewise_apply_move(
     displacement_max[image] > max_move ?
       max_move / displacement_max[image] :
       1.0;
-  position[component] += scale * displacement[component];
+  displacement[component] *= scale;
+  position[component] += displacement[component];
 }
 
 void pairwise_product(GPU_Vector<double>& a, GPU_Vector<double>& b, GPU_Vector<double>& c)
@@ -397,6 +399,11 @@ void Minimizer_FIRE_JQH::parse_FIRE(const char** param, int num_param, int nstar
   if (alpha_min > alpha_start) {
     PRINT_INPUT_ERROR("alpha_min should be <= alpha_start.");
   }
+  if (dt_0 <= 0.0 || dt_max <= 0.0 || dt_min <= 0.0 || dt_min > dt_max) {
+    PRINT_INPUT_ERROR("FIRE requires dt_0 > 0 and 0 < dt_min <= dt_max.");
+  }
+  dt_0 = max(dt_min, min(dt_0, dt_max));
+  dt = dt_0;
   if (printflag){
     print_para();
   }
@@ -638,17 +645,17 @@ void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
 
   const int base = (number_of_steps_ >= 10) ? (number_of_steps_ / 10) : 1;
   GPU_Vector<double> velocity(size, 0.0);
-  GPU_Vector<double> displacement(size);
+  GPU_Vector<double> displacement(size, 0.0);
   GPU_Vector<double> metric_temp(size);
   GPU_Vector<double> gpu_power(number_of_images);
   GPU_Vector<double> gpu_velocity_square(number_of_images);
   GPU_Vector<double> gpu_force_square(number_of_images);
   GPU_Vector<double> gpu_dt(number_of_images);
+  GPU_Vector<double> gpu_rollback_fraction(number_of_images);
   GPU_Vector<double> gpu_one_minus_alpha(number_of_images);
   GPU_Vector<double> gpu_mixing_scale(number_of_images);
   GPU_Vector<double> gpu_displacement_max(number_of_images);
   GPU_Vector<int> gpu_reset(number_of_images);
-
   vector<double> image_dt(number_of_images, dt);
   vector<double> image_alpha(number_of_images, alpha_start);
   vector<double> image_power(number_of_images);
@@ -657,6 +664,7 @@ void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
   vector<double> one_minus_alpha(number_of_images);
   vector<double> mixing_scale(number_of_images);
   vector<double> dt_report(number_of_images);
+  vector<double> rollback_fraction(number_of_images, 0.0);
   vector<int> n_positive(number_of_images, 0);
   vector<int> reset(number_of_images, 0);
 
@@ -701,6 +709,7 @@ void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
 
     for (int image = 0; image < number_of_images; ++image) {
       reset[image] = 0;
+      rollback_fraction[image] = 0.0;
       if (force_square[image] <= 1.0e-30) {
         reset[image] = 2;
         image_power[image] = 0.0;
@@ -722,13 +731,15 @@ void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
         }
         n_positive[image]++;
       } else {
+        const double previous_dt = image_dt[image];
         image_dt[image] = max(image_dt[image] * f_dec, dt_min);
+        rollback_fraction[image] =
+          min(0.5 * image_dt[image] / previous_dt, 1.0);
         image_alpha[image] = alpha_start;
         n_positive[image] = 0;
         velocity_square[image] = 0.0;
         reset[image] = 1;
       }
-
       one_minus_alpha[image] = 1.0 - image_alpha[image];
       mixing_scale[image] =
         image_alpha[image] *
@@ -748,14 +759,16 @@ void Minimizer_FIRE_JQH::compute_imagewise(BaseAtoms& atoms)
       any_of(reset.begin(), reset.end(), [](int value) { return value == 1; }));
 
     gpu_dt.copy_from_host(image_dt.data());
+    gpu_rollback_fraction.copy_from_host(rollback_fraction.data());
     gpu_one_minus_alpha.copy_from_host(one_minus_alpha.data());
     gpu_mixing_scale.copy_from_host(mixing_scale.data());
     gpu_reset.copy_from_host(reset.data());
     gpu_imagewise_reset<<<(size - 1) / 256 + 1, 256>>>(
       size,
       image_size,
-      gpu_dt.data(),
+      gpu_rollback_fraction.data(),
       gpu_reset.data(),
+      displacement.data(),
       position_per_atom.data(),
       velocity.data());
     gpu_imagewise_integrate<<<(size - 1) / 256 + 1, 256>>>(

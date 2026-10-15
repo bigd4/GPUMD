@@ -273,7 +273,8 @@ void save_one_frame(
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
   GPU_Vector<double>& position_per_atom,
-  std::vector<double>& cpu_position_per_atom);
+  std::vector<double>& cpu_position_per_atom,
+  bool high_precision = false);
 
 void save_one_frame(
   FILE* fid_,
@@ -281,7 +282,8 @@ void save_one_frame(
   double energy,
   double enthalpy,
   const std::vector<std::string>& cpu_atom_symbol,
-  GPU_Vector<double>& position_per_atom);
+  GPU_Vector<double>& position_per_atom,
+  bool high_precision = false);
 
 
 void save_xyz_virials(

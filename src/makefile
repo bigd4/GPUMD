@@ -78,6 +78,7 @@ HEADERS =                         \
 	$(wildcard phonon/*.cuh)      \
 	$(wildcard main_nep/*.cuh)    \
 	$(wildcard neb/*.cuh)	      \
+	$(wildcard neb/*.h)          \
 	$(wildcard main_gnep/*.cuh)
 
 

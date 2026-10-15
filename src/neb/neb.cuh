@@ -1,4 +1,5 @@
 #pragma once
+#include "cyclic_transverse.h"
 #include "force/force.cuh"
 #include "force/nep.cuh"
 // #include "minimize/minimizer.cuh"
@@ -159,6 +160,21 @@ private:
   bool print_k = false;
   int print_interval = 1;
   int diagnostic_interval = 0;
+  bool cyclic_transverse = false;
+  NEBCyclicTransverse::Settings cyclic_settings;
+  NEBCyclicTransverse::State cyclic_state;
+  int cyclic_topology_generation = 0;
+  int cyclic_chunk_end = 0;
+  bool cyclic_allow_target_stop = false;
+  bool cyclic_target_stop = false;
+  bool cyclic_verifying = false;
+  bool cyclic_full_force = false;
+  double cyclic_live_fmax = 0.0;
+  void run_cyclic_transverse();
+  bool update_cyclic_transverse(double force_max);
+  double cyclic_force_max();
+  void assemble_neb_forces(bool advance_iteration);
+
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;

@@ -87,6 +87,36 @@ The following parameters are optional. For the detail meaning of each parameter,
 - alpha_start: key 1. default value: 0.25
 - f_alpha: key 1. default value: 0.99
 - alpha_min: key 1, lower bound for the FIRE mixing parameter after multiplication by `f_alpha`. It applies to both global and imagewise FIRE. `0` preserves the original unrestricted decay. Range: `[0, alpha_start]`. default value: 0
-- N_min: key 1. default value: 20
+- N_min: key 1. default value: 5
 - imagewise: flag, use independent FIRE time step, mixing parameter, positive-power counter, velocity norm, and force norm for every movable NEB image. NEB forces remain coupled through the tangent and springs, while optimizer state and FIRE resets are image-local. Images with zero force are frozen until they become active again. This option is intended for NEB calculations using the BaseAtoms block interface. default value: false
 - min_alignment_cosine: key 1, minimum allowed cosine between the velocity and force vectors of each image. The image enters the positive-power FIRE branch only when `v dot F - min_alignment_cosine * |v| * |F| > 0`; otherwise only that image is reset. `0` exactly recovers the original power-sign criterion. This option requires `imagewise`. Range: `[0, 1)`. default value: 0
+
+Imagewise FIRE rollback follows the last applied, displacement-limited move. On each restart, `dt_0` is clamped to `[dt_min, dt_max]` and used as the initial timestep. NEB trajectory snapshots retain 17 significant digits so that reloading a converged path does not lose coordinate precision.
+
+### Cyclic Transverse FIRE
+
+`neb_set cyclic_transverse on` enables alternating tangential-spring and physical transverse FIRE optimization. `off` (the default) retains ordinary NEB; `1` and `0` are accepted aliases. The physical transverse force is `F_PES - (F_PES dot tangent) tangent`, with the usual translation removal and generalized cell-force metric. The parallel phase uses only the tangential spring force. Neither phase includes the DNEB perpendicular spring correction, and the current modified tangent is recomputed at every force evaluation.
+
+```text
+neb_set tangent modified
+neb_set cyclic_transverse on
+neb_set energy_spacing_damping 1  # Required when energy_based_spacing is enabled.
+neb_run fire 0.001 100000 dt_0 0.1 dt_max 1 dt_min 0.005 max_move 0.1 imagewise alpha_min 0.01
+```
+
+The default schedule alternates 5 parallel evaluations and 50 transverse evaluations while INA is changing the path. After 220 evaluations in completed chunks without image-identity changes, transverse chunks continue until the target is met. Every chunk restarts FIRE from zero velocity and the specified `dt_0`; rotation-free generalized coordinates are rebuilt from the current physical configuration. An INA change can restart FIRE inside a chunk, but does not reset the global regular-step budget. Chunk boundaries do not append an unevaluated displacement or image insertion. The reference cell metric is retained within the native run; unlike separate executable restarts, no text round-trip is involved.
+
+Every transverse chunk ends with a fresh PES force evaluation at fixed geometry using freshly computed current tangents. This verification does not advance the regular-step count, INA, or diagnostic histories. A qualifying cycle requires both live and independently verified transverse maxima to be at most the `neb_run` tolerance, a settled topology, and no identity change in that chunk. Then the next parallel/transverse cycle begins. Ten qualifying cycle ends on an unchanged image identity set are required; any INA insertion/deletion invalidates previous evidence, even if the net image count stays unchanged. A low spring-only force never means convergence. Full NEB force is recorded as a diagnostic and is not an acceptance requirement.
+
+Optional `neb_set` counts, each a positive integer no larger than 1000000:
+
+| Parameter | Default | Meaning |
+|---|---:|---|
+| `cyclic_parallel_steps` | 5 | Maximum parallel evaluations per chunk |
+| `cyclic_perpendicular_steps` | 50 | Maximum transverse evaluations per chunk |
+| `cyclic_settling_steps` | 220 | Stable-topology evaluations before acceptance |
+| `cyclic_required_cycles` | 10 | Qualifying cycle ends required |
+
+The mode requires imagewise FIRE, `tangent modified`, isotropic pressure, and a rotation-free or fixed cell. When energy-based spacing is active, use `energy_spacing_damping 1` to keep fixed-geometry verification independent of damping history. Unsupported combinations are rejected: climb, find_min, DYNEB, INA local relaxation and ina_k. Ordinary INA and `no_ina` are supported. FIRE timestep/mixing and path initialization remain explicit user settings; the switch does not interpolate a fixed number of images or select intermediate input frames.
+
+`neb_cyclic_transverse.out` records each chunk's phase, regular evaluations, image generation, topology changes, stable count, passed cycles, live/verified residuals and force calls. `neb_cyclic_transverse_summary.out` explicitly reports `accepted 1` or `accepted 0`; exhausting `max_steps` is not convergence. `final_traj.xyz` contains evaluated final geometry. Counts include the initial two endpoint evaluations and fresh internal-image verification calls, but exclude optional endpoint relaxation. Computing the full-force diagnostic reuses the same PES forces. Reloading a saved trajectory starts a new schedule and acceptance history. Passing this transverse criterion does not establish convergence of full NEB force, image-density convergence, or a globally minimal path.

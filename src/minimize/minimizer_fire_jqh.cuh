@@ -30,7 +30,7 @@ private:
   double dt_0 = 1 / TIME_UNIT_CONVERSION; // Time step of 1 fs.
   double dt_max = 1 * dt_0;
   double dt_min = 0.02 * dt_0;
-  int N_min = 20;
+  int N_min = 5;
   const double m = 5; // The mass of atoms. Doesn't matter in minimization.
   double dt = dt_0;
   double alpha = alpha_start;
