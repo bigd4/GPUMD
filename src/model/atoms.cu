@@ -718,6 +718,21 @@ RotationFreeVCWrapper::RotationFreeVCWrapper(Atoms* p_atoms0, double* new_positi
 {
 }
 
+// Rotation-free cell coordinates represent a symmetric metric. Its force must
+// lie in the same six-dimensional subspace; antisymmetric work has no physical
+// structural counterpart because set_positions() discards it.
+static __global__ void project_rotation_free_cell_force(double* force)
+{
+  const int a[3] = {1, 2, 5};
+  const int b[3] = {3, 6, 7};
+  const int j = threadIdx.x;
+  if (j < 3) {
+    const double value = 0.5 * (force[a[j]] + force[b[j]]);
+    force[a[j]] = value;
+    force[b[j]] = value;
+  }
+}
+
 void RotationFreeVCWrapper::compute()
 {
   set_positions();
@@ -741,6 +756,8 @@ void RotationFreeVCWrapper::compute()
     &deform[9],
     &forces[natoms*3-9],
     3, 3, 3, 0, 0, 1/cell_factor);
+  project_rotation_free_cell_force<<<1, 3>>>(forces.data() + natoms*3 - 9);
+  GPU_CHECK_KERNEL;
 }
 
 GPU_Vector<double>& RotationFreeVCWrapper::build_positions()
