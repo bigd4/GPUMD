@@ -203,10 +203,9 @@ void Hessian::initialize(
   get_cutoff_from_potential(force);
 
   std::ifstream fin("run.in");
-  std::string line;
   bool has_rep = false;
-  while (std::getline(fin, line)) {
-    auto tokens = get_tokens(line);
+  while (fin.peek() != EOF) {
+    auto tokens = get_command_tokens(fin);
     if (!tokens.empty() && tokens[0][0] != '#' && tokens[0] == "replicate") {  // 跳过空行和注释行
       has_rep = true;
       for (int i = 0; i < 3; ++i) {

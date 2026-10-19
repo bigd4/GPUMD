@@ -262,7 +262,7 @@ void Run::execute_run_in()
   }
 
   while (input.peek() != EOF) {
-    std::vector<std::string> tokens = get_tokens(input);
+    std::vector<std::string> tokens = get_command_tokens(input);
     std::vector<std::string> tokens_without_comments;
     for (const auto& t : tokens) {
       if (t[0] != '#') {

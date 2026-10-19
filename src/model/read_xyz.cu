@@ -155,9 +155,8 @@ static bool __attribute__((unused)) need_triclinic()
     PRINT_INPUT_ERROR(error.c_str());
   }
   bool triclinic = false;
-  std::string line;
-  while (std::getline(input_run, line)) {
-    std::vector<std::string> tokens = get_tokens(line);
+  while (input_run.peek() != EOF) {
+    std::vector<std::string> tokens = get_command_tokens(input_run);
     if (tokens.size() != 0) {
       if (tokens[0] == "compute_elastic") {
         triclinic = true;
@@ -478,10 +477,9 @@ static std::string get_filename_potential()
     PRINT_INPUT_ERROR(error.c_str());
   }
 
-  std::string line;
   std::string filename_potential;
-  while (std::getline(input_run, line)) {
-    std::vector<std::string> tokens = get_tokens(line);
+  while (input_run.peek() != EOF) {
+    std::vector<std::string> tokens = get_command_tokens(input_run);
     if (tokens.size() >= 2) {
       if (tokens[0] == "potential") {
         filename_potential = tokens[1];

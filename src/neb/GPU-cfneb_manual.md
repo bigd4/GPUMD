@@ -1,6 +1,8 @@
 # GPU-CFNEB Manual
 The input of GPU-CFNEB is embedded in the GPUMD standard input file **run.in**. There are two prefix keywords: **neb_set** and **neb_run**. **neb_set** is followed by NEB settings. **neb_run** is followed by optimizer settings. There are two kinds of input parameters. Each parameter is separated by spaces. The first kind is a flag, which toggles a Boolean option. The second kind is key-value input. The key is the parameter name and the following value or values are assigned to this key. Each key has a specific number of values. If the same or conflicting parameters are set, the new value overrides the previous one.
 
+Long commands may continue onto the next physical line using a standalone `\` or `&` at the end of the line, before any `#` comment. Blank/comment-only lines inside a continuation are skipped. The last line has no continuation marker; an unfinished continuation at EOF is an error. This works for both `neb_set` and `neb_run` and does not change XYZ or potential-file parsing.
+
 There can be several **neb_set** lines, but there should be only one **neb_run** line. In each line, there can be several flags and key-value inputs. If a key takes a variable number of values, it should be the last key in the line because it takes all values after it.
 
 
