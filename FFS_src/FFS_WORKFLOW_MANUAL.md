@@ -509,3 +509,141 @@ GaN B4-B1 相变可以把配位数作为 CV。B4 约为 4，B1 约为 6，因此
 - Borrero and Escobedo, Optimizing the sampling and staging for simulations of rare events via forward flux sampling schemes, Journal of Chemical Physics 129, 024115 (2008), DOI: https://doi.org/10.1063/1.2943285
 
 这些参考给出的核心实践也适用于本实现：界面应按通过率调节；概率过低的区间需要加密界面或增加 trial；通量统计和条件概率统计要分开收敛。
+
+## 21. LSF 集群分阶段批量运行
+
+`FFS_src/remote-runner/ffs_remote_runner.py` 是面向共享文件系统和 LSF
+的分阶段管理器。与本手册前文的单卡串行 driver 不同，它会为**当前一个
+阶段**的每条轨迹创建独立目录和独立 LSF job，等待本批全部结束后，由唯一
+一个 collector 汇总成功结构，再生成下一界面批次。不要让两个 manager
+进程同时操作同一个 `campaign_state.json`。
+
+这套 runner 支持三个后端：
+
+- `gpu_sampling_ffs`：在 `run.in` 插入
+  `FFSampling model.pt GAScfg.ffs.yaml`。GPU-Sampling 在首次到达目标或失败
+  界面时停止；成功时由程序写出 `restart.xyz`。
+- `gpu_sampling_monitor`：在 `GPU-Sampling-dev` 的 `Monitor` CV-only 接口
+  插入 `Monitor model.pt CVMonitor.yaml`，并添加 `dump_exyz`。collector 从
+  CV 日志首次越界的行选择相同时间的 extxyz frame。Monitor 在初态写第一行，
+  而 `dump_exyz` 从第一个积分步开始，故第 `k>0` 个 CV 行对应第 `k-1` 个
+  dump frame。
+- `lammps_plumed`：从 PLUMED `COLVAR` 检查先到达的目标或失败界面，并从
+  同步的 LAMMPS custom dump 取越界构型；它会被写成单帧 timestep 0 dump，
+  下一条 LAMMPS 轨迹通过 `read_data` 加 `read_dump` 启动。
+
+### 21.1 常规命令
+
+在包含 yaml 和模板的集群目录执行：
+
+```bash
+python3 /path/to/GPUMD/FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml init
+python3 /path/to/GPUMD/FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml cycle --submit
+# bjobs 确认本批已经结束后，再执行同一条 cycle 命令。
+python3 /path/to/GPUMD/FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml status
+```
+
+`cycle --submit` 会先收集已有完成任务、在达到当前层停止标准后推进、生成下一
+批，再用 `bsub` 提交。首次运行在 `init` 后没有任务可收集，因此它直接生成
+flux 批。集群中断或 manager 退出后，重跑同一条命令即可；每个 task 的 ID、
+速度 seed、结构池和收集状态都在 `campaign_state.json` 中。先在没有 LSF 的
+本地验证生成规则：
+
+```bash
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml init
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml simulate --seed 20260808
+```
+
+`simulate` 只检查渲染后的任务脚本和完整状态迁移，并写短程随机越界结果，
+不运行真实势函数或提交 LSF。
+
+如果本地 WSL 已有真实可执行文件，可用 `run-local` 做一次“调度脚本—真实
+积分—收集—随机判界”的集成验收；它绝不调用 `bsub`，只能用于测试：
+
+```bash
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml init
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml plan
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml run-local \
+  --random-crossings --seed 20260808
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml collect
+python3 FFS_src/remote-runner/ffs_remote_runner.py campaign.yaml advance
+```
+
+`run-local` 实际执行每个渲染出的 job body，任务目录保留原始
+`ffs_runtime.out`、CV 日志、轨迹和 `.ffs_exit_code`。可选的
+`--random-crossings` 只在任务成功完成后写独立的
+`.ffs_local_decision.json`；collector 仍取真实计算的最后一个 CV 行和对应
+轨迹帧，只把成功/失败标签替换为这个可重现的测试决定。因此它只允许
+`gpu_sampling_monitor` 和 `lammps_plumed`，不允许对原生
+`gpu_sampling_ffs` 伪造其停止边界或 `restart.xyz`。
+
+### 21.2 campaign yaml 全参数
+
+所有相对路径按 yaml 所在目录解析；`config.example.yaml` 可直接复制修改。
+
+| 段 | 参数 | 含义与默认/要求 |
+| --- | --- | --- |
+| `campaign` | `name` | LSF 任务名前缀，默认 `FFS`；实际名称为 `name-界面-尝试号`。 |
+|  | `root` | campaign 输出根目录；必须位于可续算的共享存储。默认 `FFS_remote_runs`。 |
+|  | `state_file` | manager 唯一写入的状态账本，默认 `campaign_state.json`。 |
+| `scheduler` | `job_template` | LSF shell 模板文件。必须包含或允许插入 `#BSUB` 行。 |
+|  | `queue` | 替换所有有效 `#BSUB -q` 后保留的唯一队列名。 |
+|  | `gpu_request` | GPU 模式的资源字符串，默认 `num=1:aff=yes`。 |
+|  | `cpu_cores` | CPU 模式的 `#BSUB -n` 值，默认 `24`。 |
+| `execution` | `backend` | 必填：`gpu_sampling_ffs`、`gpu_sampling_monitor` 或 `lammps_plumed`。 |
+|  | `mode` | `gpu` 或 `cpu`。GPU 写 `#BSUB -gpu`；CPU 移除它并写 `#BSUB -n`。 |
+|  | `executable` | 必填，集群上的 `gpu-sampling` 或 `lmp` 绝对/相对路径。 |
+|  | `command_prefix` | 可选命令数组，如 MPI/容器包装；默认空。 |
+|  | `run_template` | GPU 两个后端必须提供的 `run.in` 模板。 |
+| `resources` | `initial_states` | 必填，A 稳态的一个或多个独立结构。生产 flux 最好提供独立相空间点。 |
+|  | `nep` | 必填，NEP 势文件。每个任务复制并替换 GPU `potential` 行，或供 LAMMPS 模板的 `{{FFS_NEP_FILE}}` 使用。 |
+|  | `pt` | GPU 后端必填，CV 或 CV-only TorchScript 模型。 |
+|  | `gas_config` | GPU 后端必填，GAS/Monitor 配置。runner 会追加动态 FFS 字段，并从 xyz 首行补写 `n_atoms`。 |
+|  | `extra_files` | 可选，每个 task 额外复制的势函数或辅助文件数组。 |
+| `md` | `timestep_fs` | flux 时间换算，默认 `1.0` fs。 |
+|  | `temperature_K` | GPU 速度随机化且模板没有 `velocity` 行时必须提供；否则用于更新模板温度。 |
+| `monitor` | `cv_index` | GPU CV 分量序号，默认 0。 |
+|  | `output` | CVOnlyMonitor 输出名，默认 `MonCVlog.txt`。`gpu_sampling_ffs` 固定为 `GASCVlog.txt`。 |
+|  | `stride` | CVOnlyMonitor 与自动 `dump_exyz` 的共同间隔，默认 1。 |
+| `ffs` | `interfaces` | 必填且至少两个值：`lambda_0 ... lambda_n`。 |
+|  | `direction` | `1` 为 CV 增大方向，`-1` 为减小方向；默认 1。 |
+|  | `fail_interface` | 回到 A 的失败边界，默认 `interfaces[0]`。flux 阶段忽略它，只检查目标界面。 |
+|  | `randomize_velocities` | 默认 true。false 时每个成功 state 只能启动一次下游轨迹。 |
+|  | `replicas_per_crossing` | true 时每个 state 的分支数；false 时 runner 强制为 1。 |
+|  | `random_seed` | 可选的可重现 seed 基准。runner 用不可变 task ID 派生实际 seed，续算不会重复 seed。 |
+| `ffs.flux` | `batch_size`、`min_successes`、`max_trials`、`steps` | flux 批大小、推进阈值、总上限和每条最大步数。 |
+| `ffs.interface` | `batch_size`、`min_successes`、`max_trials`、`steps` | 每一界面层的相同四项。`steps` 可为单值或长度为区间数的数组。 |
+| `lammps` | `input_template`、`plumed_template`、`base_data` | `lammps_plumed` 必填的 LAMMPS 与 PLUMED 模板、固定类型/拓扑 data 文件。 |
+|  | `cv_log`、`cv_column` | PLUMED CV 文件名（默认 `COLVAR`）和列名/零基列号。带 `#! FIELDS` 时推荐列名。 |
+|  | `monitor_stride`、`trajectory` | COLVAR PRINT 与 LAMMPS dump 的共同间隔，以及 dump 文件名。 |
+|  | `time_to_step` | 可选，将 COLVAR 第一列时间乘成 dump timestep 的系数。 |
+|  | `allow_index_matching` | 默认 false。只有已证实 COLVAR 与 dump 行/帧严格同序时才可设 true。 |
+| `simulation` | `success_probability`、`outcomes` | 仅本地 `simulate` 测试使用的成功概率或循环结果列表，真实 `bsub` 忽略。 |
+
+### 21.3 模板和状态池约束
+
+LSF renderer 只改动**不带 `!`** 的 `#BSUB -q`、`#BSUB -J` 与资源行。`
+! #BSUB` 是被禁用的 LSF 专属注释，原样保留。没有 `#BSUB -q/-J/-gpu/-n`
+时会补入对应有效指令。模板可以写 `{{FFS_COMMAND}}` 占位；如未写，GPU
+模板中的裸 `gpu-sampling` 命令会被替换，实际带 `-m model.xyz -i run.in`
+的命令由 runner 追加。
+
+LAMMPS 模板应使用：
+
+```text
+{{FFS_START_COMMAND}}
+pair_coeff * * {{FFS_NEP_FILE}}
+fix ffs all plumed plumedfile {{FFS_PLUMED_FILE}}
+{{FFS_TRAJECTORY_COMMAND}}
+run {{FFS_STEPS}}
+```
+
+PLUMED 模板的 `PRINT` 动作应含 `FILE={{FFS_CV_LOG}}` 和
+`STRIDE={{FFS_MONITOR_STRIDE}}`。这能保证 collector 从最先到达目标/失败
+的 CV 行选择正确结构。若未同步输出，不能将最终 restart 误当成 crossing
+state。
+
+速度不随机时，planner 在创建任务时立刻给起始结构写入 `consumed_by`。无论该
+task 成功还是失败，该结构都不会再出现；只有成功 task 的 crossing state 会
+写进下一层 pool。因此同时跑出的多个成功结构会并行产生多条下游任务，而失败
+轨迹自然废弃，不会污染下一界面。

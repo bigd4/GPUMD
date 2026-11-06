@@ -1,0 +1,75 @@
+# Paths are resolved relative to this YAML file.  Use only one backend per campaign.
+campaign:
+  name: FFS
+  root: FFS_remote_runs
+  state_file: campaign_state.json
+
+scheduler:
+  job_template: job.lsf.template
+  queue: 734090ib
+  gpu_request: num=1:aff=yes
+  cpu_cores: 24
+
+execution:
+  # gpu_sampling_ffs stops at a boundary and writes restart.xyz.
+  # gpu_sampling_monitor and lammps_plumed analyse a CV log plus trajectory snapshots.
+  backend: gpu_sampling_ffs
+  mode: gpu
+  executable: /absolute/path/to/gpu-sampling
+  command_prefix: []
+  run_template: run.in.template
+
+resources:
+  # Supply independent equilibrated A-basin structures for production flux sampling.
+  initial_states: [model-A.xyz]
+  nep: nep.txt
+  pt: cv-model.pt
+  gas_config: GAScfg.yaml
+  extra_files: []
+
+md:
+  timestep_fs: 1.0
+  temperature_K: 300
+
+monitor:
+  # CV component in GPU-Sampling output.  CVOnlyMonitor defaults to MonCVlog.txt.
+  cv_index: 0
+  output: MonCVlog.txt
+  stride: 1
+
+ffs:
+  interfaces: [0.10, 0.20, 0.35]
+  direction: 1
+  fail_interface: 0.05
+  randomize_velocities: true
+  replicas_per_crossing: 4
+  random_seed: 20260808
+  flux:
+    batch_size: 16
+    min_successes: 8
+    max_trials: 128
+    steps: 200000
+  interface:
+    batch_size: 64
+    min_successes: 16
+    max_trials: 512
+    # A scalar applies to every interface; a list may provide one value per interval.
+    steps: 50000
+
+# Required only when execution.backend is lammps_plumed.
+lammps:
+  input_template: in.lammps.template
+  plumed_template: plumed.dat.template
+  base_data: model-A.data
+  cv_log: COLVAR
+  # Use a named PLUMED field when COLVAR has '#! FIELDS time lambda'.
+  cv_column: lambda
+  monitor_stride: 1
+  trajectory: ffs-trajectory.lammpstrj
+  # Prefer matching COLVAR and dump strides.  Leave false unless rows and frames
+  # are demonstrably aligned by index.
+  allow_index_matching: false
+
+# Local tests only.  This is never used by submit/cycle --submit.
+simulation:
+  success_probability: 0.70

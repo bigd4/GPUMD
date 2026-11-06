@@ -1,0 +1,12 @@
+#!/bin/bash
+! #BSUB -q disabled-queue
+#BSUB -q normal
+! #BSUB -q disabled-alt-queue
+#BSUB -gpu "num=1:aff=yes"
+#BSUB -J FFS-placeholder
+#BSUB -o out
+#BSUB -e err
+
+# Load site-specific modules here.  The runner preserves these shell lines.
+# module load cuda/11.8.0
+{{FFS_COMMAND}}
