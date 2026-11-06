@@ -16,6 +16,7 @@ src/build*
 .vscode
 .agent
 .codex/
+.agents/
 .DS_Store
 *~
 local
