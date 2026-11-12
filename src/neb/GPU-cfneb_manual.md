@@ -92,3 +92,23 @@ The following parameters are optional. For the detail meaning of each parameter,
 - N_min: key 1. default value: 20
 - imagewise: flag, use independent FIRE time step, mixing parameter, positive-power counter, velocity norm, and force norm for every movable NEB image. NEB forces remain coupled through the tangent and springs, while optimizer state and FIRE resets are image-local. Images with zero force are frozen until they become active again. This option is intended for NEB calculations using the BaseAtoms block interface. default value: false
 - min_alignment_cosine: key 1, minimum allowed cosine between the velocity and force vectors of each image. The image enters the positive-power FIRE branch only when `v dot F - min_alignment_cosine * |v| * |F| > 0`; otherwise only that image is reset. `0` exactly recovers the original power-sign criterion. This option requires `imagewise`. Range: `[0, 1)`. default value: 0
+
+## ODE12r with a tangential force window
+
+Example for an already prepared path:
+
+```text
+neb_set tangent modified
+neb_set energy_based_spacing energy_spacing_damping 1
+neb_run ode12r 0.005 3000 tangent_window on window_off 0.015 window_on 0.03 window_hold 100 rtol 0.01 h0 0.02 max_move 0.1 secant_guard 0.1
+```
+
+ODE12r is opt-in and uses accepted/rejected force-based trial steps. Defaults are `rtol 0.01`, `h0 0.02`, `hmin 1e-10`, `max_move 0.1`, `secant_guard 0.1`, `residual_extrapolation on`, and `tangent_window off`. Numeric options require positive finite values; `secant_guard` is at most 1 and `hmin` must be below `h0`. Disable the secant extrapolator using `residual_extrapolation off`. The evaluation budget includes initial/final forces, rejected trials and evaluations following INA changes; it is not a count of accepted FIRE steps.
+
+With the window enabled, each image's raw tangential spring residual above `window_on` turns its tangential term on; below `window_off` turns it off; equality or the interval between thresholds retains the previous state. Defaults are `window_off 0.015` and `window_on 0.03`, with `0 < off < on`. This operates on maximum force components in the existing cell-scaled residual metric. Physical perpendicular forces and the DNEB correction remain active on every internal image. Spacing and segment angles do not trigger the window. INA continues to control spacing, including energy-based spacing, and runs only after accepted steps. Image IDs/latches survive insertions and deletions; new images initialize independently and all topology changes reset the convergence streak and ODE history.
+
+In window mode, `force_tolerance` is the physical transverse target. All images must satisfy that target, have raw tangential residual at most `window_on`, and have their tangential latches off for `window_hold` consecutive accepted updates (default 100, configurable positive integer). Initial/final static checks and rejected trials do not increment the streak. The final accepted path is freshly verified before reporting `window_converged`. This is distinct from convergence of the raw full NEB force. With the window disabled, the full driving force determines `full_force_converged`. `step_too_small` and `evaluation_budget` are not convergence.
+
+The current ODE implementation requires modified tangents, fixed cells or rotation-free variable cells with isotropic pressure, and `energy_spacing_damping 1` when enabled. It rejects `climb`, `find_min`, DYNEB, endpoint or INA-local relaxation, and `ina_k`. `find_mic` alignment remains available. The original projected tangential spring and DNEB correction are retained; no length-difference spring or velocity damping is introduced.
+
+`window_restart FILE` restores a paired final path's versioned `window_state.txt`, retaining image IDs, latches and switch counters while restarting the convergence streak. It requires window mode and matching thresholds, atom and image counts. Use the matching final trajectory, not an unrelated path with the same size. Logs are `neb_ode12r.out`, `neb_ode12r_summary.out`, `neb_window.out`, and `neb_window_topology.out`; event codes are 0 rejected trial, 1 accepted trial, 2 initial/final static check, and 3 INA rebuild.

@@ -1159,6 +1159,7 @@ void NEB::parse_options(const char** param, int num_param, int& n)
 void NEB::parse_neb(const char** param, int num_param, Force& force)
 {
   p_force = &force;
+  if (strcmp(param[0], "neb_run") == 0) optimizer_opt.clear();
 
   if (strcmp(param[0], "neb_run") == 0) {
     if (num_param < 2) {
@@ -1185,6 +1186,16 @@ void NEB::parse_neb(const char** param, int num_param, Force& force)
       printf("    using the fast inertial relaxation engine (FIRE) method.\n");
       printf("    with a force tolerance of %g eV/A.\n", force_tolerance);
 
+      run_neb();
+    } else if (strcmp(param[1], "ode12r") == 0) {
+      minimizer_type = 3;
+      if (num_param < 4 || !is_valid_real(param[2], &force_tolerance) ||
+          !std::isfinite(force_tolerance) || force_tolerance <= 0.0 ||
+          !is_valid_int(param[3], &max_steps) || max_steps < 2) {
+        PRINT_INPUT_ERROR("neb_run ode12r requires a positive force tolerance and at least two evaluations.");
+      }
+      for (int n = 4; n < num_param; ++n) optimizer_opt.push_back(param[n]);
+      parse_ode12r();
       run_neb();
     } else {
       string text = "Invalid optimizer for neb_run: ";
@@ -1658,6 +1669,8 @@ void NEB::run_neb() {
   first_energy = images.front()->get_energy();
   last_energy = images.back()->get_energy();
 
+  if (minimizer_type == 3) { run_ode12r(); return; }
+
   double fnrm2; // used to check if minimization is finished or nimages changes
   // -------------------------main loop------------------------------
   if (count_force_calc){
@@ -1757,6 +1770,11 @@ void NEB::compute()
   Spring spring1{k_effective_list[0], image_energies[1] - image_energies[0], t1};
 
   const int image_size = natoms_per_image * 3;
+  if (ode_window_audit) {
+    window_parallel.resize((nimages-2)*image_size);
+    window_perpendicular.resize((nimages-2)*image_size);
+    window_distances.resize(nimages-1); window_bend.resize(nimages-2);
+  }
   const bool write_diagnostics =
     diagnostic_interval > 0 && step % diagnostic_interval == 0;
   FILE* diagnostic_file = nullptr;
@@ -1904,6 +1922,27 @@ void NEB::compute()
         &forces[(i-1)*natoms_per_image*3]);
     }
       
+    if (ode_window_audit) {
+      auto& modified=static_cast<ModifiedImprovedTangentMethod&>(*tangentmethod);
+      modified.par_spring_force.copy_to_host(window_parallel.data()+(i-1)*image_size);
+      modified.perp_force.copy_to_host(window_perpendicular.data()+(i-1)*image_size);
+      auto distance=[&](GPU_Vector<double>& v) {
+        std::vector<double> t(image_size), r2(n_realatoms); v.copy_to_host(t.data());
+        for(int a=0;a<n_realatoms;++a) for(int axis=0;axis<3;++axis) r2[a]+=t[axis*n_realatoms+a]*t[axis*n_realatoms+a];
+        std::sort(r2.begin(),r2.end()); double rr=0,hh=0;
+        for(int a=n_realatoms-dist_ncount;a<n_realatoms;++a) rr+=r2[a];
+        for(int a=3*n_realatoms;a<image_size;++a) hh+=t[a]*t[a];
+        return sqrt(rr/dist_ncount)+sqrt(hh/n_realatoms);
+      };
+      if(i==1) window_distances[0]=distance(spring1.t);
+      window_distances[i]=distance(spring2.t);
+      double dot; cublasDdot(handle,image_size,spring1.t.data(),1,spring2.t.data(),1,&dot);
+      window_bend[i-1]=dot/(spring1.nt*spring2.nt+1e-30);
+      if(remove_translation) for(auto* arr:{&window_parallel,&window_perpendicular}) for(int axis=0;axis<3;++axis) {
+        double mean=0; for(int a=0;a<n_realatoms;++a) mean+=(*arr)[(i-1)*image_size+axis*n_realatoms+a];
+        mean/=n_realatoms; for(int a=0;a<n_realatoms;++a) (*arr)[(i-1)*image_size+axis*n_realatoms+a]-=mean;
+      }
+    }
     if (remove_translation){
       double mean_force;
       for (int j=0;j<3;j++){
@@ -2584,6 +2623,13 @@ void NEB::mark_ina_local_region(int image_index)
 
 void NEB::notify_ina_image_inserted(int image_index)
 {
+  if(ode_gate) {
+    const int j=image_index-1;
+    FILE* log=fopen("neb_window_topology.out","a");if(!log)PRINT_INPUT_ERROR("Cannot open window topology log.");
+    ode_gate->insert(j);
+    fprintf(log,"%d insert %d %d %d %d %d %zu\n",step,image_index,ode_gate->ids[j],ode_gate->force[j],ode_gate->geometry[j],ode_gate->switches[j],images.size());
+    fclose(log);
+  }
   if (!ina_local_tracking) return;
   if (ina_local_active.size() + 1 == images.size()) {
     ina_local_active.insert(ina_local_active.begin() + image_index, false);
@@ -2596,6 +2642,13 @@ void NEB::notify_ina_image_inserted(int image_index)
 
 void NEB::notify_ina_image_erased(int image_index)
 {
+  if(ode_gate) {
+    const int j=image_index-1;
+    FILE* log=fopen("neb_window_topology.out","a");if(!log)PRINT_INPUT_ERROR("Cannot open window topology log.");
+    fprintf(log,"%d erase %d %d %d %d %d %zu\n",step,image_index,ode_gate->ids[j],ode_gate->force[j],ode_gate->geometry[j],ode_gate->switches[j],images.size());
+    ode_gate->erase(j);
+    fclose(log);
+  }
   if (!ina_local_tracking) return;
   if (ina_local_active.size() == images.size() + 1) {
     ina_local_active.erase(ina_local_active.begin() + image_index);
