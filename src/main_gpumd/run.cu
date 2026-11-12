@@ -211,7 +211,7 @@ std::string Run::get_initial_structure_filename()
   bool has_non_neb_run = false;
 
   while (input.peek() != EOF) {
-    std::vector<std::string> tokens = get_tokens(input);
+    std::vector<std::string> tokens = get_command_tokens(input);
     std::vector<std::string> tokens_without_comments;
     for (const auto& t : tokens) {
       if (t[0] != '#') {
@@ -268,7 +268,7 @@ void Run::execute_run_in()
   }
 
   while (input.peek() != EOF) {
-    std::vector<std::string> tokens = get_tokens(input);
+    std::vector<std::string> tokens = get_command_tokens(input);
     std::vector<std::string> tokens_without_comments;
     for (const auto& t : tokens) {
       if (t[0] != '#') {

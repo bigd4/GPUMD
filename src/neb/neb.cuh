@@ -2,6 +2,7 @@
 #include "cyclic_transverse.h"
 #include "energy_window.h"
 #include "io/output_format.h"
+#include "tangent_window.h"
 #include "force/force.cuh"
 #include "force/nep.cuh"
 // #include "minimize/minimizer.cuh"
@@ -164,7 +165,8 @@ private:
   double cell_factor = -1.0;
   std::vector<std::pair<int, double>> ina_force_tol_stages;
   double min_dist = 0.01, max_dist = 0.5;
-  int dist_ncount = 10;
+  bool dist_ncount_auto = true;
+  int dist_ncount = 1; // Resolved from active atoms when auto is enabled.
   bool print_k = false;
   int print_interval = 1;
   int diagnostic_interval = 0;
@@ -183,6 +185,16 @@ private:
   double cyclic_force_max();
   void assemble_neb_forces(bool advance_iteration);
 
+  void run_ode12r();
+  void parse_ode12r();
+  bool tangent_window = false, ode_residual_extrapolation = true;
+  bool ode_window_audit = false;
+  double ode_rtol = 0.01, ode_h0 = 0.02, ode_hmin = 1e-10, ode_max_move = 0.1;
+  double ode_secant_guard = 0.1, window_off = 0.015, window_on = 0.03;
+  int window_hold = 100;
+  std::string window_restart;
+  NEBTangentWindow::Gate* ode_gate = nullptr;
+  std::vector<double> window_parallel, window_perpendicular, window_distances, window_bend;
   int dump_interval = -1;
   int peek_interval = -1;
   int max_steps = 0;

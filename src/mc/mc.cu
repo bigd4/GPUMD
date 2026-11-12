@@ -113,11 +113,11 @@ static std::string get_potential_file_name()
     PRINT_INPUT_ERROR("Cannot open run.in.");
   }
   std::string potential_file_name;
-  std::string line;
-  while (std::getline(input_run, line)) {
-    std::vector<std::string> tokens = get_tokens(line);
+  while (input_run.peek() != EOF) {
+    std::vector<std::string> tokens = get_command_tokens(input_run);
     if (tokens.size() != 0) {
       if (tokens[0] == "potential") {
+        if (tokens.size() < 2) PRINT_INPUT_ERROR("potential requires a file name.");
         potential_file_name = tokens[1];
         break;
       }

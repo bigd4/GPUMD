@@ -17,6 +17,14 @@ All other lines should be of the form:
 
    keyword parameter_1 parameter_2 ...
 
+A command can span several physical lines by ending each continued line with a standalone ``\`` or ``&`` token. Separate the marker from the preceding parameter with whitespace. Trailing whitespace and a ``#`` comment after the marker are allowed. Blank and comment-only lines inside a continued command are skipped; no leading continuation marker is needed on the next line. The final line must not end with a continuation marker. An unfinished continuation at end of file is an input error. The markers join command tokens, not fragments of one token, and characters embedded in filenames remain literal. This syntax applies to command-file reading; XYZ, potential and other data files retain their existing formats.
+
+.. code-block:: text
+
+   neb_run fire 0.005 3000 \
+       dt_0 0.1 dt_max 1 &  # time-step limits
+       max_move 0.1
+
 The overall structure of a ``run.in`` file is as follows:
 
 * First, set up the potential model using the :ref:`potential <kw_potential>` keyword.

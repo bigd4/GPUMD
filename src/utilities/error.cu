@@ -14,6 +14,7 @@
 */
 
 #include "error.cuh"
+#include "input_command.cuh"
 #include <cmath>
 #include <cstring>
 #include <errno.h>
@@ -148,6 +149,16 @@ std::vector<std::string> get_tokens(std::ifstream& input)
   std::vector<std::string> tokens{
     std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
   return tokens;
+}
+
+std::vector<std::string> get_command_tokens(std::ifstream& input)
+{
+  try {
+    return GPUMDInput::read_command(input);
+  } catch (const std::exception& error) {
+    PRINT_INPUT_ERROR(error.what());
+  }
+  return {}; // PRINT_INPUT_ERROR terminates the process.
 }
 
 int get_int_from_token(const std::string& token, const char* filename, const int line)

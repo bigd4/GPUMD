@@ -1,6 +1,8 @@
 # GPU-CFNEB Manual
 The input of GPU-CFNEB is embedded in the GPUMD standard input file **run.in**. There are two prefix keywords: **neb_set** and **neb_run**. **neb_set** is followed by NEB settings. **neb_run** is followed by optimizer settings. There are two kinds of input parameters. Each parameter is separated by spaces. The first kind is a flag, which toggles a Boolean option. The second kind is key-value input. The key is the parameter name and the following value or values are assigned to this key. Each key has a specific number of values. If the same or conflicting parameters are set, the new value overrides the previous one.
 
+Long commands may continue onto the next physical line using a standalone `\` or `&` at the end of the line, before any `#` comment. Blank/comment-only lines inside a continuation are skipped. The last line has no continuation marker; an unfinished continuation at EOF is an error. This works for both `neb_set` and `neb_run` and does not change XYZ or potential-file parsing.
+
 There can be several **neb_set** lines, but there should be only one **neb_run** line. In each line, there can be several flags and key-value inputs. If a key takes a variable number of values, it should be the last key in the line because it takes all values after it.
 
 
@@ -26,7 +28,7 @@ Input structures may use extended XYZ, BXYZ or ZBXYZ (binary formats require `US
 - cell_factor: key 1, weight factor used by the variable-cell filter to scale cell degrees of freedom. If unset, it is estimated from the reference cell volume and number of atoms.
 - dist_range: key 2, the min and max distance when checking the image intervals. If the distance is smaller than min_dist, the image will be removed. If the distance is larger than max_dist, a new image will be inserted between the two images. default value: 0.01 0.5
   - When energy_based_spacing is enabled, the interval-specific dist_range is divided by the current energy-based spacing multiplier.
-- dist_ncount: key 1, count how many largest displacements when computing the distance. Detailed formulation can be found in the supplementary material of my paper.
+- dist_ncount: key 1, `auto` (default) or a positive integer, controlling how many largest atomic displacements enter the INA distance. `auto` resolves once at path initialization to `min(natoms, max(1, nactive))`, using the existing endpoint active-atom estimate in both fixed-cell and variable-cell runs. Endpoint coordinates are compared in the initial reference cell, with MIC when `find_mic` is enabled; atoms displaced by more than `active_atom_threshold` (default 0.1 Angstrom) are active. This estimate is made before optional endpoint relaxation and translation removal, and is not updated during optimization or INA. An explicit positive integer keeps manual control and is capped at the atom count; zero and negative values are rejected. For example, `neb_set dist_ncount auto` is equivalent to omitting this option, while `neb_set dist_ncount 10` restores the previous default count. Logs report the mode, resolved count and, for auto, the active-atom count and threshold. Existing optional coordination-based adjustments still apply to the resolved base count. Detailed distance formulation can be found in the supplementary material of my paper.
 
 ### NEB Method Settings
 - k: key 1, elastic coefficient. default value: 0.1
@@ -144,3 +146,23 @@ To reuse a saved path, set `neb_set traj_name final_traj.zbxyz interpolate 0`. T
 The peak is the maximum image energy over the whole path, including endpoints, matching `emax` in the existing log. Variable-cell NEB uses the existing enthalpy objective. The highest image may change within the window. This is a full-window range test, not an adjacent-step difference or just a comparison of the first and last values. A window of 100 counts 100 evaluations (earliest samples are steps 0 through 99). The threshold is total energy in eV, not per-atom energy.
 
 Either the existing force condition or this energy condition may stop optimization. The energy stop prints the step interval, measured range, threshold and current force; it does not imply force convergence. Image insertion/removal or an INA minimizer restart clears the history, and local INA relaxation does not count toward the window. A non-finite energy/force also clears the window. Final trajectory and energy output follow the normal completion path.
+
+## ODE12r with a tangential force window
+
+Example for an already prepared path:
+
+```text
+neb_set tangent modified
+neb_set energy_based_spacing energy_spacing_damping 1
+neb_run ode12r 0.005 3000 tangent_window on window_off 0.015 window_on 0.03 window_hold 100 rtol 0.01 h0 0.02 max_move 0.1 secant_guard 0.1
+```
+
+ODE12r is opt-in and uses accepted/rejected force-based trial steps. Defaults are `rtol 0.01`, `h0 0.02`, `hmin 1e-10`, `max_move 0.1`, `secant_guard 0.1`, `residual_extrapolation on`, and `tangent_window off`. Numeric options require positive finite values; `secant_guard` is at most 1 and `hmin` must be below `h0`. Disable the secant extrapolator using `residual_extrapolation off`. The evaluation budget includes initial/final forces, rejected trials and evaluations following INA changes; it is not a count of accepted FIRE steps.
+
+With the window enabled, each image's raw tangential spring residual above `window_on` turns its tangential term on; below `window_off` turns it off; equality or the interval between thresholds retains the previous state. Defaults are `window_off 0.015` and `window_on 0.03`, with `0 < off < on`. This operates on maximum force components in the existing cell-scaled residual metric. Physical perpendicular forces and the DNEB correction remain active on every internal image. Spacing and segment angles do not trigger the window. INA continues to control spacing, including energy-based spacing, and runs only after accepted steps. Image IDs/latches survive insertions and deletions; new images initialize independently and all topology changes reset the convergence streak and ODE history.
+
+In window mode, `force_tolerance` is the physical transverse target. All images must satisfy that target, have raw tangential residual at most `window_on`, and have their tangential latches off for `window_hold` consecutive accepted updates (default 100, configurable positive integer). Initial/final static checks and rejected trials do not increment the streak. The final accepted path is freshly verified before reporting `window_converged`. This is distinct from convergence of the raw full NEB force. With the window disabled, the full driving force determines `full_force_converged`. `step_too_small` and `evaluation_budget` are not convergence.
+
+The current ODE implementation requires modified tangents, fixed cells or rotation-free variable cells with isotropic pressure, and `energy_spacing_damping 1` when enabled. It rejects `climb`, `find_min`, DYNEB, endpoint or INA-local relaxation, and `ina_k`. Combining ODE12r with `cyclic_transverse` or `energy_convergence` is rejected; its own force/window acceptance remains authoritative. `find_mic` alignment remains available. The original projected tangential spring and DNEB correction are retained; no length-difference spring or velocity damping is introduced.
+
+`window_restart FILE` restores a paired final path's versioned `window_state.txt`, retaining image IDs, latches and switch counters while restarting the convergence streak. It requires window mode and matching thresholds, atom and image counts. Use the matching final trajectory, not an unrelated path with the same size. Logs are `neb_ode12r.out`, `neb_ode12r_summary.out`, `neb_window.out`, and `neb_window_topology.out`; event codes are 0 rejected trial, 1 accepted trial, 2 initial/final static check, and 3 INA rebuild.
