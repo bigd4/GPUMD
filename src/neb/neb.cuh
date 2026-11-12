@@ -155,7 +155,8 @@ private:
   double cell_factor = -1.0;
   std::vector<std::pair<int, double>> ina_force_tol_stages;
   double min_dist = 0.01, max_dist = 0.5;
-  int dist_ncount = 10;
+  bool dist_ncount_auto = true;
+  int dist_ncount = 1; // Resolved from active atoms when auto is enabled.
   bool print_k = false;
   int print_interval = 1;
   int diagnostic_interval = 0;

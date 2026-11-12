@@ -892,8 +892,13 @@ void NEB::parse_options(const char** param, int num_param, int& n)
     n+=2;
   } else if (strcmp(param[n], "dist_ncount") == 0){
     require_option_values(param, num_param, n, 1, "neb_set");
-    if (!is_valid_int(param[n+1], &dist_ncount)) {
-      PRINT_INPUT_ERROR("dist_ncount should be an int.");
+    if (strcmp(param[n+1], "auto") == 0) {
+      dist_ncount_auto = true;
+    } else {
+      if (!is_valid_int(param[n+1], &dist_ncount) || dist_ncount <= 0) {
+        PRINT_INPUT_ERROR("dist_ncount should be auto or a positive integer.");
+      }
+      dist_ncount_auto = false;
     }
     n++;
 
@@ -1452,6 +1457,14 @@ void NEB::run_neb() {
   prepare_fixed_cell_images();
   cell_metric_scale_default = estimate_cell_metric_scale();
   tangentmethod = get_tangent_method(tangent_method_name, k);
+  if (dist_ncount_auto) {
+    // The variable-cell metric has already estimated the active endpoint atoms.
+    // Fixed-cell paths need the same estimate without changing their cell metric.
+    if (!variable_cell) {
+      estimate_active_atom_scale(*images.front()->get_p_atoms(), *images.back()->get_p_atoms());
+    }
+    dist_ncount = max(1, cell_metric_active_atoms);
+  }
   dist_ncount = (dist_ncount < n_realatoms) ? dist_ncount : n_realatoms;
   if (dump_interval == -1) dump_interval = (max_steps - 1) / 10 + 1;
   if (peek_interval == -1) peek_interval = (max_steps - 1) / 50 + 1;
@@ -1496,7 +1509,12 @@ void NEB::run_neb() {
       printf(" %d %g", stage.first, stage.second);
     }
     printf("\n");
+    print_setting("dist_ncount_auto", dist_ncount_auto, 4);
     print_setting("dist_ncount", dist_ncount, 4);
+    if (dist_ncount_auto) {
+      print_setting("dist_ncount_active_atoms", cell_metric_active_atoms, 8);
+      print_setting("active_atom_threshold", cell_metric_active_threshold, 8);
+    }
     print_setting("trim_images", trim_images, 4);
     if (trim_images) {
       print_setting("trim_similar_tol", trim_similar_tol, 8);
